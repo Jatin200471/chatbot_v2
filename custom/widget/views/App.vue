@@ -109,6 +109,7 @@ export default {
       'setColorScheme',
     ]),
     ...mapActions('conversation', ['fetchOldConversations', 'clearConversations']),
+    ...mapActions('conversationAttributes', ['getAttributes']),
     ...mapActions('campaign', [
       'initCampaigns',
       'executeCampaign',
@@ -236,14 +237,16 @@ export default {
           this.setAppConfig(message);
           this.configReady = true;
 
-          // ── ALWAYS START FRESH ──────────────────────────────────────────
-          // Every time the widget loads (open, reload, post-exit), we clear
-          // any previous conversation state and route to the home screen.
-          // The user must click "Start Conversation" and fill the pre-chat
-          // form each time. We never resume a previous session automatically.
+          // ── REHYDRATE EXISTING SESSION ──────────────────────────────────
+          // On every iframe load (initial open, refresh, page change) we
+          // pull the existing conversation + attributes from the server so
+          // the widget continues the same conversation instead of starting
+          // a new one. Exit Chat is the ONLY path that wipes session data
+          // (handled by contacts/clearCurrentUser → reload), so the storage
+          // keys here are guaranteed to point at a real, unresolved chat.
           // ────────────────────────────────────────────────────────────────
-          this.clearConversations();
-          this.$store.commit('conversationAttributes/clearConversationAttributes', null, { root: true });
+          this.fetchOldConversations();
+          this.getAttributes();
 
           this.fetchAvailableAgents(websiteToken);
           this.setCampaignReadData(message.campaignsSnoozedTill);

@@ -20,12 +20,20 @@ export default {
     ...mapGetters({
       availableAgents: 'agent/availableAgents',
       unreadMessageCount: 'conversation/getUnreadMessageCount',
+      conversationSize: 'conversation/getConversationSize',
     }),
+    hasExistingConversation() {
+      return this.conversationSize > 0;
+    },
   },
   methods: {
     startConversation() {
-      // Always go to pre-chat form if enabled, otherwise straight to messages.
-      // Never auto-resume an existing conversation on load.
+      // If an existing conversation was rehydrated on load (refresh / page
+      // change), resume it directly. Pre-chat form runs only for genuinely
+      // fresh sessions (first visit, or after Exit Chat clears storage).
+      if (this.hasExistingConversation) {
+        return this.router.replace({ name: 'messages' });
+      }
       if (this.preChatFormEnabled) {
         return this.router.replace({ name: 'prechat-form' });
       }
@@ -39,8 +47,8 @@ export default {
   <div class="z-50 flex flex-col justify-end flex-1 w-full p-4 gap-4">
     <TeamAvailability
       :available-agents="availableAgents"
-      :has-conversation="false"
-      :unread-count="0"
+      :has-conversation="hasExistingConversation"
+      :unread-count="unreadMessageCount"
       @start-conversation="startConversation"
     />
     <ArticleContainer />
