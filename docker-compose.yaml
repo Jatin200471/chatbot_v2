@@ -5,14 +5,14 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
-      POSTGRES_DB: chatwoot_prod
-      POSTGRES_USER: chatwoot_prod
-      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ${POSTGRES_DATABASE}
+      POSTGRES_USER: ${POSTGRES_USERNAME}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
     networks:
       - chatwoot-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chatwoot_prod"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USERNAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -20,13 +20,13 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --requirepass password
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
     networks:
       - chatwoot-network
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -47,28 +47,12 @@ services:
       - storage_data:/app/storage
       - ./logs:/app/log
     environment:
-      - DB_POOL=${RAILS_MAX_THREADS:-5}
-      - DISABLE_DATABASE_ENVIRONMENT_CHECK=1
-      - RAILS_ENV=production
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_USERNAME=chatwoot_prod
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DATABASE=chatwoot_prod
-      - REDIS_URL=redis://:password@redis:6379
-      - FRONTEND_URL=https://gratifiedly-untentacled-janella.ngrok-free.dev
+      DB_POOL: ${RAILS_MAX_THREADS:-5}
+      DISABLE_DATABASE_ENVIRONMENT_CHECK: '1'
     networks:
       - chatwoot-network
     command: >
       sh -c "
-      export POSTGRES_HOST=postgres;
-      export POSTGRES_PORT=5432;
-      export POSTGRES_USERNAME=chatwoot_prod;
-      export POSTGRES_PASSWORD=password;
-      export POSTGRES_DATABASE=chatwoot_prod;
-      export RAILS_ENV=production;
-      export REDIS_URL=redis://:password@redis:6379;
-      export FRONTEND_URL=https://gratifiedly-untentacled-janella.ngrok-free.dev;
       rm -f /app/tmp/pids/server.pid &&
       echo 'Waiting for database...' &&
       until bundle exec rails db:version &>/dev/null; do
@@ -95,15 +79,6 @@ services:
       - storage_data:/app/storage
     networks:
       - chatwoot-network
-    environment:
-      - RAILS_ENV=production
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_USERNAME=chatwoot_prod
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DATABASE=chatwoot_prod
-      - REDIS_URL=redis://:password@redis:6379
-      - FRONTEND_URL=https://gratifiedly-untentacled-janella.ngrok-free.dev
     command: bundle exec sidekiq -C config/sidekiq.yml
 
 volumes:
