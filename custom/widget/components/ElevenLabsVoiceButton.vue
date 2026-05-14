@@ -283,17 +283,30 @@ export default {
         viewBox="0 0 24 24"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        class="call-icon"
+        class="mic-icon"
       >
+        <!-- Microphone capsule -->
         <path
-          d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"
-          fill="#F87171"
-          stroke="#DC2626"
+          d="M12 2c-2.2 0-4 1.8-4 4v6c0 2.2 1.8 4 4 4s4-1.8 4-4V6c0-2.2-1.8-4-4-4z"
+          fill="currentColor"
+          stroke="currentColor"
           stroke-width="0.5"
         />
-        <rect x="10" y="1" width="12" height="9" rx="2" fill="#FDE68A" stroke="#F59E0B" stroke-width="0.5"/>
-        <path d="M12 10L10 13L14 10H12Z" fill="#FDE68A" stroke="#F59E0B" stroke-width="0.3"/>
-        <text x="16" y="7" font-size="5" font-weight="bold" fill="#3B82F6" text-anchor="middle" font-family="Arial, sans-serif">AI</text>
+        <!-- Microphone stand -->
+        <path
+          d="M12 16v2c0 1.66-1.34 3-3 3h-2v-2h2c0.55 0 1-0.45 1-1v-2"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+        />
+        <path
+          d="M12 16v2c0 1.66 1.34 3 3 3h2v-2h-2c-0.55 0-1-0.45-1-1v-2"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+        />
       </svg>
     </button>
 
@@ -319,13 +332,14 @@ export default {
   position: relative;
 }
 
-.elevenlabs-voice-btn:hover .call-icon {
+.elevenlabs-voice-btn:hover .mic-icon {
   transform: scale(1.1);
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
 }
 
-.call-icon {
+.mic-icon {
   transition: transform 0.2s ease, filter 0.2s ease;
+  color: #3b82f6;
 }
 
 .elevenlabs-connecting {

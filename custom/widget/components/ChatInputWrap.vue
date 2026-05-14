@@ -3,6 +3,7 @@ import { mapGetters } from 'vuex';
 
 import ChatAttachmentButton from 'widget/components/ChatAttachment.vue';
 import ChatSendButton from 'widget/components/ChatSendButton.vue';
+import ElevenLabsVoiceButton from 'widget/components/ElevenLabsVoiceButton.vue';
 import configMixin from '../mixins/configMixin';
 import FluentIcon from 'shared/components/FluentIcon/Index.vue';
 import ResizableTextArea from 'shared/components/ResizableTextArea.vue';
@@ -14,6 +15,7 @@ export default {
   components: {
     ChatAttachmentButton,
     ChatSendButton,
+    ElevenLabsVoiceButton,
     EmojiInput,
     FluentIcon,
     ResizableTextArea,
@@ -168,6 +170,10 @@ export default {
         v-on-clickaway="hideEmojiPicker"
         :on-click="emojiOnClick"
         @keydown.esc="hideEmojiPicker"
+      />
+      <ElevenLabsVoiceButton
+        class="text-n-slate-12"
+        size="medium"
       />
       <ChatSendButton
         v-if="showSendButton"
