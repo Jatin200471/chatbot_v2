@@ -145,6 +145,17 @@ class Api::V1::Accounts::InboxesController < Api::V1::Accounts::BaseController
     if channel_params[:selected_feature_flags].is_a?(String)
       channel_params[:selected_feature_flags] = [channel_params[:selected_feature_flags]]
     end
+    
+    # Parse voice_agent_config_data if it's a string (from form submission)
+    if channel_params[:voice_agent_config_data].is_a?(String)
+      begin
+        channel_params[:voice_agent_config_data] = JSON.parse(channel_params[:voice_agent_config_data])
+      rescue JSON::ParsingError => e
+        Rails.logger.error "[VOICE-AGENT] Invalid JSON in config_data: #{e.message}"
+        channel_params[:voice_agent_config_data] = {}
+      end
+    end
+    
     @inbox.channel.update!(channel_params)
   end
 
