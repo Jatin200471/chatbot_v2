@@ -288,79 +288,111 @@ export default {
         </div>
       </SettingsSection>
 
-      <!-- Voice Agent Configuration (Any Provider) -->
+      <!-- ───────────────────────────────────────────────
+           VOICE AGENT CONFIGURATION SECTION
+      ─────────────────────────────────────────────── -->
       <SettingsSection
         title="Voice Agent"
-        sub-title="Enable a conversational AI voice button in this inbox's chat widget. Configure any voice agent provider."
+        sub-title="Enable a conversational AI voice button in this inbox's chat widget. When enabled, visitors can start a voice call powered by your chosen AI provider."
       >
-        <div class="flex flex-col gap-4">
-          <div class="flex gap-2 items-center">
+        <!-- Toggle row — matches the style of "Enable widget in mobile apps" toggle -->
+        <div class="flex items-center justify-between w-full max-w-3xl py-2">
+          <div class="flex flex-col gap-0.5">
+            <span class="text-sm font-medium text-n-slate-12">
+              Enable Voice Agent
+            </span>
+            <span class="text-xs text-n-slate-9">
+              {{ voiceAgentEnabled ? 'Voice agent is active on this inbox' : 'Voice agent is currently disabled' }}
+            </span>
+          </div>
+
+          <!-- Native iOS-style toggle matching Chatwoot's existing toggles -->
+          <label class="voice-agent-toggle" :class="{ 'voice-agent-toggle--active': voiceAgentEnabled }">
             <input
               id="voiceAgentEnabled"
               v-model="voiceAgentEnabled"
               type="checkbox"
+              class="sr-only"
             />
-            <label for="voiceAgentEnabled" class="font-medium">
-              Enable Voice Agent
-            </label>
-          </div>
+            <span class="voice-agent-toggle__track" />
+          </label>
+        </div>
 
-          <div v-if="voiceAgentEnabled" class="flex flex-col gap-4">
-            <!-- Provider Selection -->
-            <div class="flex flex-col gap-2">
-              <label class="text-sm font-medium text-n-slate-11">
-                Voice Agent Provider
-                <span class="text-n-slate-9 font-normal ml-1">(e.g., elevenlabs, twilio, google, custom)</span>
+        <!-- Expanded config — only shown when toggle is ON -->
+        <transition name="voice-agent-expand">
+          <div v-if="voiceAgentEnabled" class="voice-agent-config mt-4 flex flex-col gap-5 w-full max-w-3xl">
+
+            <!-- Status badge -->
+            <div class="flex items-center gap-2">
+              <span class="voice-agent-badge voice-agent-badge--active">
+                <span class="voice-agent-badge__dot" />
+                Active
+              </span>
+              <span class="text-xs text-n-slate-9">Changes take effect after saving</span>
+            </div>
+
+            <!-- Provider -->
+            <div class="flex flex-col gap-1.5">
+              <label class="text-sm font-medium text-n-slate-11" for="voiceAgentProvider">
+                Provider
+                <span class="text-n-slate-9 font-normal ml-1">e.g. elevenlabs, twilio, google, custom</span>
               </label>
               <input
+                id="voiceAgentProvider"
                 v-model="voiceAgentProvider"
                 type="text"
                 placeholder="elevenlabs"
-                class="w-full max-w-lg px-3 py-2 text-sm border border-n-weak rounded-lg bg-n-background text-n-slate-12 focus:outline-none focus:ring-2 focus:ring-n-brand"
+                class="chatwoot-input w-full max-w-lg"
               />
             </div>
 
             <!-- API Key -->
-            <div class="flex flex-col gap-2">
-              <label class="text-sm font-medium text-n-slate-11">
+            <div class="flex flex-col gap-1.5">
+              <label class="text-sm font-medium text-n-slate-11" for="voiceAgentApiKey">
                 API Key
-                <span class="text-n-slate-9 font-normal ml-1">(required for voice agent authentication)</span>
+                <span class="text-n-slate-9 font-normal ml-1">required for authentication</span>
               </label>
               <input
+                id="voiceAgentApiKey"
                 v-model="voiceAgentApiKey"
                 type="password"
                 placeholder="your-voice-agent-api-key"
-                class="w-full max-w-lg px-3 py-2 text-sm border border-n-weak rounded-lg bg-n-background text-n-slate-12 focus:outline-none focus:ring-2 focus:ring-n-brand"
+                class="chatwoot-input w-full max-w-lg"
+                autocomplete="new-password"
               />
             </div>
 
-            <!-- Configuration Data (JSON) -->
-            <div class="flex flex-col gap-2">
-              <label class="text-sm font-medium text-n-slate-11">
-                Configuration Data (JSON)
-                <span class="text-n-slate-9 font-normal ml-1">(optional, provider-specific settings)</span>
+            <!-- Config JSON -->
+            <div class="flex flex-col gap-1.5">
+              <label class="text-sm font-medium text-n-slate-11" for="voiceAgentConfig">
+                Configuration Data
+                <span class="text-n-slate-9 font-normal ml-1">optional JSON — provider-specific settings</span>
               </label>
               <textarea
+                id="voiceAgentConfig"
                 v-model="voiceAgentConfigData"
                 placeholder='{"agent_id": "agent_xxx", "voice_id": "voice_xxx", "timeout": 300}'
-                class="w-full max-w-lg px-3 py-2 text-sm border border-n-weak rounded-lg bg-n-background text-n-slate-12 focus:outline-none focus:ring-2 focus:ring-n-brand font-mono"
+                class="chatwoot-input chatwoot-input--mono w-full max-w-lg"
                 rows="5"
               />
-              <p class="text-xs text-n-slate-10">
+              <p class="text-xs text-n-slate-10 mt-0.5">
                 Enter valid JSON with any additional configuration your voice agent provider requires.
               </p>
             </div>
           </div>
+        </transition>
 
-          <div>
-            <NextButton
-              label="Save Voice Agent Settings"
-              :is-loading="isUpdatingVoiceAgent"
-              @click="updateVoiceAgentSettings"
-            />
-          </div>
+        <!-- Save button — always visible so user can save the toggle state too -->
+        <div class="mt-5">
+          <NextButton
+            label="Save Voice Agent Settings"
+            :is-loading="isUpdatingVoiceAgent"
+            @click="updateVoiceAgentSettings"
+          />
         </div>
       </SettingsSection>
+      <!-- ─── END VOICE AGENT ─── -->
+
     </div>
   </div>
   <div v-else-if="isAPIInbox" class="mx-8">
@@ -478,5 +510,126 @@ export default {
   ::v-deep input {
     margin-bottom: 0;
   }
+}
+
+/* ── Voice Agent toggle — matches Chatwoot's native toggle style ── */
+.voice-agent-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &__track {
+    display: block;
+    width: 2.75rem;   /* 44px */
+    height: 1.5rem;   /* 24px */
+    border-radius: 9999px;
+    background-color: var(--color-background-200, #3a3f4b);
+    border: 2px solid var(--color-border-light, #4a4f5c);
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+    position: relative;
+
+    &::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 2px;
+      transform: translateY(-50%);
+      width: 1rem;    /* 16px thumb */
+      height: 1rem;
+      border-radius: 50%;
+      background-color: var(--color-background-400, #6b7280);
+      transition: left 0.2s ease, background-color 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  &--active .voice-agent-toggle__track {
+    background-color: var(--color-woot-500, #1f93ff);
+    border-color: var(--color-woot-500, #1f93ff);
+
+    &::after {
+      left: calc(100% - 18px);
+      background-color: #ffffff;
+    }
+  }
+
+  &:hover .voice-agent-toggle__track {
+    border-color: var(--color-woot-400, #3fa9ff);
+  }
+}
+
+/* ── Shared input style matching Chatwoot's dark inputs ── */
+.chatwoot-input {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-border-light, #3a3f4b);
+  background-color: var(--color-background-100, #1e2228);
+  color: var(--color-foreground, #e2e8f0);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  outline: none;
+
+  &::placeholder {
+    color: var(--color-foreground-muted, #6b7280);
+  }
+
+  &:focus {
+    border-color: var(--color-woot-500, #1f93ff);
+    box-shadow: 0 0 0 3px rgba(31, 147, 255, 0.15);
+  }
+
+  &--mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.8125rem;
+    resize: vertical;
+  }
+}
+
+/* ── Status badge ── */
+.voice-agent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+
+  &--active {
+    background-color: rgba(34, 197, 94, 0.12);
+    color: #4ade80;
+    border: 1px solid rgba(34, 197, 94, 0.25);
+  }
+
+  &__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: #4ade80;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+}
+
+/* ── Expand / collapse animation ── */
+.voice-agent-expand-enter-active,
+.voice-agent-expand-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease, max-height 0.3s ease;
+  overflow: hidden;
+  max-height: 600px;
+}
+
+.voice-agent-expand-enter-from,
+.voice-agent-expand-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+  max-height: 0;
+}
+
+/* ── Pulsing dot animation ── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
 }
 </style>

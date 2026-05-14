@@ -128,6 +128,7 @@ export default {
       'resetCampaign',
     ]),
     ...mapActions('agent', ['fetchAvailableAgents']),
+    ...mapActions('contacts', ['clearCurrentUser']),
 
     setWidgetColorVariable(widgetColor) {
       if (widgetColor) {
@@ -327,6 +328,9 @@ export default {
 
           if (!message.isOpen) {
             this.resetCampaign();
+          } else {
+            // When widget opens, immediately check if conversation was resolved externally
+            this.checkAndClearResolvedConversation();
           }
 
         } else if (message.event === SDK_SET_BUBBLE_VISIBILITY) {
@@ -363,15 +367,36 @@ export default {
 
       try {
         const { data } = await getConversationAPI();
-        // If backend says conversation is resolved but widget still has messages
-        if (data?.payload?.status === 'resolved') {
-          // Clear the widget state and redirect to home
-          this.clearConversations();
-          this.router.replace({ name: 'home' });
+        console.log('[AUTO-RESOLVE] Conversation status check:', { 
+          conversationSize: this.conversationSize,
+          response: data,
+          status: data?.payload?.status || data?.status
+        });
+        
+        // Check both possible response structures
+        const conversationStatus = data?.payload?.status || data?.status;
+        
+        if (conversationStatus === 'resolved') {
+          console.log('[AUTO-RESOLVE] Conversation is resolved! Clearing everything like Exit Chat...');
+          
+          // Clear EVERYTHING exactly like Exit Chat does:
+          // 1. Clear Vuex state
+          try { this.$store.commit('conversation/clearConversations'); } catch (_) {}
+          
+          // 2. Clear user session (localStorage, sessionStorage, auth headers)
+          try { await this.$store.dispatch('contacts/clearCurrentUser'); } catch (_) {}
+          
+          // 3. Reload iframe to get fresh contact
+          if (IFrameHelper.isIFrame()) {
+            setTimeout(() => { window.location.reload(); }, 50);
+          } else {
+            // Non-iframe fallback
+            this.router.replace({ name: 'home' });
+          }
         }
       } catch (error) {
+        console.log('[AUTO-RESOLVE] Error checking status:', error.message);
         // Ignore errors (404 = conversation deleted/resolved externally)
-        // No action needed — conversation is already gone
       }
     },
   },
