@@ -23,6 +23,11 @@ COPY custom/widget/mixins/configMixin.js app/javascript/widget/mixins/configMixi
 COPY custom/widget/i18n/en.json app/javascript/widget/i18n/locale/en.json
 COPY custom/widget/views/Home.vue app/javascript/widget/views/Home.vue
 COPY custom/widget/views/App.vue app/javascript/widget/App.vue
+COPY custom/widget/views/PreChatForm.vue app/javascript/widget/views/PreChatForm.vue
+COPY custom/widget/helpers/axios.js app/javascript/widget/helpers/axios.js
+COPY custom/widget/api/contacts.js app/javascript/widget/api/contacts.js
+COPY custom/widget/api/conversation.js app/javascript/widget/api/conversation.js
+COPY custom/dashboard/ConfigurationPage.vue app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue
 
 ARG VITE_ELEVENLABS_AGENT_ID=agent_6601kc1fqeecfc88s7d52jde0syq
 ARG VITE_ELEVENLABS_VOICE_ID=
@@ -64,37 +69,10 @@ COPY custom/backend/controllers/concerns/website_token_helper.rb /app/app/contro
 COPY custom/backend/migrations/20260408000001_add_elevenlabs_to_channel_web_widgets.rb \
      /app/db/migrate/20260408000001_add_elevenlabs_to_channel_web_widgets.rb
 
-# ── Dashboard Customization ────────────────────────────────────────────────────
-# ConfigurationPage.vue with ElevenLabs AI Voice Agent settings
-COPY custom/dashboard/ConfigurationPage.vue /app/app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue
-
-# ── Widget Components with ElevenLabs Integration ──────────────────────────────
-# These Vue components have custom ElevenLabs voice button and chat input wrapper
-COPY custom/widget/components/ChatInputWrap.vue /app/app/javascript/widget/components/ChatInputWrap.vue
-COPY custom/widget/components/ElevenLabsVoiceButton.vue /app/app/javascript/widget/components/ElevenLabsVoiceButton.vue
-COPY custom/widget/components/HeaderActions.vue /app/app/javascript/widget/components/HeaderActions.vue
-
-# ── Widget Store & Logic ───────────────────────────────────────────────────────
-# Custom Vuex modules for ElevenLabs voice state management
-COPY custom/widget/store/index.js /app/app/javascript/widget/store/index.js
-COPY custom/widget/store/modules/appConfig.js /app/app/javascript/widget/store/modules/appConfig.js
-COPY custom/widget/store/modules/elevenlabsVoice.js /app/app/javascript/widget/store/modules/elevenlabsVoice.js
-COPY custom/widget/store/modules/contacts.js /app/app/javascript/widget/store/modules/contacts.js
-COPY custom/widget/store/modules/conversation/actions.js /app/app/javascript/widget/store/modules/conversation/actions.js
-
-# ── Widget Mixins & Views ──────────────────────────────────────────────────────
-# Custom mixin for ElevenLabs feature detection
-COPY custom/widget/mixins/configMixin.js /app/app/javascript/widget/mixins/configMixin.js
-# Custom widget views with persistent user data
-COPY custom/widget/views/Home.vue /app/app/javascript/widget/views/Home.vue
-COPY custom/widget/views/App.vue /app/app/javascript/widget/App.vue
-COPY custom/widget/views/PreChatForm.vue /app/app/javascript/widget/views/PreChatForm.vue
-
-# ── Widget API Helpers ─────────────────────────────────────────────────────────
-# Custom API helpers with persistent website_token logic
-COPY custom/widget/helpers/axios.js /app/app/javascript/widget/helpers/axios.js
-COPY custom/widget/api/contacts.js /app/app/javascript/widget/api/contacts.js
-COPY custom/widget/api/conversation.js /app/app/javascript/widget/api/conversation.js
+# ── Frontend: Dashboard & Widget files processed by Vite in Stage 1 ────────────
+# All Vue components, store modules, and helpers are bundled by Vite in Stage 1
+# and copied to /app/public above. Do NOT copy raw Vue files here — they will
+# override the Vite-built assets and break the application.
 
 # ── Image Metadata ────────────────────────────────────────────────────────────
 LABEL org.opencontainers.image.title="Chatwoot with ElevenLabs Voice + Persistent User Data"
