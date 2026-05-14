@@ -38,9 +38,11 @@ export default {
       isSyncingTemplates: false,
       allowedDomains: '',
       isUpdatingAllowedDomains: false,
-      elevenLabsVoiceEnabled: false,
-      elevenLabsAgentId: '',
-      isUpdatingElevenLabs: false,
+      voiceAgentEnabled: false,
+      voiceAgentProvider: 'elevenlabs',
+      voiceAgentApiKey: '',
+      voiceAgentConfigData: {},
+      isUpdatingVoiceAgent: false,
     };
   },
   validations: {
@@ -70,8 +72,10 @@ export default {
       this.hmacMandatory = this.inbox.hmac_mandatory || false;
       this.allowedDomains = this.inbox.allowed_domains || '';
       const flags = this.inbox.selected_feature_flags || [];
-      this.elevenLabsVoiceEnabled = flags.includes('elevenlabs_voice');
-      this.elevenLabsAgentId = this.inbox.elevenlabs_agent_id || '';
+      this.voiceAgentEnabled = flags.includes('voice_agent');
+      this.voiceAgentProvider = this.inbox.voice_agent_provider || 'elevenlabs';
+      this.voiceAgentApiKey = this.inbox.voice_agent_api_key || '';
+      this.voiceAgentConfigData = this.inbox.voice_agent_config_data || {};
     },
     handleHmacFlag() {
       this.updateInbox();
@@ -150,21 +154,23 @@ export default {
         this.isSyncingTemplates = false;
       }
     },
-    async updateElevenLabsSettings() {
-      this.isUpdatingElevenLabs = true;
+    async updateVoiceAgentSettings() {
+      this.isUpdatingVoiceAgent = true;
       try {
         const currentFlags = (this.inbox.selected_feature_flags || []).filter(
-          f => f !== 'elevenlabs_voice'
+          f => f !== 'voice_agent'
         );
-        if (this.elevenLabsVoiceEnabled) {
-          currentFlags.push('elevenlabs_voice');
+        if (this.voiceAgentEnabled) {
+          currentFlags.push('voice_agent');
         }
         const payload = {
           id: this.inbox.id,
           formData: true,
           channel: {
             selectedFeatureFlags: currentFlags,
-            elevenlabs_agent_id: this.elevenLabsAgentId,
+            voice_agent_provider: this.voiceAgentProvider,
+            voice_agent_api_key: this.voiceAgentApiKey,
+            voice_agent_config_data: this.voiceAgentConfigData,
           },
         };
         await this.$store.dispatch('inboxes/updateInbox', payload);
@@ -172,7 +178,7 @@ export default {
       } catch (error) {
         useAlert(this.$t('INBOX_MGMT.EDIT.API.ERROR_MESSAGE'));
       } finally {
-        this.isUpdatingElevenLabs = false;
+        this.isUpdatingVoiceAgent = false;
       }
     },
   },
@@ -282,41 +288,75 @@ export default {
         </div>
       </SettingsSection>
 
-      <!-- ElevenLabs AI Voice Agent -->
+      <!-- Voice Agent Configuration (Any Provider) -->
       <SettingsSection
-        title="AI Voice Agent"
-        sub-title="Enable an ElevenLabs conversational AI voice button in this inbox's chat widget."
+        title="Voice Agent"
+        sub-title="Enable a conversational AI voice button in this inbox's chat widget. Configure any voice agent provider."
       >
         <div class="flex flex-col gap-4">
           <div class="flex gap-2 items-center">
             <input
-              id="elevenLabsVoice"
-              v-model="elevenLabsVoiceEnabled"
+              id="voiceAgentEnabled"
+              v-model="voiceAgentEnabled"
               type="checkbox"
             />
-            <label for="elevenLabsVoice" class="font-medium">
-              Enable AI Voice Button
+            <label for="voiceAgentEnabled" class="font-medium">
+              Enable Voice Agent
             </label>
           </div>
 
-          <div v-if="elevenLabsVoiceEnabled" class="flex flex-col gap-2">
-            <label class="text-sm font-medium text-n-slate-11">
-              ElevenLabs Agent ID
-              <span class="text-n-slate-9 font-normal ml-1">(leave blank to use the default)</span>
-            </label>
-            <input
-              v-model="elevenLabsAgentId"
-              type="text"
-              placeholder="agent_xxxxxxxxxxxxxxxxxxxxxxxx"
-              class="w-full max-w-lg px-3 py-2 text-sm border border-n-weak rounded-lg bg-n-background text-n-slate-12 focus:outline-none focus:ring-2 focus:ring-n-brand"
-            />
+          <div v-if="voiceAgentEnabled" class="flex flex-col gap-4">
+            <!-- Provider Selection -->
+            <div class="flex flex-col gap-2">
+              <label class="text-sm font-medium text-n-slate-11">
+                Voice Agent Provider
+                <span class="text-n-slate-9 font-normal ml-1">(e.g., elevenlabs, twilio, google, custom)</span>
+              </label>
+              <input
+                v-model="voiceAgentProvider"
+                type="text"
+                placeholder="elevenlabs"
+                class="w-full max-w-lg px-3 py-2 text-sm border border-n-weak rounded-lg bg-n-background text-n-slate-12 focus:outline-none focus:ring-2 focus:ring-n-brand"
+              />
+            </div>
+
+            <!-- API Key -->
+            <div class="flex flex-col gap-2">
+              <label class="text-sm font-medium text-n-slate-11">
+                API Key
+                <span class="text-n-slate-9 font-normal ml-1">(required for voice agent authentication)</span>
+              </label>
+              <input
+                v-model="voiceAgentApiKey"
+                type="password"
+                placeholder="sk_live_xxxxxxxxxxxxxxxxxxxxxxxx"
+                class="w-full max-w-lg px-3 py-2 text-sm border border-n-weak rounded-lg bg-n-background text-n-slate-12 focus:outline-none focus:ring-2 focus:ring-n-brand"
+              />
+            </div>
+
+            <!-- Configuration Data (JSON) -->
+            <div class="flex flex-col gap-2">
+              <label class="text-sm font-medium text-n-slate-11">
+                Configuration Data (JSON)
+                <span class="text-n-slate-9 font-normal ml-1">(optional, provider-specific settings)</span>
+              </label>
+              <textarea
+                v-model="voiceAgentConfigData"
+                placeholder='{"agent_id": "agent_xxx", "voice_id": "voice_xxx", "timeout": 300}'
+                class="w-full max-w-lg px-3 py-2 text-sm border border-n-weak rounded-lg bg-n-background text-n-slate-12 focus:outline-none focus:ring-2 focus:ring-n-brand font-mono"
+                rows="5"
+              />
+              <p class="text-xs text-n-slate-10">
+                Enter valid JSON with any additional configuration your voice agent provider requires.
+              </p>
+            </div>
           </div>
 
           <div>
             <NextButton
-              label="Save Voice Settings"
-              :is-loading="isUpdatingElevenLabs"
-              @click="updateElevenLabsSettings"
+              label="Save Voice Agent Settings"
+              :is-loading="isUpdatingVoiceAgent"
+              @click="updateVoiceAgentSettings"
             />
           </div>
         </div>

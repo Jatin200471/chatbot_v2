@@ -22,6 +22,7 @@ import { useRouter } from 'vue-router';
 import { useAvailability } from 'widget/composables/useAvailability';
 import { SDK_SET_BUBBLE_VISIBILITY } from '../shared/constants/sharedFrameEvents';
 import { emitter } from 'shared/helpers/mitt';
+import { getConversationAPI } from 'widget/api/conversation';
 
 export default {
   name: 'App',
@@ -41,6 +42,7 @@ export default {
       isMobile: false,
       campaignsSnoozedTill: undefined,
       configReady: false,
+      conversationStatusCheckInterval: null,
     };
   },
   computed: {
@@ -99,6 +101,16 @@ export default {
     }
 
     this.registerCampaignEvents();
+
+    // ── AUTO-CLEAR: Check if conversation was resolved from dashboard ──
+    // If external system (dashboard) resolved the conversation, clear the widget
+    // and force the user to start fresh. Run periodically while widget is open.
+    this.startConversationStatusCheck();
+  },
+  beforeUnmount() {
+    if (this.conversationStatusCheckInterval) {
+      clearInterval(this.conversationStatusCheckInterval);
+    }
   },
   methods: {
     ...mapActions('appConfig', [
@@ -332,6 +344,34 @@ export default {
     setCampaignReadData(snoozedTill) {
       if (snoozedTill) {
         this.campaignsSnoozedTill = Number(snoozedTill);
+      }
+    },
+
+    startConversationStatusCheck() {
+      // Check immediately, then every 30 seconds
+      this.checkAndClearResolvedConversation();
+      this.conversationStatusCheckInterval = setInterval(() => {
+        if (this.isWidgetOpen) {
+          this.checkAndClearResolvedConversation();
+        }
+      }, 30000);
+    },
+
+    async checkAndClearResolvedConversation() {
+      // Skip if no conversation in widget
+      if (this.conversationSize === 0) return;
+
+      try {
+        const { data } = await getConversationAPI();
+        // If backend says conversation is resolved but widget still has messages
+        if (data?.payload?.status === 'resolved') {
+          // Clear the widget state and redirect to home
+          this.clearConversations();
+          this.router.replace({ name: 'home' });
+        }
+      } catch (error) {
+        // Ignore errors (404 = conversation deleted/resolved externally)
+        // No action needed — conversation is already gone
       }
     },
   },
