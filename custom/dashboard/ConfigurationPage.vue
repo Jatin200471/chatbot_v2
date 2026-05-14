@@ -329,7 +329,7 @@ export default {
               <input
                 v-model="voiceAgentApiKey"
                 type="password"
-                placeholder="sk_live_xxxxxxxxxxxxxxxxxxxxxxxx"
+                placeholder="your-voice-agent-api-key"
                 class="w-full max-w-lg px-3 py-2 text-sm border border-n-weak rounded-lg bg-n-background text-n-slate-12 focus:outline-none focus:ring-2 focus:ring-n-brand"
               />
             </div>
