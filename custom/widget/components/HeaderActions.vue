@@ -58,7 +58,10 @@ export default {
       ].includes(this.conversationStatus);
     },
     showCallButton() {
-      return this.elevenLabsEnabled;
+      // Check the new voiceAgentEnabled flag (set in show.html.erb) first,
+      // then fall back to the legacy elevenLabsEnabled getter.
+      const channel = window.chatwootWebChannel || {};
+      return channel.voiceAgentEnabled === true || this.elevenLabsEnabled;
     },
   },
   methods: {

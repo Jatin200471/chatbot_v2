@@ -28,8 +28,16 @@
         timezone: '<%= @web_widget.inbox.timezone %>',
         allowMessagesAfterResolved: <%= @web_widget.inbox.allow_messages_after_resolved %>,
         disableBranding: <%= @web_widget.inbox.account.feature_enabled?('disable_branding') %>,
+        // Legacy ElevenLabs fields (kept for backwards compat)
         enableElevenLabsVoice: <%= @web_widget.elevenlabs_voice? %>,
         elevenLabsAgentId: '<%= @web_widget.elevenlabs_agent_id.to_s %>',
+        // Voice Agent — generic multi-provider config
+        // voiceAgentEnabled is true when the 'elevenlabs_voice' feature flag is set
+        // OR when the admin saved voice agent settings (provider + api key present)
+        voiceAgentEnabled: <%= (@web_widget.elevenlabs_voice? || (@web_widget.voice_agent_api_key.present? && @web_widget.voice_agent_provider.present?)) %>,
+        voiceAgentProvider: '<%= @web_widget.voice_agent_provider.to_s %>',
+        voiceAgentApiKey: '<%= @web_widget.voice_agent_api_key.to_s %>',
+        voiceAgentConfigData: <%= (@web_widget.voice_agent_config_data || {}).to_json.html_safe %>,
       }
       window.chatwootPubsubToken = '<%= @contact_inbox.pubsub_token %>'
       window.authToken = '<%= @token %>'

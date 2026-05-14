@@ -72,10 +72,14 @@ export default {
       this.hmacMandatory = this.inbox.hmac_mandatory || false;
       this.allowedDomains = this.inbox.allowed_domains || '';
       const flags = this.inbox.selected_feature_flags || [];
-      this.voiceAgentEnabled = flags.includes('voice_agent');
+      // 'elevenlabs_voice' is the real FlagShihTzu bit (bit 5) in web_widget.rb
+      this.voiceAgentEnabled = flags.includes('elevenlabs_voice') || flags.includes('voice_agent');
       this.voiceAgentProvider = this.inbox.voice_agent_provider || 'elevenlabs';
       this.voiceAgentApiKey = this.inbox.voice_agent_api_key || '';
-      this.voiceAgentConfigData = this.inbox.voice_agent_config_data || {};
+      const rawConfig = this.inbox.voice_agent_config_data || {};
+      this.voiceAgentConfigData = typeof rawConfig === 'string'
+        ? rawConfig
+        : JSON.stringify(rawConfig, null, 2);
     },
     handleHmacFlag() {
       this.updateInbox();
@@ -157,20 +161,38 @@ export default {
     async updateVoiceAgentSettings() {
       this.isUpdatingVoiceAgent = true;
       try {
+        // Parse configData — may be a raw JSON string from the textarea
+        let configData = this.voiceAgentConfigData;
+        if (typeof configData === 'string') {
+          try { configData = JSON.parse(configData); } catch (_) { configData = {}; }
+        }
+
+        // Build the feature flags list:
+        // We use the 'elevenlabs_voice' FlagShihTzu bit (bit 5) which already
+        // exists in web_widget.rb. Remove it first then re-add if enabled.
         const currentFlags = (this.inbox.selected_feature_flags || []).filter(
-          f => f !== 'voice_agent'
+          f => f !== 'elevenlabs_voice' && f !== 'voice_agent'
         );
         if (this.voiceAgentEnabled) {
-          currentFlags.push('voice_agent');
+          currentFlags.push('elevenlabs_voice');
         }
+
+        // Pull agent_id out of configData if using ElevenLabs so the legacy
+        // elevenlabs_agent_id column also gets updated (widget reads it too).
+        const agentId =
+          (this.voiceAgentProvider === 'elevenlabs' && configData?.agent_id)
+            ? configData.agent_id
+            : (this.inbox.elevenlabs_agent_id || '');
+
         const payload = {
           id: this.inbox.id,
-          formData: true,
+          formData: false,
           channel: {
-            selectedFeatureFlags: currentFlags,
+            selected_feature_flags: currentFlags,
             voice_agent_provider: this.voiceAgentProvider,
             voice_agent_api_key: this.voiceAgentApiKey,
-            voice_agent_config_data: this.voiceAgentConfigData,
+            voice_agent_config_data: configData,
+            elevenlabs_agent_id: agentId,
           },
         };
         await this.$store.dispatch('inboxes/updateInbox', payload);
