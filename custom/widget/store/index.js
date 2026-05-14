@@ -12,6 +12,7 @@ import message from 'widget/store/modules/message';
 import campaign from 'widget/store/modules/campaign';
 import article from 'widget/store/modules/articles';
 import elevenlabsVoice from 'widget/store/modules/elevenlabsVoice';
+import voiceAgentConfig from 'widget/store/modules/voiceAgentConfig';
 
 export default createStore({
   modules: {
@@ -27,5 +28,6 @@ export default createStore({
     campaign,
     article,
     elevenlabsVoice,
+    voiceAgentConfig,
   },
 });

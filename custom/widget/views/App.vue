@@ -102,6 +102,10 @@ export default {
 
     this.registerCampaignEvents();
 
+    // ── VOICE AGENT CONFIG: Fetch voice agent settings from inbox config ──
+    // This loads provider, API key, and agent ID from admin configuration
+    this.fetchVoiceAgentConfig();
+
     // ── AUTO-CLEAR: Check if conversation was resolved from dashboard ──
     // If external system (dashboard) resolved the conversation, clear the widget
     // and force the user to start fresh. Run periodically while widget is open.
@@ -129,6 +133,7 @@ export default {
     ]),
     ...mapActions('agent', ['fetchAvailableAgents']),
     ...mapActions('contacts', ['clearCurrentUser']),
+    ...mapActions('voiceAgentConfig', ['fetchVoiceAgentConfig']),
 
     setWidgetColorVariable(widgetColor) {
       if (widgetColor) {

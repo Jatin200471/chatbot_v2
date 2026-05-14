@@ -26,14 +26,28 @@ export default {
   },
   computed: {
     ...mapGetters({
-      elevenLabsEnabled: 'appConfig/getElevenLabsEnabled',
-      elevenLabsConfig: 'appConfig/getElevenLabsConfig',
+      isVoiceAgentEnabled: 'voiceAgentConfig/isVoiceAgentEnabled',
+      voiceAgentAgentId: 'voiceAgentConfig/getAgentId',
+      voiceAgentVoiceId: 'voiceAgentConfig/getVoiceId',
+      voiceAgentName: 'voiceAgentConfig/getAgentName',
+      voiceAgentProvider: 'voiceAgentConfig/getVoiceAgentProvider',
+      voiceAgentApiKey: 'voiceAgentConfig/getVoiceAgentApiKey',
     }),
+    hasElevenLabsVoiceEnabled() {
+      // Show button only if:
+      // 1. Voice agent is enabled in inbox config
+      // 2. Provider is elevenlabs
+      // 3. We have an agent ID
+      return this.isVoiceAgentEnabled && 
+             this.voiceAgentProvider === 'elevenlabs' && 
+             !!this.voiceAgentAgentId;
+    },
     resolvedAgentId() {
-      return this.elevenLabsAgentId || this.elevenLabsConfig?.agentId || '';
+      // Return the agent ID from voice agent config
+      return this.voiceAgentAgentId || '';
     },
     shouldShowButton() {
-      // Admin-controlled per inbox (enabledFeatures) + agent id from server or env/build.
+      // Admin-controlled per inbox + agent id from voice agent config
       return this.hasElevenLabsVoiceEnabled && !!this.resolvedAgentId;
     },
     buttonClasses() {

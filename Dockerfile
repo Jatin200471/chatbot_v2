@@ -17,6 +17,7 @@ COPY custom/widget/components/Form.vue app/javascript/widget/components/Form/For
 COPY custom/widget/store/index.js app/javascript/widget/store/index.js
 COPY custom/widget/store/modules/appConfig.js app/javascript/widget/store/modules/appConfig.js
 COPY custom/widget/store/modules/elevenlabsVoice.js app/javascript/widget/store/modules/elevenlabsVoice.js
+COPY custom/widget/store/modules/voiceAgentConfig.js app/javascript/widget/store/modules/voiceAgentConfig.js
 COPY custom/widget/store/modules/contacts.js app/javascript/widget/store/modules/contacts.js
 COPY custom/widget/store/modules/conversation/actions.js app/javascript/widget/store/modules/conversation/actions.js
 COPY custom/widget/mixins/configMixin.js app/javascript/widget/mixins/configMixin.js
@@ -27,6 +28,7 @@ COPY custom/widget/views/PreChatForm.vue app/javascript/widget/views/PreChatForm
 COPY custom/widget/helpers/axios.js app/javascript/widget/helpers/axios.js
 COPY custom/widget/api/contacts.js app/javascript/widget/api/contacts.js
 COPY custom/widget/api/conversation.js app/javascript/widget/api/conversation.js
+COPY custom/widget/api/inboxConfig.js app/javascript/widget/api/inboxConfig.js
 COPY custom/dashboard/ConfigurationPage.vue app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue
 
 ARG VITE_ELEVENLABS_AGENT_ID=agent_6601kc1fqeecfc88s7d52jde0syq
