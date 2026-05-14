@@ -59,6 +59,24 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     head :ok
   end
 
+  def inbox_config
+    # Return inbox configuration including voice agent settings
+    # Called by widget to fetch voice provider, API key, and config data
+    @inbox = @web_widget.inbox
+    render json: {
+      payload: {
+        inbox: {
+          id: @inbox.id,
+          name: @inbox.name,
+          selected_feature_flags: @web_widget.selected_feature_flags || [],
+          voice_agent_provider: @web_widget.voice_agent_provider || 'elevenlabs',
+          voice_agent_api_key: @web_widget.voice_agent_api_key || '',
+          voice_agent_config_data: @web_widget.voice_agent_config_data || {}
+        }
+      }
+    }
+  end
+
   def set_custom_attributes
     conversation.update!(custom_attributes: permitted_params[:custom_attributes])
   end

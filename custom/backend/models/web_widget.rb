@@ -37,7 +37,8 @@ class Channel::WebWidget < ApplicationRecord
                                               { pre_chat_fields:
                                                 [:field_type, :label, :placeholder, :name, :enabled, :type, :enabled, :required,
                                                  :locale, { values: [] }, :regex_pattern, :regex_cue] }] },
-                    { selected_feature_flags: [] }, :elevenlabs_agent_id].freeze
+                    { selected_feature_flags: [] }, :elevenlabs_agent_id,
+                    :voice_agent_provider, :voice_agent_api_key, :voice_agent_config_data].freeze
 
   before_validation :validate_pre_chat_options
   validates :website_url, presence: true

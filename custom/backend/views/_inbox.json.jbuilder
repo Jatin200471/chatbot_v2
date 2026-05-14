@@ -43,6 +43,9 @@ json.web_widget_script resource.channel.try(:web_widget_script)
 json.website_token resource.channel.try(:website_token)
 json.selected_feature_flags resource.channel.try(:selected_feature_flags)
 json.elevenlabs_agent_id resource.channel.try(:elevenlabs_agent_id)
+json.voice_agent_provider resource.channel.try(:voice_agent_provider)
+json.voice_agent_api_key resource.channel.try(:voice_agent_api_key)
+json.voice_agent_config_data resource.channel.try(:voice_agent_config_data)
 json.reply_time resource.channel.try(:reply_time)
 if resource.web_widget?
   json.hmac_token resource.channel.try(:hmac_token) if Current.account_user&.administrator?

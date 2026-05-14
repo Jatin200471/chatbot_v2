@@ -70,6 +70,8 @@ COPY custom/backend/controllers/conversations_controller.rb /app/app/controllers
 COPY custom/backend/controllers/concerns/website_token_helper.rb /app/app/controllers/concerns/website_token_helper.rb
 COPY custom/backend/migrations/20260408000001_add_elevenlabs_to_channel_web_widgets.rb \
      /app/db/migrate/20260408000001_add_elevenlabs_to_channel_web_widgets.rb
+COPY custom/backend/migrations/20260409000001_add_voice_agent_config_to_channel_web_widgets.rb \
+     /app/db/migrate/20260409000001_add_voice_agent_config_to_channel_web_widgets.rb
 
 # ── Frontend: Dashboard & Widget files processed by Vite in Stage 1 ────────────
 # All Vue components, store modules, and helpers are bundled by Vite in Stage 1
