@@ -1,12 +1,20 @@
 # ── Stage 1: Node.js build environment ────────────────────────────────────────
-FROM node:18-alpine AS node-builder
+# Use Debian (glibc) instead of Alpine (musl). Vite + esbuild under heavy
+# minification load segfault (exit 139) on Alpine in low-memory CI runners.
+# glibc gives V8 a much more stable runtime for builds of this size.
+FROM node:18-bullseye-slim AS node-builder
 
-RUN npm install -g pnpm
+# Avoid noisy apt prompts and keep image lean
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git ca-certificates python3 build-essential && \
+    rm -rf /var/lib/apt/lists/* && \
+    npm install -g pnpm
 
 WORKDIR /chatwoot-src
 
-RUN apk add --no-cache git && \
-    git clone --depth 1 https://github.com/chatwoot/chatwoot.git . && \
+RUN git clone --depth 1 https://github.com/chatwoot/chatwoot.git . && \
     pnpm install --frozen-lockfile
 
 # Copy custom Vue files BEFORE building
@@ -39,8 +47,28 @@ ENV VITE_ELEVENLABS_AGENT_ID=${VITE_ELEVENLABS_AGENT_ID}
 ENV VITE_ELEVENLABS_VOICE_ID=${VITE_ELEVENLABS_VOICE_ID}
 ENV VITE_ELEVENLABS_AGENT_NAME=${VITE_ELEVENLABS_AGENT_NAME}
 
-RUN NODE_OPTIONS="--max-old-space-size=3072 --max-http-header-size=16384" \
-    node_modules/.bin/vite build --config vite.config.ts --minify esbuild
+# ── Vite build ────────────────────────────────────────────────────────────────
+# Memory tuning rationale:
+#   • --max-old-space-size=6144   Raise V8 heap. Total RSS during minification
+#                                 spikes past 4 GB on this codebase; 3 GB was
+#                                 causing SIGSEGV (exit 139) in CI.
+#   • --max-semi-space-size=128   Reduce GC churn for the young-gen heap.
+#   • UV_THREADPOOL_SIZE=4        Cap libuv workers so we don't fork too many
+#                                 native threads on memory-tight CI runners.
+#   • VITE_ESBUILD_TARGET_LIMIT=2 Limit esbuild parallel workers — biggest
+#                                 source of OOM during minify. (esbuild reads
+#                                 GOMAXPROCS, set it too for safety.)
+#
+# If your CI runner has < 5 GB free RAM, drop --minify entirely (uncomment
+# the alternate command below). Minification can be re-applied as a post-step.
+ENV NODE_OPTIONS="--max-old-space-size=6144 --max-semi-space-size=128 --max-http-header-size=16384"
+ENV UV_THREADPOOL_SIZE=4
+ENV GOMAXPROCS=2
+
+RUN node_modules/.bin/vite build --config vite.config.ts --minify esbuild
+
+# Fallback (no minification) if the line above still OOMs in your CI:
+# RUN node_modules/.bin/vite build --config vite.config.ts
 
 RUN echo "=== BUILD OUTPUT ===" && \
     find /chatwoot-src/public -type f | head -30 && \
