@@ -112,6 +112,18 @@ A non-obvious end-to-end chain. If you touch any piece, walk the whole chain:
    - **Config re-fetch on widget open**: `App.vue` listens for `toggle-open` postMessage and dispatches `voiceAgentConfig/fetchVoiceAgentConfig` every time the iframe panel opens. This makes the dashboard's voice toggle take effect on the next bubble click without a full page reload.
    - **Voice transcript → Chatwoot messages**: ElevenLabs SDK's `onMessage` callback fires once per completed turn (user or AI). The button forwards each chunk to `POST /api/v1/widget/conversations/voice_transcript` which appends it to the visitor's conversation (`message_type: incoming` for user, `outgoing` for AI). Each row carries `content_attributes: { voice_transcript: true, role }` so the dashboard / reports can style them differently. If the visitor has no conversation yet (voice-first flow), the controller creates one tagged `additional_attributes: { initiated_from: 'voice_agent' }`. After each successful post the widget dispatches `conversation/syncLatestMessages` so the visitor also sees their voice turns in the message bubble area in real time.
 
+## Widget branding override
+
+The "Powered by …" footer at the bottom of the widget is rendered by upstream
+`app/javascript/widget/components/Branding.vue`, which wraps the label in an
+`<a href="https://www.chatwoot.com">`. Even after the i18n key `POWERED_BY` is
+re-labelled (see `custom/widget/i18n/en.json`), the link still points to
+Chatwoot.
+
+We override the whole component with `custom/widget/components/Branding.vue`
+which renders just a `<span>` — no anchor, no Chatwoot logo, no outbound
+navigation. Dockerfile COPY directive maps it onto the upstream path.
+
 ## Things to verify / TODO
 
 - Purpose of empty `custom-widget/` directory at repo root vs `custom/widget/`
