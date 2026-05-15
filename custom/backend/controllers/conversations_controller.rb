@@ -1,7 +1,6 @@
 class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   include Events::Types
   before_action :render_not_found_if_empty, only: [:toggle_typing, :toggle_status, :set_custom_attributes, :destroy_custom_attributes]
-  skip_before_action :set_conversation, only: [:inbox_config]
 
   def index
     @conversation = conversation
