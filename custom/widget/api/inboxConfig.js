@@ -11,7 +11,7 @@ const buildConvUrl = path => {
 
 // Fetch inbox config with voice agent settings
 const getInboxConfigAPI = async () => {
-  return API.get(buildConvUrl('/api/v1/widget/inbox/config'));
+  return API.get(buildConvUrl('/api/v1/widget/conversations/inbox_config'));
 };
 
 export {
