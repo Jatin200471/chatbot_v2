@@ -41,6 +41,16 @@ Short index of rules. Detailed rules live in `.antigravity/details/rules/`.
 - **Feature flag name is `elevenlabs_voice`** (bit 5 in `web_widget.rb`). Never use `voice_agent` for new code — it only exists for backwards-compat in the widget's flag check.
 - **`voice_agent_config_data` must be sent as a JSON string from the dashboard**, not a hash. Strong params drops nested hashes for bare-symbol whitelist entries. The controller re-parses it.
 - **Always mirror `agent_id` to both** `elevenlabs_agent_id` (column) and `voice_agent_config_data.agent_id` (jsonb) when saving — different consumers read different locations.
+- **Never mount `<elevenlabs-convai>`** as a real element. It renders its own floating "Need help?" bubble in `document.body` that cannot be hidden reliably. Use the `@elevenlabs/client` SDK's `Conversation.startSession({ agentId })` instead — no DOM footprint.
+- **One call button per widget.** It lives in `ChatInputWrap.vue` next to the emoji button. Do not re-add it to `HeaderActions.vue`.
+
+## Exit / auto-resolve rules
+
+- **Never call `window.location.reload()` to reset the widget.** That caused a white-flash iframe reload and re-fired the parent SDK's `exitChat` handler. Use the soft-exit pattern documented in `memory.md`:
+  1. `contacts/softExitChat` → clears state + storage, NO postMessage, NO reload.
+  2. `router.replace({ name: 'home' })`.
+  3. Post `{ event: 'closeWindow' }` so the SDK collapses the panel.
+- **The auto-resolve poller must be gated** on `isWidgetOpen && conversationSize > 0`. Otherwise it spams the console every interval on an empty home view.
 
 ## TODO — to be filled by team
 

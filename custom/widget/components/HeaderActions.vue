@@ -1,17 +1,21 @@
 <script>
 import { mapGetters } from 'vuex';
+import { useRouter } from 'vue-router';
 import { IFrameHelper, RNHelper } from 'widget/helpers/utils';
 import { popoutChatWindow } from '../helpers/popoutHelper';
 import FluentIcon from 'shared/components/FluentIcon/Index.vue';
-import ElevenLabsVoiceButton from 'widget/components/ElevenLabsVoiceButton.vue';
 import configMixin from 'widget/mixins/configMixin';
 import { CONVERSATION_STATUS } from 'shared/constants/messages';
 import { toggleStatus } from 'widget/api/conversation';
 
 export default {
   name: 'HeaderActions',
-  components: { FluentIcon, ElevenLabsVoiceButton },
+  components: { FluentIcon },
   mixins: [configMixin],
+  setup() {
+    const router = useRouter();
+    return { router };
+  },
   props: {
     showPopoutButton: {
       type: Boolean,
@@ -33,7 +37,6 @@ export default {
       conversationAttributes: 'conversationAttributes/getConversationParams',
       canUserEndConversation: 'appConfig/getCanUserEndConversation',
       widgetColor: 'appConfig/getWidgetColor',
-      elevenLabsEnabled: 'appConfig/getElevenLabsEnabled',
     }),
     conversationStatus() {
       return this.conversationAttributes.status;
@@ -56,12 +59,6 @@ export default {
         CONVERSATION_STATUS.SNOOZED,
         CONVERSATION_STATUS.PENDING,
       ].includes(this.conversationStatus);
-    },
-    showCallButton() {
-      // Check the new voiceAgentEnabled flag (set in show.html.erb) first,
-      // then fall back to the legacy elevenLabsEnabled getter.
-      const channel = window.chatwootWebChannel || {};
-      return channel.voiceAgentEnabled === true || this.elevenLabsEnabled;
     },
   },
   methods: {
@@ -97,8 +94,8 @@ export default {
       this.showConfirmExitChat = false;
 
       try {
-        // ── STEP 1: RESOLVE the conversation (intentional exit by user).
-        // Must happen BEFORE clearing auth headers in step 2.
+        // STEP 1: resolve the conversation server-side. Must run BEFORE we
+        // strip the auth headers in step 2.
         if (
           [
             CONVERSATION_STATUS.OPEN,
@@ -109,51 +106,25 @@ export default {
           try { await toggleStatus(); } catch (_) {}
         }
 
-        // ── STEP 2: Wipe iframe-domain auth/storage/cookies, then reload iframe.
-        // We deliberately do NOT depend on parent-page code, so this works on
-        // ANY site that embeds the Chatwoot SDK (clients don't need to add a
-        // custom postMessage listener).
-        //
-        // contacts/clearCurrentUser:
-        //   • resets Vuex contact state to blank
-        //   • removes auth headers
-        //   • clearSessionStorage() — wipes localStorage/sessionStorage/cookies
-        //     scoped to the Chatwoot iframe origin (the only place that can
-        //     clear them, since the parent page is on a different origin)
-        //   • posts { event: 'exitChat' } to the parent (harmless if unhandled)
-        //
-        // After that, reloading window.location refreshes the iframe contents
-        // only. The iframe re-requests its config without any contact cookies
-        // → Chatwoot creates a brand-new contact → contact_created fires →
-        // n8n receives the new form data on every Exit Chat cycle.
-        if (IFrameHelper.isIFrame()) {
-          this.$store.dispatch('contacts/clearCurrentUser');
-          // Small delay so the postMessage and storage writes flush before reload
-          setTimeout(() => { window.location.reload(); }, 50);
-        } else if (RNHelper.isRNWebView()) {
-          RNHelper.sendMessage({ type: 'exit-chat' });
-        } else {
-          this._localFallbackExit();
-        }
+        // STEP 2: soft-reset inside the iframe — no postMessage('exitChat'),
+        // no window.location.reload(). The full reload was wiping the iframe
+        // (white flash, lost view state) and the SDK's exitChat handler was
+        // re-rendering the host page. Soft-reset keeps the widget alive and
+        // just navigates back to home with a clean Vuex + storage state.
+        this.$store.dispatch('contacts/softExitChat');
+        try { this.router.replace({ name: 'home' }); } catch (_) {}
+
+        // STEP 3: ask the parent SDK to collapse the iframe panel (bubble
+        // visible). On next open the widget mounts the prechat-form path
+        // because conversationSize === 0 and storage is empty.
+        this.sendCloseMessage();
 
       } catch (_) {
-        // Safety net: always try to fire exitChat so parent can recover
-        try {
-          if (IFrameHelper.isIFrame()) {
-            IFrameHelper.sendMessage({ event: 'exitChat' });
-          }
-        } catch (__) {}
+        // Last-resort safety net so the user is never stuck. No reload.
+        try { this.sendCloseMessage(); } catch (__) {}
       } finally {
         this.isEndingChat = false;
       }
-    },
-
-    // Only used when the widget is NOT inside an iframe (rare / popout mode).
-    async _localFallbackExit() {
-      try { this.$store.commit('conversation/clearConversations'); } catch (_) {}
-      try { await this.$store.dispatch('contacts/clearCurrentUser'); } catch (_) {}
-      this.sendCloseMessage();
-      setTimeout(() => { window.location.reload(); }, 300);
     },
   },
 };
@@ -161,13 +132,6 @@ export default {
 
 <template>
   <div v-if="showHeaderActions" class="actions flex items-center gap-1">
-
-    <ElevenLabsVoiceButton
-      v-if="showCallButton"
-      :color="widgetColor"
-      size="medium"
-      class="header-call-btn"
-    />
 
     <div v-if="canEndChat && showEndConversationButton" class="relative">
       <button

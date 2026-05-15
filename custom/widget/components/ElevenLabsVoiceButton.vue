@@ -2,6 +2,36 @@
 import { mapGetters, mapActions } from 'vuex';
 import configMixin from '../mixins/configMixin';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Programmatic ElevenLabs Conversational AI integration.
+//
+// We deliberately do NOT use the <elevenlabs-convai> web component anymore:
+// it renders its own floating "Need help? / Start a call" bubble on the page
+// in addition to whatever we mount, which is confusing for visitors and
+// impossible to hide reliably (the embed re-portals into document.body).
+//
+// Instead we load the @elevenlabs/client SDK from esm.sh at runtime and drive
+// the call entirely through OUR call button. Nothing extra appears on the
+// page. The SDK's Conversation.startSession() handles WebRTC mic capture,
+// signalling and playback — we only need an agent id.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ELEVENLABS_SDK_URL = 'https://esm.sh/@elevenlabs/client@0.1.0';
+let elevenLabsSdkPromise = null;
+const loadElevenLabsSdk = () => {
+  if (elevenLabsSdkPromise) return elevenLabsSdkPromise;
+  elevenLabsSdkPromise = (async () => {
+    // /* @vite-ignore */ — keep this as a runtime URL import, do not bundle.
+    const url = ELEVENLABS_SDK_URL;
+    const mod = await import(/* @vite-ignore */ url);
+    return mod;
+  })().catch(err => {
+    elevenLabsSdkPromise = null;
+    throw err;
+  });
+  return elevenLabsSdkPromise;
+};
+
 export default {
   name: 'ElevenLabsVoiceButton',
   mixins: [configMixin],
@@ -19,51 +49,43 @@ export default {
     return {
       isConnecting: false,
       isCallActive: false,
-      scriptLoaded: false,
-      scriptLoadPromise: null,
-      widgetElement: null,
+      conversation: null,
     };
   },
   computed: {
     ...mapGetters({
       isVoiceAgentEnabled: 'voiceAgentConfig/isVoiceAgentEnabled',
       voiceAgentAgentId: 'voiceAgentConfig/getAgentId',
-      voiceAgentVoiceId: 'voiceAgentConfig/getVoiceId',
-      voiceAgentName: 'voiceAgentConfig/getAgentName',
       voiceAgentProvider: 'voiceAgentConfig/getVoiceAgentProvider',
-      voiceAgentApiKey: 'voiceAgentConfig/getVoiceAgentApiKey',
     }),
     hasElevenLabsVoiceEnabled() {
-      // Show button only if:
-      // 1. Voice agent is enabled in inbox config
-      // 2. Provider is elevenlabs
-      // 3. We have an agent ID
-      return this.isVoiceAgentEnabled && 
-             this.voiceAgentProvider === 'elevenlabs' && 
-             !!this.voiceAgentAgentId;
+      return (
+        this.isVoiceAgentEnabled &&
+        this.voiceAgentProvider === 'elevenlabs' &&
+        !!this.voiceAgentAgentId
+      );
     },
     resolvedAgentId() {
-      // Return the agent ID from voice agent config
       return this.voiceAgentAgentId || '';
     },
     shouldShowButton() {
-      // Admin-controlled per inbox + agent id from voice agent config
       return this.hasElevenLabsVoiceEnabled && !!this.resolvedAgentId;
     },
     buttonClasses() {
       const sizeClasses = {
-        small: 'min-h-6 min-w-6',
-        medium: 'min-h-8 min-w-8',
+        small: 'min-h-7 min-w-7',
+        medium: 'min-h-9 min-w-9',
         large: 'min-h-10 min-w-10',
       };
       return [
-        'elevenlabs-voice-btn flex items-center justify-center rounded-full transition-all duration-200 cursor-pointer border-0 bg-transparent p-1',
+        'elevenlabs-voice-btn flex items-center justify-center rounded-full transition-all duration-200 cursor-pointer border-0 p-1.5',
         sizeClasses[this.size] || sizeClasses.medium,
         this.isConnecting ? 'elevenlabs-connecting' : '',
+        this.isCallActive ? 'elevenlabs-active' : '',
       ];
     },
     iconSize() {
-      const sizes = { small: 16, medium: 20, large: 24 };
+      const sizes = { small: 16, medium: 18, large: 22 };
       return sizes[this.size] || sizes.medium;
     },
     tooltipText() {
@@ -72,112 +94,11 @@ export default {
       return this.$t('VOICE_AGENT.START_CALL');
     },
   },
-  watch: {
-    resolvedAgentId() {
-      // Keep the hidden widget configured for the current inbox/agent id.
-      this.ensureWidgetMounted();
-    },
-    hasElevenLabsVoiceEnabled(enabled) {
-      // If an admin disables the feature for this inbox, ensure the embed UI
-      // is completely removed. The <elevenlabs-convai> element can render its
-      // own floating UI even if we place it off-screen.
-      if (!enabled) {
-        if (this.isCallActive) this.endCall();
-        this.removeWidget();
-        return;
-      }
-
-      // If enabled, mount (if we have an agent id).
-      this.loadElevenLabsScript().then(() => this.ensureWidgetMounted());
-    },
-  },
-  mounted() {
-    // Only mount the embed when enabled for this inbox. Otherwise the embed can
-    // show its own UI even if we render it off-screen.
-    if (this.hasElevenLabsVoiceEnabled) {
-      // Preload embed + mount hidden widget so click can synchronously start a call.
-      this.loadElevenLabsScript().then(() => this.ensureWidgetMounted());
-    }
-  },
   beforeUnmount() {
-    this.removeWidget();
+    this._cleanupSession();
   },
   methods: {
     ...mapActions('elevenlabsVoice', ['setActive', 'setConnecting']),
-
-    loadElevenLabsScript() {
-      if (this.scriptLoadPromise) return this.scriptLoadPromise;
-
-      if (
-        this.scriptLoaded ||
-        document.querySelector('script[src*="@elevenlabs/convai-widget-embed"]')
-      ) {
-        this.scriptLoaded = true;
-        this.scriptLoadPromise = Promise.resolve();
-        return this.scriptLoadPromise;
-      }
-
-      this.scriptLoadPromise = new Promise(resolve => {
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
-        script.async = true;
-        script.type = 'text/javascript';
-        script.onload = () => {
-          this.scriptLoaded = true;
-          resolve();
-        };
-        // If the CDN is blocked (CSP/network), don't block the rest of the widget.
-        script.onerror = () => resolve();
-        document.head.appendChild(script);
-      });
-
-      return this.scriptLoadPromise;
-    },
-
-    ensureWidgetMounted() {
-      if (!this.hasElevenLabsVoiceEnabled) {
-        this.removeWidget();
-        return;
-      }
-
-      const agentId = this.resolvedAgentId;
-      if (!agentId) return;
-
-      const host = this.$refs.widgetHost;
-      if (!host) return;
-
-      if (this.widgetElement) {
-        this.widgetElement.setAttribute('agent-id', agentId);
-        return;
-      }
-
-      const el = document.createElement('elevenlabs-convai');
-      el.setAttribute('agent-id', agentId);
-      el.setAttribute('data-chatwoot', 'true');
-      host.appendChild(el);
-      this.widgetElement = el;
-    },
-
-    clickWidgetButton({ preferEnd = false } = {}) {
-      const el = this.widgetElement;
-      if (!el) return false;
-
-      const root = el.shadowRoot;
-      if (!root) return false;
-
-      const buttons = Array.from(root.querySelectorAll('button'));
-      if (!buttons.length) return false;
-
-      const pick = btn => {
-        const text = (btn.textContent || '').toLowerCase();
-        if (preferEnd) return text.includes('end') || text.includes('hang');
-        return text.includes('start') || text.includes('call');
-      };
-
-      const target = buttons.find(pick) || buttons[0];
-      target.click();
-      return true;
-    },
 
     handleClick() {
       if (this.isConnecting) return;
@@ -189,57 +110,63 @@ export default {
     },
 
     async startCall() {
-      const agentId = this.resolvedAgentId;
-      if (!agentId) return;
-      if (!this.hasElevenLabsVoiceEnabled) return;
+      if (this.isConnecting || this.isCallActive) return;
+      if (!this.resolvedAgentId || !this.hasElevenLabsVoiceEnabled) return;
 
       this.isConnecting = true;
       this.setConnecting(true);
 
       try {
-        // In insecure contexts (e.g. http://[::]:8000), mediaDevices may be undefined.
         if (navigator.mediaDevices?.getUserMedia) {
           await navigator.mediaDevices.getUserMedia({ audio: true });
         }
 
-        await this.loadElevenLabsScript();
-        this.ensureWidgetMounted();
+        const sdk = await loadElevenLabsSdk();
+        const Conversation = sdk?.Conversation || sdk?.default?.Conversation;
+        if (!Conversation) {
+          throw new Error('ElevenLabs SDK did not expose Conversation');
+        }
 
-        // Best-effort: click the embed's start call button.
-        this.clickWidgetButton({ preferEnd: false });
-
-        this.isConnecting = false;
-        this.setConnecting(false);
-        this.isCallActive = true;
-        this.setActive(true);
+        this.conversation = await Conversation.startSession({
+          agentId: this.resolvedAgentId,
+          onConnect: () => {
+            this.isConnecting = false;
+            this.setConnecting(false);
+            this.isCallActive = true;
+            this.setActive(true);
+          },
+          onDisconnect: () => {
+            this._cleanupSession();
+          },
+          onError: err => {
+            // eslint-disable-next-line no-console
+            console.error('[VOICE-AGENT] Call error:', err);
+            this._cleanupSession();
+          },
+        });
       } catch (error) {
-        console.error('Failed to start ElevenLabs call:', error);
-        this.isConnecting = false;
-        this.setConnecting(false);
-
-        if (error.name === 'NotAllowedError' || error.name === 'NotFoundError') {
+        // eslint-disable-next-line no-console
+        console.error('[VOICE-AGENT] Failed to start call:', error);
+        this._cleanupSession();
+        if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') {
           alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS'));
         }
       }
     },
 
-    endCall() {
-      // Best-effort: click the embed's end call button, then reset by remounting.
-      this.clickWidgetButton({ preferEnd: true });
-      this.removeWidget();
-      this.ensureWidgetMounted();
+    async endCall() {
+      if (this.conversation) {
+        try { await this.conversation.endSession(); } catch (_) {}
+      }
+      this._cleanupSession();
+    },
 
+    _cleanupSession() {
+      this.conversation = null;
       this.isCallActive = false;
       this.isConnecting = false;
       this.setActive(false);
       this.setConnecting(false);
-    },
-
-    removeWidget() {
-      if (this.widgetElement) {
-        this.widgetElement.remove();
-        this.widgetElement = null;
-      }
     },
   },
 };
@@ -248,13 +175,14 @@ export default {
 <template>
   <div class="elevenlabs-container">
     <button
-      v-if="shouldShowButton && !isCallActive"
+      v-if="shouldShowButton"
       :class="buttonClasses"
       :aria-label="tooltipText"
       :title="tooltipText"
       type="button"
       @click="handleClick"
     >
+      <!-- Connecting spinner -->
       <svg
         v-if="isConnecting"
         :width="iconSize"
@@ -262,20 +190,38 @@ export default {
         viewBox="0 0 24 24"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        class="animate-spin text-n-slate-11"
+        class="animate-spin"
       >
         <circle
           cx="12"
           cy="12"
           r="10"
           stroke="currentColor"
-          stroke-width="2"
+          stroke-width="2.5"
           stroke-linecap="round"
           stroke-dasharray="31.4 31.4"
           fill="none"
         />
       </svg>
 
+      <!-- Active call → hang-up icon -->
+      <svg
+        v-else-if="isCallActive"
+        :width="iconSize"
+        :height="iconSize"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        class="call-icon"
+      >
+        <path
+          d="M3.5 14.5c5.5-5 11.5-5 17 0 .8.7.9 2-0 2.7l-2.1 1.6c-.5.4-1.2.4-1.7 0l-2-1.7a1.5 1.5 0 0 1-.5-1.1V14a9.8 9.8 0 0 0-4.4 0v0c0 .4-.2.8-.5 1.1l-2 1.6c-.5.4-1.2.4-1.7 0L3.5 15c-.5-.6-.4-1.7 0-2.5Z"
+          fill="currentColor"
+          transform="rotate(135 12 12)"
+        />
+      </svg>
+
+      <!-- Idle → phone / start call icon -->
       <svg
         v-else
         :width="iconSize"
@@ -283,126 +229,60 @@ export default {
         viewBox="0 0 24 24"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        class="mic-icon"
+        class="call-icon"
       >
-        <!-- Microphone capsule -->
         <path
-          d="M12 2c-2.2 0-4 1.8-4 4v6c0 2.2 1.8 4 4 4s4-1.8 4-4V6c0-2.2-1.8-4-4-4z"
+          d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92Z"
           fill="currentColor"
-          stroke="currentColor"
-          stroke-width="0.5"
-        />
-        <!-- Microphone stand -->
-        <path
-          d="M12 16v2c0 1.66-1.34 3-3 3h-2v-2h2c0.55 0 1-0.45 1-1v-2"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.5"
-          stroke-linecap="round"
-        />
-        <path
-          d="M12 16v2c0 1.66 1.34 3 3 3h2v-2h-2c-0.55 0-1-0.45-1-1v-2"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.5"
-          stroke-linecap="round"
         />
       </svg>
     </button>
-
-    <div ref="widgetHost" class="elevenlabs-hidden-widget" aria-hidden="true" />
-
-    <Teleport to="body">
-      <div v-if="isCallActive" class="elevenlabs-endcall-shell">
-        <button class="elevenlabs-endcall-pill" type="button" @click="endCall">
-          <span class="elevenlabs-endcall-icon" aria-hidden="true">☎</span>
-          <span class="elevenlabs-endcall-text">{{ $t('VOICE_AGENT.END_CALL') }}</span>
-        </button>
-      </div>
-    </Teleport>
   </div>
 </template>
 
 <style scoped>
 .elevenlabs-container {
   position: relative;
+  display: inline-flex;
 }
 
 .elevenlabs-voice-btn {
-  position: relative;
+  background: transparent;
+  color: var(--widget-color, #1f93ff);
 }
 
-.elevenlabs-voice-btn:hover .mic-icon {
-  transform: scale(1.1);
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+.elevenlabs-voice-btn:hover:not(:disabled) {
+  background: rgba(31, 147, 255, 0.1);
+  transform: scale(1.05);
 }
 
-.mic-icon {
+.elevenlabs-voice-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.call-icon {
   transition: transform 0.2s ease, filter 0.2s ease;
-  color: #3b82f6;
 }
 
 .elevenlabs-connecting {
-  opacity: 0.7;
+  opacity: 0.75;
   cursor: wait;
+  color: var(--widget-color, #1f93ff);
 }
 
-.elevenlabs-hidden-widget {
-  position: fixed;
-  left: -10000px;
-  top: -10000px;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  pointer-events: none;
+.elevenlabs-active {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18);
+  animation: pulse-active 1.6s ease-in-out infinite;
 }
 
-.elevenlabs-endcall-shell {
-  position: fixed;
-  left: 50%;
-  bottom: 96px;
-  transform: translateX(-50%);
-  z-index: 9999;
-  padding: 10px;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.2);
-  backdrop-filter: blur(10px);
+.elevenlabs-active:hover {
+  background: #dc2626 !important;
 }
 
-.elevenlabs-endcall-pill {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 0;
-  border-radius: 9999px;
-  padding: 12px 28px;
-  cursor: pointer;
-  color: #ffffff;
-  background: #f87171;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
-  transition: transform 0.15s ease, background 0.15s ease;
-}
-
-.elevenlabs-endcall-pill:hover {
-  background: #ef4444;
-  transform: translateY(-1px);
-}
-
-.elevenlabs-endcall-icon {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.2);
-  font-size: 15px;
-  line-height: 1;
-}
-
-.elevenlabs-endcall-text {
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 0.01em;
+@keyframes pulse-active {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
+  50%      { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.08); }
 }
 </style>

@@ -58,6 +58,33 @@ docker compose up -d                            # bring up stack
 
 The last 50+ commits are mostly `fix: button error part same name N` — incremental debugging on the voice button component. The repo has a working pattern of small, named iterations rather than large refactors.
 
+## Soft exit / auto-resolve flow (NO iframe reload)
+
+When the visitor exits the chat OR the dashboard / inactivity timer resolves
+the conversation, the widget must reset state **without** reloading the iframe.
+Reloading was causing a white flash and breaking host pages that listen for
+the `exitChat` postMessage.
+
+The pattern, centralised so all three paths behave identically:
+
+1. Call `toggleStatus` to resolve the conversation server-side (only when the
+   user clicked Exit Chat — auto-resolve already happened).
+2. Dispatch `contacts/softExitChat` — clears Vuex contact + conversation state,
+   removes auth headers, calls `clearSessionStorage()`. Does **not** post
+   `exitChat` and does **not** call `window.location.reload()`.
+3. `router.replace({ name: 'home' })` so the next paint is the team-availability
+   home view (which routes to prechat-form when `conversationSize === 0`).
+4. Post `{ event: 'closeWindow' }` to the parent SDK so the iframe panel
+   collapses and the bubble is shown.
+
+Touchpoints:
+- `custom/widget/store/modules/contacts.js#softExitChat`
+- `custom/widget/components/HeaderActions.vue#endChat`
+- `custom/widget/views/App.vue#checkAndClearResolvedConversation`
+
+Polling interval is **60 s** and gated on `isWidgetOpen && conversationSize > 0`
+to avoid console spam on the empty home view.
+
 ## Voice agent — admin-configured (per inbox) flow
 
 A non-obvious end-to-end chain. If you touch any piece, walk the whole chain:
@@ -77,6 +104,9 @@ A non-obvious end-to-end chain. If you touch any piece, walk the whole chain:
 
 4. **Button gating** (`custom/widget/components/ElevenLabsVoiceButton.vue`)
    - Shows only when ALL three: `isVoiceAgentEnabled` AND `provider === 'elevenlabs'` AND `agentId` resolved.
+   - Single mount location: `ChatInputWrap.vue` next to the emoji button. NOT in `HeaderActions.vue` — header instance was removed because we only want one call button per widget.
+   - **Uses the `@elevenlabs/client` SDK programmatically** (loaded at runtime from `https://esm.sh/@elevenlabs/client`), NOT the `<elevenlabs-convai>` web component. The web component renders its own floating "Need help? / Start a call" bubble that re-portals into `document.body` and cannot be hidden reliably. The Conversation API has no DOM footprint — our button is the only UI.
+   - For **private** ElevenLabs agents you'd need to fetch a signed URL from a backend endpoint using `voice_agent_api_key` and pass `{ signedUrl }` to `Conversation.startSession`. Currently only public-agent flow (`{ agentId }`) is wired up.
 
 ## Things to verify / TODO
 

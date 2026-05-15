@@ -357,51 +357,45 @@ export default {
     },
 
     startConversationStatusCheck() {
-      // Check immediately, then every 30 seconds
+      // Check once on mount, then every 60s only while the widget is open
+      // AND a conversation actually exists. (Both guards prevent the noisy
+      // every-30s polling we used to do even on an empty home view.)
       this.checkAndClearResolvedConversation();
       this.conversationStatusCheckInterval = setInterval(() => {
-        if (this.isWidgetOpen) {
+        if (this.isWidgetOpen && this.conversationSize > 0) {
           this.checkAndClearResolvedConversation();
         }
-      }, 30000);
+      }, 60000);
     },
 
     async checkAndClearResolvedConversation() {
-      // Skip if no conversation in widget
+      // Nothing to reset if there isn't an active conversation in this widget.
       if (this.conversationSize === 0) return;
 
       try {
         const { data } = await getConversationAPI();
-        console.log('[AUTO-RESOLVE] Conversation status check:', { 
-          conversationSize: this.conversationSize,
-          response: data,
-          status: data?.payload?.status || data?.status
-        });
-        
-        // Check both possible response structures
         const conversationStatus = data?.payload?.status || data?.status;
-        
-        if (conversationStatus === 'resolved') {
-          console.log('[AUTO-RESOLVE] Conversation is resolved! Clearing everything like Exit Chat...');
-          
-          // Clear EVERYTHING exactly like Exit Chat does:
-          // 1. Clear Vuex state
-          try { this.$store.commit('conversation/clearConversations'); } catch (_) {}
-          
-          // 2. Clear user session (localStorage, sessionStorage, auth headers)
-          try { await this.$store.dispatch('contacts/clearCurrentUser'); } catch (_) {}
-          
-          // 3. Reload iframe to get fresh contact
-          if (IFrameHelper.isIFrame()) {
-            setTimeout(() => { window.location.reload(); }, 50);
-          } else {
-            // Non-iframe fallback
-            this.router.replace({ name: 'home' });
-          }
+
+        if (conversationStatus !== 'resolved') return;
+
+        // Same behaviour as the Exit Chat button: soft-reset Vuex + storage,
+        // go back to home, and collapse the iframe panel. The next time the
+        // visitor opens the bubble they land on the prechat form with no
+        // residue from the resolved chat. NO window.location.reload().
+        this.$store.dispatch('contacts/softExitChat');
+        try { this.router.replace({ name: 'home' }); } catch (_) {}
+        if (IFrameHelper.isIFrame()) {
+          IFrameHelper.sendMessage({ event: 'closeWindow' });
         }
       } catch (error) {
-        console.log('[AUTO-RESOLVE] Error checking status:', error.message);
-        // Ignore errors (404 = conversation deleted/resolved externally)
+        // 404 = conversation deleted/resolved externally — same handling.
+        if (error?.response?.status === 404) {
+          this.$store.dispatch('contacts/softExitChat');
+          try { this.router.replace({ name: 'home' }); } catch (_) {}
+          if (IFrameHelper.isIFrame()) {
+            IFrameHelper.sendMessage({ event: 'closeWindow' });
+          }
+        }
       }
     },
   },

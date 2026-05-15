@@ -267,6 +267,25 @@ export const actions = {
     removeHeader('X-Auth-Token');
     commit(SET_CURRENT_USER, EMPTY_USER);
   },
+
+  /**
+   * Soft exit — same teardown as `clearCurrentUser` but WITHOUT the
+   * `{ event: 'exitChat' }` postMessage and WITHOUT a window.location.reload().
+   *
+   * Use this when the widget should stay alive and just reset to a fresh state
+   * (e.g. user clicks Exit Chat, or the dashboard/auto-resolver closes the
+   * conversation). The caller is responsible for navigating the router back
+   * to `home` and posting `closeWindow` to the parent if it wants the iframe
+   * panel hidden.
+   */
+  softExitChat: ({ commit, dispatch }) => {
+    commit(SET_CURRENT_USER, EMPTY_USER);
+    removeHeader('X-Auth-Token');
+    removeHeader('api_access_token');
+    removeHeader('user_access_token');
+    clearSessionStorage();
+    try { dispatch('conversation/clearConversations', null, { root: true }); } catch (_) {}
+  },
 };
 
 export const mutations = {
