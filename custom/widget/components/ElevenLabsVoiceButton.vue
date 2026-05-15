@@ -142,6 +142,28 @@ export default {
       return data?.signed_url;
     },
 
+    // Forward one ElevenLabs onMessage chunk into the Chatwoot conversation
+    // as either an incoming (user) or outgoing (ai) message. Failures are
+    // logged but never abort the call — transcript is best-effort.
+    async _postTranscript(source, content) {
+      const text = (content || '').toString().trim();
+      if (!text) return;
+      try {
+        await API.post(
+          buildConvUrl('/api/v1/widget/conversations/voice_transcript'),
+          { source, content: text }
+        );
+        // Refresh the widget conversation so the visitor sees their voice
+        // turns appear as message bubbles in real-time alongside text.
+        try {
+          await this.$store.dispatch('conversation/syncLatestMessages');
+        } catch (_) {}
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[VOICE-AGENT] transcript post failed:', e?.message || e);
+      }
+    },
+
     async _startSessionFor(Conversation, options) {
       return Conversation.startSession({
         ...options,
@@ -156,6 +178,19 @@ export default {
           // eslint-disable-next-line no-console
           console.error('[VOICE-AGENT] session error:', err);
           this._cleanupSession();
+        },
+        // ElevenLabs SDK fires this once per completed turn. The shape is
+        // either { source: 'user'|'ai', message } (current SDK) or
+        // { role: 'user'|'assistant', message } (older shape) — handle both.
+        onMessage: payload => {
+          if (!payload) return;
+          const raw = payload.source || payload.role || '';
+          const source = raw === 'user' ? 'user'
+                       : (raw === 'ai' || raw === 'assistant' || raw === 'agent') ? 'ai'
+                       : null;
+          if (!source) return;
+          const content = payload.message || payload.text || payload.content;
+          this._postTranscript(source, content);
         },
       });
     },

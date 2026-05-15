@@ -111,6 +111,7 @@ A non-obvious end-to-end chain. If you touch any piece, walk the whole chain:
      - If no API key → use `Conversation.startSession({ agentId })`. Only works for Public agents.
      - The earlier "try public, catch, fall back to private" was attempted but caused `could not createOffer with closed peer connection` — the first failed attempt left a closed `RTCPeerConnection` that broke the subsequent attempt. The API key never reaches the browser; only the short-lived signed URL does.
    - **Config re-fetch on widget open**: `App.vue` listens for `toggle-open` postMessage and dispatches `voiceAgentConfig/fetchVoiceAgentConfig` every time the iframe panel opens. This makes the dashboard's voice toggle take effect on the next bubble click without a full page reload.
+   - **Voice transcript → Chatwoot messages**: ElevenLabs SDK's `onMessage` callback fires once per completed turn (user or AI). The button forwards each chunk to `POST /api/v1/widget/conversations/voice_transcript` which appends it to the visitor's conversation (`message_type: incoming` for user, `outgoing` for AI). Each row carries `content_attributes: { voice_transcript: true, role }` so the dashboard / reports can style them differently. If the visitor has no conversation yet (voice-first flow), the controller creates one tagged `additional_attributes: { initiated_from: 'voice_agent' }`. After each successful post the widget dispatches `conversation/syncLatestMessages` so the visitor also sees their voice turns in the message bubble area in real time.
 
 ## Things to verify / TODO
 

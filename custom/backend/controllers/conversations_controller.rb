@@ -117,6 +117,39 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     render json: { error: e.message }, status: :internal_server_error
   end
 
+  # Append a single transcript chunk (one user turn OR one agent turn) from
+  # the live ElevenLabs voice call into the visitor's Chatwoot conversation.
+  #
+  # Widget calls this on every `onMessage` callback of the ElevenLabs SDK.
+  # If the visitor has no open conversation yet (voice-only flow before any
+  # text was sent), a fresh one is auto-created so the transcript still has
+  # a place to land. Each row carries `content_attributes.voice_transcript`
+  # so the dashboard / reports can render it differently if desired.
+  def voice_transcript
+    source  = params[:source].to_s
+    content = params[:content].to_s.strip
+
+    return render json: { error: 'invalid source' }, status: :bad_request unless %w[user ai].include?(source)
+    return render json: { error: 'empty content' }, status: :bad_request if content.blank?
+
+    conv = conversation || build_conversation_for_voice
+    msg_type = source == 'user' ? :incoming : :outgoing
+
+    msg = conv.messages.create!(
+      account_id: conv.account_id,
+      inbox_id:   conv.inbox_id,
+      message_type: msg_type,
+      content:    content,
+      sender:     source == 'user' ? @contact : nil,
+      content_attributes: { voice_transcript: true, role: source }
+    )
+
+    render json: { id: msg.id, conversation_id: conv.id }
+  rescue StandardError => e
+    Rails.logger.error "[VOICE-AGENT] voice_transcript failed: #{e.class} #{e.message}"
+    render json: { error: e.message }, status: :internal_server_error
+  end
+
   def set_custom_attributes
     conversation.update!(custom_attributes: permitted_params[:custom_attributes])
   end
@@ -128,6 +161,20 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   end
 
   private
+
+  # Used by voice_transcript when the visitor starts a voice call before
+  # sending any text message. Creates a new conversation tied to the existing
+  # contact / inbox / contact_inbox so the SDK's polling layer can pick it up
+  # on next fetch.
+  def build_conversation_for_voice
+    Conversation.create!(
+      account_id: @web_widget.inbox.account_id,
+      inbox_id:   @web_widget.inbox.id,
+      contact_id: @contact.id,
+      contact_inbox_id: @contact_inbox.id,
+      additional_attributes: { initiated_from: 'voice_agent' }
+    )
+  end
 
   def send_transcript_email
     return if conversation.contact&.email.blank?

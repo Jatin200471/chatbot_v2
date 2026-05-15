@@ -413,6 +413,7 @@ Rails.application.routes.draw do
             get  :toggle_status
             get  :inbox_config
             get  :voice_signed_url
+            post :voice_transcript
           end
         end
         resource :contact, only: [:show, :update] do
