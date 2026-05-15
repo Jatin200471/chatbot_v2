@@ -106,7 +106,10 @@ A non-obvious end-to-end chain. If you touch any piece, walk the whole chain:
    - Shows only when ALL three: `isVoiceAgentEnabled` AND `provider === 'elevenlabs'` AND `agentId` resolved.
    - Single mount location: `ChatInputWrap.vue` next to the emoji button. NOT in `HeaderActions.vue` — header instance was removed because we only want one call button per widget.
    - **Uses the `@elevenlabs/client` SDK programmatically** (loaded at runtime from `https://esm.sh/@elevenlabs/client` with `cdn.jsdelivr.net` as fallback), NOT the `<elevenlabs-convai>` web component. The web component renders its own floating "Need help? / Start a call" bubble that re-portals into `document.body` and cannot be hidden reliably. The Conversation API has no DOM footprint — our button is the only UI.
-   - **Public + Private agent flow**: button tries `Conversation.startSession({ agentId })` first. If that throws AND `voice_agent_api_key` is set on the inbox, it falls back to `GET /api/v1/widget/conversations/voice_signed_url` which exchanges the server-side API key for a short-lived signed URL via ElevenLabs' `/v1/convai/conversation/get-signed-url`. The API key never reaches the browser.
+   - **Connection path is chosen up-front, no try/catch fallback**:
+     - If `voice_agent_api_key` is set on the inbox → fetch a signed URL from `GET /api/v1/widget/conversations/voice_signed_url` and use `Conversation.startSession({ signedUrl })`. Works for both Public and Private agents.
+     - If no API key → use `Conversation.startSession({ agentId })`. Only works for Public agents.
+     - The earlier "try public, catch, fall back to private" was attempted but caused `could not createOffer with closed peer connection` — the first failed attempt left a closed `RTCPeerConnection` that broke the subsequent attempt. The API key never reaches the browser; only the short-lived signed URL does.
    - **Config re-fetch on widget open**: `App.vue` listens for `toggle-open` postMessage and dispatches `voiceAgentConfig/fetchVoiceAgentConfig` every time the iframe panel opens. This makes the dashboard's voice toggle take effect on the next bubble click without a full page reload.
 
 ## Things to verify / TODO

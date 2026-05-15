@@ -177,30 +177,26 @@ export default {
         // 2. Load SDK from CDN (with fallback).
         const { Conversation } = await loadSdk();
 
-        // 3a. Try public-agent path first.
-        try {
-          this.conversation = await this._startSessionFor(Conversation, {
-            agentId: this.resolvedAgentId,
-          });
-          return;
-        } catch (publicErr) {
-          // eslint-disable-next-line no-console
-          console.warn('[VOICE-AGENT] public agentId path failed:', publicErr);
-
-          // 3b. Fall back to signed-URL flow IF the inbox stores an API key.
-          if (!this.voiceAgentApiKey) {
-            throw new Error(
-              'ElevenLabs agent appears to be private. Either mark the agent as Public in ElevenLabs, or save an API Key on the inbox.'
-            );
-          }
+        // 3. Pick a single connection path up-front.
+        //    DO NOT try public→private with try/catch — the public path leaves
+        //    a closed RTCPeerConnection behind ("could not createOffer with
+        //    closed peer connection") which breaks the subsequent attempt.
+        //    The presence of an inbox API key tells us the admin wants the
+        //    signed-URL flow (works for both Public and Private agents).
+        let sessionOptions;
+        if (this.voiceAgentApiKey) {
           const signedUrl = await this._fetchSignedUrl();
           if (!signedUrl) {
             throw new Error(
               'Backend did not return a signed URL. Check inbox API key and /voice_signed_url logs.'
             );
           }
-          this.conversation = await this._startSessionFor(Conversation, { signedUrl });
+          sessionOptions = { signedUrl };
+        } else {
+          sessionOptions = { agentId: this.resolvedAgentId };
         }
+
+        this.conversation = await this._startSessionFor(Conversation, sessionOptions);
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error('[VOICE-AGENT] Failed to start call:', error);
