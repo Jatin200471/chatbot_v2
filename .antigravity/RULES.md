@@ -36,6 +36,12 @@ Short index of rules. Detailed rules live in `.antigravity/details/rules/`.
 - `agents/state/tasks.json` is the canonical machine-readable task state. `TASKS.md` is the human view.
 - After meaningful changes, run `harness validate /d/chatwoot-custom-master` and `dev-rag index`.
 
+## Voice agent rules
+
+- **Feature flag name is `elevenlabs_voice`** (bit 5 in `web_widget.rb`). Never use `voice_agent` for new code — it only exists for backwards-compat in the widget's flag check.
+- **`voice_agent_config_data` must be sent as a JSON string from the dashboard**, not a hash. Strong params drops nested hashes for bare-symbol whitelist entries. The controller re-parses it.
+- **Always mirror `agent_id` to both** `elevenlabs_agent_id` (column) and `voice_agent_config_data.agent_id` (jsonb) when saving — different consumers read different locations.
+
 ## TODO — to be filled by team
 
 - Coding style / linting rules (ESLint, Rubocop config — to be documented)

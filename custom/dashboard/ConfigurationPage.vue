@@ -41,6 +41,7 @@ export default {
       voiceAgentEnabled: false,
       voiceAgentProvider: 'elevenlabs',
       voiceAgentApiKey: '',
+      voiceAgentAgentId: '',
       voiceAgentConfigData: {},
       isUpdatingVoiceAgent: false,
     };
@@ -76,10 +77,13 @@ export default {
       this.voiceAgentEnabled = flags.includes('elevenlabs_voice') || flags.includes('voice_agent');
       this.voiceAgentProvider = this.inbox.voice_agent_provider || 'elevenlabs';
       this.voiceAgentApiKey = this.inbox.voice_agent_api_key || '';
+      // Prefer the dedicated column; fall back to whatever is inside the JSON blob.
       const rawConfig = this.inbox.voice_agent_config_data || {};
-      this.voiceAgentConfigData = typeof rawConfig === 'string'
-        ? rawConfig
-        : JSON.stringify(rawConfig, null, 2);
+      const parsedConfig = typeof rawConfig === 'string'
+        ? (() => { try { return JSON.parse(rawConfig); } catch (_) { return {}; } })()
+        : rawConfig;
+      this.voiceAgentAgentId = this.inbox.elevenlabs_agent_id || parsedConfig.agent_id || '';
+      this.voiceAgentConfigData = JSON.stringify(parsedConfig, null, 2);
     },
     handleHmacFlag() {
       this.updateInbox();
@@ -161,15 +165,26 @@ export default {
     async updateVoiceAgentSettings() {
       this.isUpdatingVoiceAgent = true;
       try {
-        // Parse configData — may be a raw JSON string from the textarea
-        let configData = this.voiceAgentConfigData;
-        if (typeof configData === 'string') {
-          try { configData = JSON.parse(configData); } catch (_) { configData = {}; }
+        // Parse the optional advanced JSON blob. Empty / invalid → {}.
+        let configData = {};
+        if (typeof this.voiceAgentConfigData === 'string') {
+          const trimmed = this.voiceAgentConfigData.trim();
+          if (trimmed) {
+            try { configData = JSON.parse(trimmed); } catch (_) { configData = {}; }
+          }
+        } else if (this.voiceAgentConfigData && typeof this.voiceAgentConfigData === 'object') {
+          configData = this.voiceAgentConfigData;
         }
 
-        // Build the feature flags list:
-        // We use the 'elevenlabs_voice' FlagShihTzu bit (bit 5) which already
-        // exists in web_widget.rb. Remove it first then re-add if enabled.
+        // Agent ID input wins. Mirror it into the JSON blob so the widget's
+        // existing voice_agent_config_data.agent_id read path keeps working.
+        const agentId = (this.voiceAgentAgentId || '').trim();
+        if (agentId) {
+          configData = { ...configData, agent_id: agentId };
+        }
+
+        // Dashboard uses the 'elevenlabs_voice' FlagShihTzu bit (bit 5,
+        // see web_widget.rb). Strip both legacy names before re-adding.
         const currentFlags = (this.inbox.selected_feature_flags || []).filter(
           f => f !== 'elevenlabs_voice' && f !== 'voice_agent'
         );
@@ -177,13 +192,10 @@ export default {
           currentFlags.push('elevenlabs_voice');
         }
 
-        // Pull agent_id out of configData if using ElevenLabs so the legacy
-        // elevenlabs_agent_id column also gets updated (widget reads it too).
-        const agentId =
-          (this.voiceAgentProvider === 'elevenlabs' && configData?.agent_id)
-            ? configData.agent_id
-            : (this.inbox.elevenlabs_agent_id || '');
-
+        // Send config_data as a JSON STRING. EDITABLE_ATTRS lists
+        // :voice_agent_config_data as a bare symbol, so Rails strong params
+        // would silently drop a nested hash. The controller has matching
+        // JSON.parse logic for string input. See inboxes_controller.rb.
         const payload = {
           id: this.inbox.id,
           formData: false,
@@ -191,7 +203,7 @@ export default {
             selected_feature_flags: currentFlags,
             voice_agent_provider: this.voiceAgentProvider,
             voice_agent_api_key: this.voiceAgentApiKey,
-            voice_agent_config_data: configData,
+            voice_agent_config_data: JSON.stringify(configData),
             elevenlabs_agent_id: agentId,
           },
         };
@@ -384,23 +396,43 @@ export default {
               />
             </div>
 
-            <!-- Config JSON -->
+            <!-- Agent ID -->
             <div class="flex flex-col gap-1.5">
-              <label class="text-sm font-medium text-n-slate-11" for="voiceAgentConfig">
-                Configuration Data
-                <span class="text-n-slate-9 font-normal ml-1">optional JSON — provider-specific settings</span>
+              <label class="text-sm font-medium text-n-slate-11" for="voiceAgentAgentId">
+                Agent ID
+                <span class="text-n-slate-9 font-normal ml-1">required — voice agent will not appear in widget without this</span>
               </label>
-              <textarea
-                id="voiceAgentConfig"
-                v-model="voiceAgentConfigData"
-                placeholder='{"agent_id": "agent_xxx", "voice_id": "voice_xxx", "timeout": 300}'
-                class="chatwoot-input chatwoot-input--mono w-full max-w-lg"
-                rows="5"
+              <input
+                id="voiceAgentAgentId"
+                v-model="voiceAgentAgentId"
+                type="text"
+                placeholder="agent_xxxxxxxxxxxxxxxxxxxxxxxxx"
+                class="chatwoot-input w-full max-w-lg"
               />
               <p class="text-xs text-n-slate-10 mt-0.5">
-                Enter valid JSON with any additional configuration your voice agent provider requires.
+                For ElevenLabs, copy this from your agent dashboard at elevenlabs.io.
               </p>
             </div>
+
+            <!-- Config JSON (advanced / optional) -->
+            <details class="flex flex-col gap-1.5">
+              <summary class="text-sm font-medium text-n-slate-11 cursor-pointer select-none">
+                Advanced configuration
+                <span class="text-n-slate-9 font-normal ml-1">optional JSON for provider-specific extras</span>
+              </summary>
+              <div class="flex flex-col gap-1.5 mt-2">
+                <textarea
+                  id="voiceAgentConfig"
+                  v-model="voiceAgentConfigData"
+                  placeholder='{"voice_id": "voice_xxx", "timeout": 300}'
+                  class="chatwoot-input chatwoot-input--mono w-full max-w-lg"
+                  rows="5"
+                />
+                <p class="text-xs text-n-slate-10 mt-0.5">
+                  Anything extra your provider needs (voice_id, timeout, etc.). The Agent ID field above takes priority.
+                </p>
+              </div>
+            </details>
           </div>
         </transition>
 

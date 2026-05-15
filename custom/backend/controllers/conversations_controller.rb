@@ -72,7 +72,8 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
           selected_feature_flags: @web_widget.selected_feature_flags || [],
           voice_agent_provider: @web_widget.voice_agent_provider || 'elevenlabs',
           voice_agent_api_key: @web_widget.voice_agent_api_key || '',
-          voice_agent_config_data: @web_widget.voice_agent_config_data || {}
+          voice_agent_config_data: @web_widget.voice_agent_config_data || {},
+          elevenlabs_agent_id: @web_widget.elevenlabs_agent_id || ''
         }
       }
     }

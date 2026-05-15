@@ -58,6 +58,26 @@ docker compose up -d                            # bring up stack
 
 The last 50+ commits are mostly `fix: button error part same name N` — incremental debugging on the voice button component. The repo has a working pattern of small, named iterations rather than large refactors.
 
+## Voice agent — admin-configured (per inbox) flow
+
+A non-obvious end-to-end chain. If you touch any piece, walk the whole chain:
+
+1. **Dashboard saves** (`custom/dashboard/ConfigurationPage.vue`)
+   - Feature flag is `'elevenlabs_voice'` (bit 5, see `web_widget.rb:55`). NOT `'voice_agent'`.
+   - Agent ID is stored in **two places**: the `elevenlabs_agent_id` column AND inside `voice_agent_config_data.agent_id`. UI surfaces a dedicated `voiceAgentAgentId` field which writes to both.
+   - `voice_agent_config_data` must be sent to backend as a **JSON string**, not a hash. Reason: `EDITABLE_ATTRS` lists it as a bare symbol (`:voice_agent_config_data`), so Rails strong params would silently drop a nested hash. `inboxes_controller.rb:150-157` re-parses the string.
+
+2. **Backend exposes** to widget (`custom/backend/controllers/conversations_controller.rb#inbox_config`)
+   - Endpoint: `GET /api/v1/widget/conversations/inbox_config?website_token=...`
+   - Returns `selected_feature_flags`, `voice_agent_provider`, `voice_agent_api_key`, `voice_agent_config_data`, **and** `elevenlabs_agent_id`.
+
+3. **Widget reads** (`custom/widget/store/modules/voiceAgentConfig.js`)
+   - Checks `flags.includes('elevenlabs_voice')` (accepts legacy `'voice_agent'` too).
+   - `getAgentId` resolves in order: `voice_agent_config_data.agent_id` → `elevenlabs_agent_id` column → `window.chatwootConfig` → null.
+
+4. **Button gating** (`custom/widget/components/ElevenLabsVoiceButton.vue`)
+   - Shows only when ALL three: `isVoiceAgentEnabled` AND `provider === 'elevenlabs'` AND `agentId` resolved.
+
 ## Things to verify / TODO
 
 - Purpose of empty `custom-widget/` directory at repo root vs `custom/widget/`

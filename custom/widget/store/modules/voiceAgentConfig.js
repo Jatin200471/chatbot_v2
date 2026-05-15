@@ -8,6 +8,7 @@ const state = {
   voiceAgentProvider: 'elevenlabs',
   voiceAgentApiKey: '',
   voiceAgentConfigData: {},
+  elevenlabsAgentId: '',
   isLoading: false,
   error: null,
 };
@@ -20,11 +21,12 @@ const getters = {
   getIsLoading: state => state.isLoading,
   getError: state => state.error,
   getAgentId: state => {
-    // Try to get agent ID from config data first
     if (state.voiceAgentConfigData && state.voiceAgentConfigData.agent_id) {
       return state.voiceAgentConfigData.agent_id;
     }
-    // Fallback to environment variable if configured
+    if (state.elevenlabsAgentId) {
+      return state.elevenlabsAgentId;
+    }
     if (typeof window !== 'undefined' && window.chatwootConfig) {
       return window.chatwootConfig.elevenLabsAgentId || null;
     }
@@ -63,10 +65,16 @@ const actions = {
         const inbox = data.payload.inbox;
         const flags = inbox.selected_feature_flags || [];
 
-        commit('setVoiceAgentEnabled', flags.includes('voice_agent'));
+        // Dashboard saves 'elevenlabs_voice' (bit 5 in web_widget.rb).
+        // Accept legacy 'voice_agent' too for backwards-compat.
+        commit(
+          'setVoiceAgentEnabled',
+          flags.includes('elevenlabs_voice') || flags.includes('voice_agent')
+        );
         commit('setVoiceAgentProvider', inbox.voice_agent_provider || 'elevenlabs');
         commit('setVoiceAgentApiKey', inbox.voice_agent_api_key || '');
         commit('setVoiceAgentConfigData', inbox.voice_agent_config_data || {});
+        commit('setElevenlabsAgentId', inbox.elevenlabs_agent_id || '');
       }
     } catch (error) {
       console.error('[VOICE-AGENT] Error fetching config:', error);
@@ -100,6 +108,9 @@ const mutations = {
   },
   setVoiceAgentConfigData(state, configData) {
     state.voiceAgentConfigData = configData;
+  },
+  setElevenlabsAgentId(state, agentId) {
+    state.elevenlabsAgentId = agentId;
   },
   setError(state, error) {
     state.error = error;
