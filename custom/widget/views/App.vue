@@ -334,7 +334,10 @@ export default {
           if (!message.isOpen) {
             this.resetCampaign();
           } else {
-            // When widget opens, immediately check if conversation was resolved externally
+            // When widget opens: re-pull inbox/voice config so admin toggle
+            // changes take effect without a full page reload, then verify the
+            // conversation hasn't been resolved externally.
+            this.fetchVoiceAgentConfig();
             this.checkAndClearResolvedConversation();
           }
 

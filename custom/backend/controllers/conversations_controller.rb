@@ -1,7 +1,9 @@
+require 'net/http'
+
 class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   include Events::Types
   before_action :render_not_found_if_empty, only: [:toggle_typing, :toggle_status, :set_custom_attributes, :destroy_custom_attributes]
-  skip_before_action :set_contact, only: [:inbox_config]
+  skip_before_action :set_contact, only: [:inbox_config, :voice_signed_url]
 
   def index
     @conversation = conversation
@@ -77,6 +79,42 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
         }
       }
     }
+  end
+
+  # Exchange the inbox's stored ElevenLabs API key for a short-lived signed
+  # WebSocket URL. The key NEVER leaves the server. The widget receives only
+  # the signed URL and passes it to Conversation.startSession({ signedUrl }).
+  # Required for PRIVATE ElevenLabs agents; not needed for Public agents.
+  def voice_signed_url
+    @inbox = @web_widget.inbox
+    api_key = @web_widget.voice_agent_api_key.to_s.strip
+    agent_id = @web_widget.elevenlabs_agent_id.to_s.strip
+
+    if agent_id.blank?
+      return render json: { error: 'No agent_id configured on this inbox' }, status: :unprocessable_entity
+    end
+    if api_key.blank?
+      return render json: { error: 'No API key configured on this inbox' }, status: :unprocessable_entity
+    end
+
+    uri = URI("https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=#{agent_id}")
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = true
+    http.read_timeout = 10
+    req = Net::HTTP::Get.new(uri)
+    req['xi-api-key'] = api_key
+    res = http.request(req)
+
+    if res.is_a?(Net::HTTPSuccess)
+      body = JSON.parse(res.body)
+      render json: { signed_url: body['signed_url'] }
+    else
+      Rails.logger.error "[VOICE-AGENT] ElevenLabs signed-url request failed: #{res.code} #{res.body}"
+      render json: { error: "ElevenLabs API responded #{res.code}" }, status: :bad_gateway
+    end
+  rescue StandardError => e
+    Rails.logger.error "[VOICE-AGENT] signed-url exception: #{e.class} #{e.message}"
+    render json: { error: e.message }, status: :internal_server_error
   end
 
   def set_custom_attributes

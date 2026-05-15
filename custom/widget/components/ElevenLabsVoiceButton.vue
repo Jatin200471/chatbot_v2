@@ -1,35 +1,58 @@
 <script>
 import { mapGetters, mapActions } from 'vuex';
 import configMixin from '../mixins/configMixin';
+import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Programmatic ElevenLabs Conversational AI integration.
 //
-// We deliberately do NOT use the <elevenlabs-convai> web component anymore:
-// it renders its own floating "Need help? / Start a call" bubble on the page
-// in addition to whatever we mount, which is confusing for visitors and
-// impossible to hide reliably (the embed re-portals into document.body).
+// We deliberately do NOT use the <elevenlabs-convai> web component because it
+// renders its own floating "Need help? / Start a call" bubble that re-portals
+// into document.body and cannot be hidden reliably. Instead we load the
+// @elevenlabs/client SDK at runtime and drive the call from our own button.
 //
-// Instead we load the @elevenlabs/client SDK from esm.sh at runtime and drive
-// the call entirely through OUR call button. Nothing extra appears on the
-// page. The SDK's Conversation.startSession() handles WebRTC mic capture,
-// signalling and playback — we only need an agent id.
+// Two connection modes are supported:
+//   1. PUBLIC agent  → Conversation.startSession({ agentId })  (no API key)
+//   2. PRIVATE agent → fetch a signed URL from our backend (which uses the
+//                      inbox's voice_agent_api_key), then
+//                      Conversation.startSession({ signedUrl })
+//
+// We try public first. If ElevenLabs returns 401/403 (private agent) AND we
+// have an API key configured on the inbox, we fall back to the signed-URL
+// flow. The API key is NEVER sent to the browser directly — only the signed
+// URL is returned to the widget.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ELEVENLABS_SDK_URL = 'https://esm.sh/@elevenlabs/client@0.1.0';
-let elevenLabsSdkPromise = null;
-const loadElevenLabsSdk = () => {
-  if (elevenLabsSdkPromise) return elevenLabsSdkPromise;
-  elevenLabsSdkPromise = (async () => {
-    // /* @vite-ignore */ — keep this as a runtime URL import, do not bundle.
-    const url = ELEVENLABS_SDK_URL;
-    const mod = await import(/* @vite-ignore */ url);
-    return mod;
-  })().catch(err => {
-    elevenLabsSdkPromise = null;
-    throw err;
-  });
-  return elevenLabsSdkPromise;
+const SDK_CDN_CANDIDATES = [
+  'https://esm.sh/@elevenlabs/client',
+  'https://cdn.jsdelivr.net/npm/@elevenlabs/client/+esm',
+];
+
+let sdkPromise = null;
+const loadSdk = () => {
+  if (sdkPromise) return sdkPromise;
+  sdkPromise = (async () => {
+    let lastErr;
+    for (const url of SDK_CDN_CANDIDATES) {
+      try {
+        const mod = await import(/* @vite-ignore */ url);
+        const Conversation = mod?.Conversation || mod?.default?.Conversation;
+        if (Conversation) return { Conversation };
+        lastErr = new Error('SDK loaded but Conversation export missing: ' + url);
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    sdkPromise = null;
+    throw lastErr || new Error('All ElevenLabs SDK CDNs failed');
+  })();
+  return sdkPromise;
+};
+
+const buildConvUrl = path => {
+  if (!WEBSITE_TOKEN) return path;
+  const sep = path.includes('?') ? '&' : '?';
+  return `${path}${sep}website_token=${WEBSITE_TOKEN}`;
 };
 
 export default {
@@ -57,6 +80,7 @@ export default {
       isVoiceAgentEnabled: 'voiceAgentConfig/isVoiceAgentEnabled',
       voiceAgentAgentId: 'voiceAgentConfig/getAgentId',
       voiceAgentProvider: 'voiceAgentConfig/getVoiceAgentProvider',
+      voiceAgentApiKey: 'voiceAgentConfig/getVoiceAgentApiKey',
     }),
     hasElevenLabsVoiceEnabled() {
       return (
@@ -109,6 +133,33 @@ export default {
       }
     },
 
+    async _fetchSignedUrl() {
+      // Backend endpoint resolves the inbox's stored API key and returns a
+      // short-lived signed WebSocket URL from ElevenLabs.
+      const { data } = await API.get(
+        buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
+      );
+      return data?.signed_url;
+    },
+
+    async _startSessionFor(Conversation, options) {
+      return Conversation.startSession({
+        ...options,
+        onConnect: () => {
+          this.isConnecting = false;
+          this.setConnecting(false);
+          this.isCallActive = true;
+          this.setActive(true);
+        },
+        onDisconnect: () => this._cleanupSession(),
+        onError: err => {
+          // eslint-disable-next-line no-console
+          console.error('[VOICE-AGENT] session error:', err);
+          this._cleanupSession();
+        },
+      });
+    },
+
     async startCall() {
       if (this.isConnecting || this.isCallActive) return;
       if (!this.resolvedAgentId || !this.hasElevenLabsVoiceEnabled) return;
@@ -117,39 +168,47 @@ export default {
       this.setConnecting(true);
 
       try {
-        if (navigator.mediaDevices?.getUserMedia) {
-          await navigator.mediaDevices.getUserMedia({ audio: true });
+        // 1. Mic permission must be granted before the WebRTC handshake.
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Browser does not expose getUserMedia (insecure context?)');
         }
+        await navigator.mediaDevices.getUserMedia({ audio: true });
 
-        const sdk = await loadElevenLabsSdk();
-        const Conversation = sdk?.Conversation || sdk?.default?.Conversation;
-        if (!Conversation) {
-          throw new Error('ElevenLabs SDK did not expose Conversation');
+        // 2. Load SDK from CDN (with fallback).
+        const { Conversation } = await loadSdk();
+
+        // 3a. Try public-agent path first.
+        try {
+          this.conversation = await this._startSessionFor(Conversation, {
+            agentId: this.resolvedAgentId,
+          });
+          return;
+        } catch (publicErr) {
+          // eslint-disable-next-line no-console
+          console.warn('[VOICE-AGENT] public agentId path failed:', publicErr);
+
+          // 3b. Fall back to signed-URL flow IF the inbox stores an API key.
+          if (!this.voiceAgentApiKey) {
+            throw new Error(
+              'ElevenLabs agent appears to be private. Either mark the agent as Public in ElevenLabs, or save an API Key on the inbox.'
+            );
+          }
+          const signedUrl = await this._fetchSignedUrl();
+          if (!signedUrl) {
+            throw new Error(
+              'Backend did not return a signed URL. Check inbox API key and /voice_signed_url logs.'
+            );
+          }
+          this.conversation = await this._startSessionFor(Conversation, { signedUrl });
         }
-
-        this.conversation = await Conversation.startSession({
-          agentId: this.resolvedAgentId,
-          onConnect: () => {
-            this.isConnecting = false;
-            this.setConnecting(false);
-            this.isCallActive = true;
-            this.setActive(true);
-          },
-          onDisconnect: () => {
-            this._cleanupSession();
-          },
-          onError: err => {
-            // eslint-disable-next-line no-console
-            console.error('[VOICE-AGENT] Call error:', err);
-            this._cleanupSession();
-          },
-        });
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error('[VOICE-AGENT] Failed to start call:', error);
         this._cleanupSession();
         if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') {
           alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS'));
+        } else if (error?.message) {
+          alert('Voice call failed: ' + error.message);
         }
       }
     },
