@@ -39,7 +39,7 @@ ENV VITE_ELEVENLABS_AGENT_ID=${VITE_ELEVENLABS_AGENT_ID}
 ENV VITE_ELEVENLABS_VOICE_ID=${VITE_ELEVENLABS_VOICE_ID}
 ENV VITE_ELEVENLABS_AGENT_NAME=${VITE_ELEVENLABS_AGENT_NAME}
 
-RUN NODE_OPTIONS="--max-old-space-size=1024 --max-http-header-size=16384" \
+RUN NODE_OPTIONS="--max-old-space-size=3072 --max-http-header-size=16384" \
     node_modules/.bin/vite build --config vite.config.ts --minify esbuild
 
 RUN echo "=== BUILD OUTPUT ===" && \
