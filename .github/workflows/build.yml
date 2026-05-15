@@ -1,36 +1,79 @@
 name: Build & Push Docker Image
 
+# Builds the custom Chatwoot image and pushes it to GitHub Container Registry
+# (GHCR) on every push to `main` and on every tag push (vX.Y.Z). The image is
+# tagged with:
+#   - the short commit SHA       (e.g. ghcr.io/jatinn71/chatwoot-custom:a1b2c3d)
+#   - the git ref name           (e.g. ghcr.io/jatinn71/chatwoot-custom:main)
+#   - the version tag if any     (e.g. ghcr.io/jatinn71/chatwoot-custom:v1.0.0)
+#   - `latest`                   (only on main branch)
+#
+# Why GHCR instead of Docker Hub:
+#   - Free, unlimited storage for public packages.
+#   - Native to GitHub: uses the auto-provisioned GITHUB_TOKEN, so no PAT to
+#     rotate. Private packages are free for the repo owner too.
+#   - Image visibility (public/private) is controlled per-package from the
+#     GitHub UI: https://github.com/<owner>?tab=packages
+
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+    tags: ['v*.*.*']
   workflow_dispatch:
+
+# Permissions the auto-issued GITHUB_TOKEN needs to push to GHCR.
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4.2.2
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Generates a sensible set of tags + OCI labels from the git ref.
+      # Docs: https://github.com/docker/metadata-action
+      - name: Compute image tags + labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/chatwoot-custom
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: jatin4002/chatwoot-custom:latest
-          build-args: |
-            VITE_ELEVENLABS_AGENT_ID=agent_6601kc1fqeecfc88s7d52jde0syq
-            VITE_ELEVENLABS_VOICE_ID=
-            VITE_ELEVENLABS_AGENT_NAME=AI Assistant
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Layer cache speeds up subsequent CI builds significantly.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Verify push
-        run: echo "✅ Image pushed to jatin4002/chatwoot-custom:latest"
+      - name: Image summary
+        run: |
+          echo "### Pushed image tags" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "Pull with:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ghcr.io/${{ github.repository_owner }}/chatwoot-custom:latest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
