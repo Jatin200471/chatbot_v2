@@ -17,6 +17,8 @@ const getters = {
   getVoiceAgentProvider: state => state.voiceAgentProvider,
   getVoiceAgentApiKey: state => state.voiceAgentApiKey,
   getVoiceAgentConfig: state => state.voiceAgentConfigData,
+  getIsLoading: state => state.isLoading,
+  getError: state => state.error,
   getAgentId: state => {
     // Try to get agent ID from config data first
     if (state.voiceAgentConfigData && state.voiceAgentConfigData.agent_id) {
@@ -51,16 +53,16 @@ const getters = {
 const actions = {
   // Fetch voice agent config from inbox API
   async fetchVoiceAgentConfig({ commit }) {
-    state.isLoading = true;
-    state.error = null;
+    commit('setLoading', true);
+    commit('setError', null);
     try {
       const { data } = await getInboxConfigAPI();
-      
+
       // Extract voice agent settings from response
       if (data && data.payload && data.payload.inbox) {
         const inbox = data.payload.inbox;
         const flags = inbox.selected_feature_flags || [];
-        
+
         commit('setVoiceAgentEnabled', flags.includes('voice_agent'));
         commit('setVoiceAgentProvider', inbox.voice_agent_provider || 'elevenlabs');
         commit('setVoiceAgentApiKey', inbox.voice_agent_api_key || '');
@@ -68,9 +70,9 @@ const actions = {
       }
     } catch (error) {
       console.error('[VOICE-AGENT] Error fetching config:', error);
-      state.error = error.message;
+      commit('setError', error.message);
     } finally {
-      state.isLoading = false;
+      commit('setLoading', false);
     }
   },
 
@@ -84,6 +86,9 @@ const actions = {
 };
 
 const mutations = {
+  setLoading(state, value) {
+    state.isLoading = value;
+  },
   setVoiceAgentEnabled(state, enabled) {
     state.voiceAgentEnabled = enabled;
   },

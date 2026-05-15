@@ -1,4 +1,6 @@
-#!/bin/bash
+{
+  "agent_id": "agent_6601kc1fqeecfc88s7d52jde0syq"
+}#!/bin/bash
 
 # Build script for Chatwoot with configurable ElevenLabs agent ID
 # Usage: ./build.sh [agent_id] [voice_id] [agent_name]
