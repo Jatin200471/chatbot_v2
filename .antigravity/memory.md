@@ -112,6 +112,42 @@ A non-obvious end-to-end chain. If you touch any piece, walk the whole chain:
    - **Config re-fetch on widget open**: `App.vue` listens for `toggle-open` postMessage and dispatches `voiceAgentConfig/fetchVoiceAgentConfig` every time the iframe panel opens. This makes the dashboard's voice toggle take effect on the next bubble click without a full page reload.
    - **Voice transcript → Chatwoot messages**: ElevenLabs SDK's `onMessage` callback fires once per completed turn (user or AI). The button forwards each chunk to `POST /api/v1/widget/conversations/voice_transcript` which appends it to the visitor's conversation (`message_type: incoming` for user, `outgoing` for AI). Each row carries `content_attributes: { voice_transcript: true, role }` so the dashboard / reports can style them differently. If the visitor has no conversation yet (voice-first flow), the controller creates one tagged `additional_attributes: { initiated_from: 'voice_agent' }`. After each successful post the widget dispatches `conversation/syncLatestMessages` so the visitor also sees their voice turns in the message bubble area in real time.
 
+## ElevenLabs env vars are gone — fully dashboard-driven
+
+`VITE_ELEVENLABS_AGENT_ID`, `VITE_ELEVENLABS_VOICE_ID`, and
+`VITE_ELEVENLABS_AGENT_NAME` have been **removed** from `.env`, `.env.example`,
+and `Dockerfile` (both stage 1 and stage 2). Voice agent config now lives
+exclusively in the per-inbox dashboard (`voice_agent_provider`,
+`voice_agent_api_key`, `voice_agent_config_data`, `elevenlabs_agent_id`) and
+the widget pulls it via `GET /api/v1/widget/conversations/inbox_config`.
+
+If a future hardcoded fallback is genuinely required for some edge case,
+prefer adding it to `appConfig.js` as a default — do NOT reintroduce the env
+var indirection.
+
+## Call-end teardown is layered
+
+The `<elevenlabs-convai>` web component does not always close its underlying
+WebSocket / WebRTC when you click its in-shadow-DOM end button — the mic
+keeps streaming. `ElevenLabsVoiceButton.endCall()` therefore tears down in
+three layers before remounting:
+
+1. Call any public end method exposed on the custom element
+   (`endSession` / `endCall` / `disconnect` / `stop` / `close`).
+2. Click the embed's internal end button as a fallback.
+3. Remove the element from the DOM 300 ms later — its
+   `disconnectedCallback` force-closes the WebSocket + RTCPeerConnection.
+
+Then we remount a fresh embed so the next call starts cold.
+
+## Operator-facing setup guide
+
+`SETUP.txt` at the repo root is the onboarding doc for a teammate or client
+spinning up their own copy. It covers both "pull pre-built image" and
+"build locally" paths, env values, post-install voice-agent wiring, and the
+universal `<script>` embed snippet that works on any front-end stack.
+Keep it in sync with reality — it is referenced from Dockerfile labels.
+
 ## Widget branding override
 
 The "Powered by …" footer at the bottom of the widget is rendered by upstream

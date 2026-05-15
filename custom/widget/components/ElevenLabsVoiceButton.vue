@@ -232,11 +232,42 @@ export default {
     },
 
     endCall() {
-      this.clickWidgetButton({ preferEnd: true });
-      // Remount so the next call starts from a clean state.
-      this.removeWidget();
-      this.ensureWidgetMounted();
+      // The convai web component does NOT always close its underlying
+      // WebSocket / WebRTC session when we just "click the end button"
+      // inside its shadow DOM — sometimes the call keeps running with the
+      // visitor's mic still streaming. Tear it down in three layers so the
+      // session is *actually* dead before we remount:
+      //
+      //   1. Call the embed's public API methods if any are exposed on the
+      //      element itself (different SDK versions have used different
+      //      names: endSession / endCall / disconnect / stop).
+      //   2. Click the embed's internal end button as a fallback for older
+      //      bundles that don't expose any public methods.
+      //   3. Remove the custom element entirely — its `disconnectedCallback`
+      //      forces the SDK to close the WebSocket and the WebRTC peer.
+      const el = this.widgetElement;
+      if (el) {
+        try {
+          ['endSession', 'endCall', 'disconnect', 'stop', 'close'].forEach(
+            name => {
+              if (typeof el[name] === 'function') {
+                try { el[name](); } catch (_) {}
+              }
+            }
+          );
+        } catch (_) {}
+        this.clickWidgetButton({ preferEnd: true });
+      }
+
+      // Flip our local state immediately so the UI shows the idle phone icon.
       this._cleanupSession();
+
+      // Give the embed ~300ms to flush the disconnect frame, then remove +
+      // remount so the next call starts from a clean RTCPeerConnection.
+      setTimeout(() => {
+        this.removeWidget();
+        this.ensureWidgetMounted();
+      }, 300);
     },
 
     removeWidget() {

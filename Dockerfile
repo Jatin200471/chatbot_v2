@@ -40,13 +40,9 @@ COPY custom/widget/api/conversation.js app/javascript/widget/api/conversation.js
 COPY custom/widget/api/inboxConfig.js app/javascript/widget/api/inboxConfig.js
 COPY custom/dashboard/ConfigurationPage.vue app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue
 
-ARG VITE_ELEVENLABS_AGENT_ID=agent_6601kc1fqeecfc88s7d52jde0syq
-ARG VITE_ELEVENLABS_VOICE_ID=
-ARG VITE_ELEVENLABS_AGENT_NAME=AI Assistant
-
-ENV VITE_ELEVENLABS_AGENT_ID=${VITE_ELEVENLABS_AGENT_ID}
-ENV VITE_ELEVENLABS_VOICE_ID=${VITE_ELEVENLABS_VOICE_ID}
-ENV VITE_ELEVENLABS_AGENT_NAME=${VITE_ELEVENLABS_AGENT_NAME}
+# Voice agent (ElevenLabs / Dograh / etc.) configuration is now done per
+# inbox from the Chatwoot dashboard at runtime. No build-time ARG/ENV vars
+# are required for the voice integration.
 
 # ── Vite build ────────────────────────────────────────────────────────────────
 # Memory tuning rationale:
@@ -78,14 +74,6 @@ RUN echo "=== BUILD OUTPUT ===" && \
 # ── Stage 2: Final Chatwoot image ─────────────────────────────────────────────
 FROM chatwoot/chatwoot:latest
 
-ARG VITE_ELEVENLABS_AGENT_ID=agent_6601kc1fqeecfc88s7d52jde0syq
-ARG VITE_ELEVENLABS_VOICE_ID=
-ARG VITE_ELEVENLABS_AGENT_NAME=AI Assistant
-
-ENV VITE_ELEVENLABS_AGENT_ID=${VITE_ELEVENLABS_AGENT_ID}
-ENV VITE_ELEVENLABS_VOICE_ID=${VITE_ELEVENLABS_VOICE_ID}
-ENV VITE_ELEVENLABS_AGENT_NAME=${VITE_ELEVENLABS_AGENT_NAME}
-
 # Copy ALL public build output
 COPY --from=node-builder /chatwoot-src/public /app/public
 
@@ -109,10 +97,6 @@ COPY custom/backend/migrations/20260409000001_add_voice_agent_config_to_channel_
 # override the Vite-built assets and break the application.
 
 # ── Image Metadata ────────────────────────────────────────────────────────────
-LABEL org.opencontainers.image.title="Chatwoot with ElevenLabs Voice + Persistent User Data"
-LABEL org.opencontainers.image.description="Chatwoot custom image with ElevenLabs voice integration and persistent user data across sessions"
-
-# ── Environment Variables ──────────────────────────────────────────────────────
-ENV VITE_ELEVENLABS_AGENT_ID=${VITE_ELEVENLABS_AGENT_ID}
-ENV VITE_ELEVENLABS_VOICE_ID=${VITE_ELEVENLABS_VOICE_ID}
-ENV VITE_ELEVENLABS_AGENT_NAME=${VITE_ELEVENLABS_AGENT_NAME}
+LABEL org.opencontainers.image.title="Chatwoot Custom — Voice Agent + Persistent User Data"
+LABEL org.opencontainers.image.description="Chatwoot fork with dashboard-configurable voice agent (ElevenLabs / multi-provider) and persistent contact data across sessions"
+LABEL org.opencontainers.image.source="https://github.com/jAtInn71/chatwoot-custom-master"
