@@ -23,7 +23,6 @@ export const actions = {
       const [message = {}] = messages;
       commit('pushMessageToConversation', message);
       dispatch('conversationAttributes/getAttributes', {}, { root: true });
-      // Emit event to notify that conversation is created and show the chat screen
       emitter.emit(ON_CONVERSATION_CREATED);
     } catch (error) {
       console.error('[createConversation] Failed:', {
@@ -32,11 +31,8 @@ export const actions = {
         data: error.response?.data,
         message: error.message,
       });
-      // Show error to user
       const errorMsg = error.response?.data?.error || error.message || 'Failed to create conversation';
       console.error('[createConversation] Error message:', errorMsg);
-      // You could dispatch an error notification here if needed
-      // e.g., dispatch('notifications/showError', errorMsg, { root: true });
     } finally {
       commit('setConversationUIFlag', { isCreating: false });
     }
@@ -84,8 +80,6 @@ export const actions = {
         commit('clearPendingConversationMetadata');
       }
 
-      // [VITE] Don't delete this manually, since `pushMessageToConversation` does the replacement for us anyway
-      // commit('deleteMessage', message.id);
       commit('pushMessageToConversation', { ...data, status: 'sent' });
     } catch (error) {
       console.error('[sendMessageWithData] Error:', {
@@ -148,7 +142,6 @@ export const actions = {
         id: tempMessage.id,
         meta: { ...meta, error: '' },
       });
-      // Show error
     }
   },
 
@@ -163,11 +156,6 @@ export const actions = {
       commit('conversation/setMetaUserLastSeenAt', lastSeen, { root: true });
       commit('setMessagesInConversation', formattedMessages);
     } catch (error) {
-      // On 404 the conversation no longer exists (resolved/deleted after exit-chat).
-      // Treat this as "no conversation" — the store stays empty, and Home.vue's
-      // startConversation() will route to prechat-form because conversationSize === 0.
-      // No storage clearing needed here — clearCurrentUser() already wiped everything
-      // when the user clicked Exit Chat.
       if (error.response?.status === 404) {
         commit('clearConversations');
       }
@@ -193,7 +181,6 @@ export const actions = {
       missingMessages.forEach(message => {
         conversations[message.id] = message;
       });
-      // Sort conversation messages by created_at
       const updatedConversation = Object.fromEntries(
         Object.entries(conversations).sort(
           (a, b) => a[1].created_at - b[1].created_at
@@ -223,7 +210,13 @@ export const actions = {
     commit('toggleAgentTypingStatus', data);
   },
 
-  toggleUserTyping: async (_, data) => {
+  // FIX: guard against firing toggle_typing when no conversation exists yet.
+  // On a fresh session this endpoint returns 404 because the conversation row
+  // hasn't been created yet — the request is wasteful and noisy in the console.
+  toggleUserTyping: async ({ rootGetters }, data) => {
+    const conversationId =
+      rootGetters['conversationAttributes/getConversationParams']?.id;
+    if (!conversationId) return;
     try {
       await toggleTyping(data);
     } catch (error) {

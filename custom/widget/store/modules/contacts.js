@@ -22,20 +22,7 @@ export const updateWidgetAuthToken = widgetAuthToken => {
   }
 };
 
-// ─── SESSION STORAGE CLEANUP ───────────────────────────────────────────────
-// This helper wipes all session/auth/conversation data on exit or 404.
-//
-// ⚠️  DO NOT add 'website_token' here.
-//     website_token is NOT session data — it is configuration data embedded
-//     in the iframe URL by the SDK to identify which inbox this widget belongs
-//     to. Every API call the widget makes passes it as a URL query param.
-//     If you delete it, the server receives website_token = NULL and throws:
-//       "Couldn't find Channel::WebWidget with website_token IS NULL → 404"
-//     The SDK re-embeds it on every fresh iframe load, so you never need to
-//     preserve or clear it manually.
-// ──────────────────────────────────────────────────────────────────────────
 const clearSessionStorage = () => {
-  // Explicit session/auth keys to remove
   const SESSION_KEYS = [
     'cwc-unique-id',
     'cwc-session',
@@ -57,7 +44,6 @@ const clearSessionStorage = () => {
     sessionStorage.removeItem(k);
   });
 
-  // Pattern-based sweep — keep chatwoot_user_data for form pre-fill
   [localStorage, sessionStorage].forEach(storage => {
     Object.keys(storage)
       .filter(
@@ -71,7 +57,6 @@ const clearSessionStorage = () => {
       .forEach(k => storage.removeItem(k));
   });
 
-  // Clear session cookies
   document.cookie.split(';').forEach(cookie => {
     const name = cookie.split('=')[0].trim();
     if (
@@ -85,14 +70,11 @@ const clearSessionStorage = () => {
     }
   });
 
-  // Strip session params from the iframe URL.
-  // ⚠️  'website_token' is intentionally NOT in this list — see note above.
   try {
     const url = new URL(window.location.href);
     ['cw_conversation', 'cw_contact', 'cw_d'].forEach(p =>
       url.searchParams.delete(p)
     );
-    // Also sweep any remaining cw_* / cwc* params (but not website_token)
     [...url.searchParams.keys()]
       .filter(k => k.startsWith('cw_') || k.startsWith('cwc'))
       .forEach(k => url.searchParams.delete(k));
@@ -121,19 +103,14 @@ export const actions = {
       const { data } = await ContactsAPI.get();
       commit(SET_CURRENT_USER, data);
     } catch (error) {
-      // 404 means the contact/conversation was deleted (e.g. after exit-chat).
-      // Clear stale session data and reset to a blank user so the pre-chat
-      // form is shown on next open.
       if (error.response?.status === 404) {
         clearSessionStorage();
         removeHeader('X-Auth-Token');
         commit(SET_CURRENT_USER, EMPTY_USER);
       }
-      // All other errors are silently ignored.
     }
   },
 
-  // Load user data saved during a previous session so the form can be pre-filled.
   loadSavedUserData: ({ commit }) => {
     try {
       const savedUserData = localStorage.getItem('chatwoot_user_data');
@@ -155,19 +132,22 @@ export const actions = {
     }
   },
 
-  update: async ({ commit, dispatch }, { user }) => {
+  // FIX: removed dispatch('get') — on a fresh session there is no auth token
+  // yet when this fires, so the follow-up GET /widget/contact returns 404 and
+  // the PATCH itself returns 422. The conversation create endpoint already runs
+  // ContactIdentifyAction which updates the contact server-side; no extra GET
+  // is needed. Vuex state is updated synchronously from the committed values.
+  update: async ({ commit }, { user }) => {
     try {
       await ContactsAPI.update(user);
-      // Immediately update Vuex store with new user data so any greeting
-      // or UI element reflecting the name uses the current session's input.
       commit(SET_CURRENT_USER, {
         ...user,
         has_email: !!user.email,
         has_phone_number: !!user.phone_number,
       });
-      dispatch('get');
     } catch (error) {
-      // Ignore error
+      // Ignore error — server-side contact update happens via
+      // ContactIdentifyAction inside the conversation create transaction.
     }
   },
 
@@ -233,51 +213,21 @@ export const actions = {
     }
   },
 
-  /**
-   * Called by HeaderActions.endChat().
-   *
-   * Order of operations:
-   *   1. Reset Vuex contact state to blank
-   *   2. Remove axios auth headers
-   *   3. Clear session/auth storage (keep chatwoot_user_data for form pre-fill)
-   *   4. Send exitChat to parent — SDK destroys + reloads the iframe
-   *
-   * HeaderActions navigates to prechat-form BEFORE calling this action,
-   * so the user never sees the blank messages screen during the reload.
-   */
   clearCurrentUser: ({ commit }) => {
-    // 1. Reset Vuex contact state
     commit(SET_CURRENT_USER, EMPTY_USER);
-
-    // 2. Remove axios auth headers
     removeHeader('X-Auth-Token');
     removeHeader('api_access_token');
     removeHeader('user_access_token');
-
-    // 3. Wipe session/auth storage — website_token is preserved (see clearSessionStorage note)
     clearSessionStorage();
-
-    // 4. Tell the parent to fully tear down and reload the SDK iframe.
     sendMessage({ event: 'exitChat' });
   },
 
   resetOnApiError: ({ commit }) => {
-    // Called when an API call returns 404 — clear stale session and reset.
     clearSessionStorage();
     removeHeader('X-Auth-Token');
     commit(SET_CURRENT_USER, EMPTY_USER);
   },
 
-  /**
-   * Soft exit — same teardown as `clearCurrentUser` but WITHOUT the
-   * `{ event: 'exitChat' }` postMessage and WITHOUT a window.location.reload().
-   *
-   * Use this when the widget should stay alive and just reset to a fresh state
-   * (e.g. user clicks Exit Chat, or the dashboard/auto-resolver closes the
-   * conversation). The caller is responsible for navigating the router back
-   * to `home` and posting `closeWindow` to the parent if it wants the iframe
-   * panel hidden.
-   */
   softExitChat: ({ commit, dispatch }) => {
     commit(SET_CURRENT_USER, EMPTY_USER);
     removeHeader('X-Auth-Token');
