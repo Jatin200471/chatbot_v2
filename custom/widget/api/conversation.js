@@ -65,11 +65,36 @@ const sendMessageAPI = async (
   replyTo = null,
   { customAttributes, labels } = {}
 ) => {
+  // Validate content
+  if (!content || content.trim() === '') {
+    console.error('[sendMessageAPI] Content is empty:', content);
+    throw new Error('Message content cannot be empty');
+  }
+  
   const urlData = endPoints.sendMessage(content, replyTo, {
     customAttributes,
     labels,
   });
-  return API.post(buildConvUrl(urlData.url), urlData.params);
+  
+  console.log('[sendMessageAPI] Sending message:', {
+    url: buildConvUrl(urlData.url),
+    content: content.substring(0, 100),
+    replyTo,
+    customAttributes,
+    labels,
+  });
+  
+  try {
+    return await API.post(buildConvUrl(urlData.url), urlData.params);
+  } catch (error) {
+    console.error('[sendMessageAPI] Failed:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      message: error.message,
+    });
+    throw error;
+  }
 };
 
 const sendAttachmentAPI = async (

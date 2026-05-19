@@ -43,6 +43,13 @@ export const actions = {
   },
   sendMessage: async ({ dispatch, state: conversationState }, params) => {
     const { content, replyTo } = params;
+    console.log('[sendMessage] Starting with:', { content: content?.substring(0, 50), replyTo });
+    
+    if (!content || content.trim() === '') {
+      console.error('[sendMessage] Content is empty');
+      return;
+    }
+    
     const message = createTemporaryMessage({ content, replyTo });
     const { pendingCustomAttributes, pendingLabels } = conversationState;
     dispatch('sendMessageWithData', {
@@ -60,15 +67,19 @@ export const actions = {
       Object.keys(pendingCustomAttributes).length > 0 ||
       pendingLabels.length > 0;
 
+    console.log('[sendMessageWithData] Adding message to store:', { id, content: content?.substring(0, 50) });
     commit('pushMessageToConversation', message);
     commit('updateMessageMeta', { id, meta: { ...meta, error: '' } });
     try {
+      console.log('[sendMessageWithData] Calling API...');
       const { data } = await sendMessageAPI(content, replyTo, {
         customAttributes: hasPendingMetadata
           ? pendingCustomAttributes
           : undefined,
         labels: hasPendingMetadata ? pendingLabels : undefined,
       });
+      console.log('[sendMessageWithData] API response:', { id: data.id, status: data.status });
+      
       if (hasPendingMetadata) {
         commit('clearPendingConversationMetadata');
       }
@@ -77,10 +88,16 @@ export const actions = {
       // commit('deleteMessage', message.id);
       commit('pushMessageToConversation', { ...data, status: 'sent' });
     } catch (error) {
+      console.error('[sendMessageWithData] Error:', {
+        messageId: id,
+        status: error.response?.status,
+        errorData: error.response?.data,
+        message: error.message,
+      });
       commit('pushMessageToConversation', { ...message, status: 'failed' });
       commit('updateMessageMeta', {
         id,
-        meta: { ...meta, error: '' },
+        meta: { ...meta, error: error.message || 'Failed to send message' },
       });
     }
   },
