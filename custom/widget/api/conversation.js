@@ -16,7 +16,12 @@ import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
 // iframe.
 const buildConvUrl = path => {
   if (!WEBSITE_TOKEN) return path;
-  // path may already have a query string (e.g. from endPoints helper)
+  // Skip if the path already carries a website_token — endPoints.createConversation
+  // builds its URL via buildSearchParamsWithLocale(window.location.search), which
+  // copies the token from the iframe URL. Adding it again here was producing
+  // duplicate query params (`?website_token=X&...&website_token=X`) and Rails
+  // intermittently 500'd on those requests.
+  if (/[?&]website_token=/.test(path)) return path;
   const sep = path.includes('?') ? '&' : '?';
   return `${path}${sep}website_token=${WEBSITE_TOKEN}`;
 };
