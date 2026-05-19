@@ -16,14 +16,18 @@ import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
 // iframe.
 const buildConvUrl = path => {
   if (!WEBSITE_TOKEN) return path;
-  // Skip if the path already carries a website_token — endPoints.createConversation
-  // builds its URL via buildSearchParamsWithLocale(window.location.search), which
-  // copies the token from the iframe URL. Adding it again here was producing
-  // duplicate query params (`?website_token=X&...&website_token=X`) and Rails
-  // intermittently 500'd on those requests.
-  if (/[?&]website_token=/.test(path)) return path;
-  const sep = path.includes('?') ? '&' : '?';
-  return `${path}${sep}website_token=${WEBSITE_TOKEN}`;
+  // Always inject the stable WEBSITE_TOKEN captured at module load time.
+  //
+  // WHY replace instead of skip:
+  // endPoints.createConversation builds its URL via
+  // buildSearchParamsWithLocale(window.location.search). If window.location.search
+  // has been mutated by replaceState() during session cleanup, the website_token
+  // in that URL could be stale or missing → Rails returns 422/404.
+  // We strip any existing website_token from the path and re-inject the stable
+  // one so the correct token is always sent regardless of URL mutations.
+  const cleaned = path.replace(/([?&])website_token=[^&]*/g, '$1').replace(/[?&]$/, '');
+  const sep = cleaned.includes('?') ? '&' : '?';
+  return `${cleaned}${sep}website_token=${WEBSITE_TOKEN}`;
 };
 
 // ─── Conversation API helpers ─────────────────────────────────────────────────
