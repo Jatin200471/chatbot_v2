@@ -147,16 +147,23 @@ export const actions = {
 
   fetchOldConversations: async ({ commit }, { before } = {}) => {
     try {
+      console.log('[fetchOldConversations] Fetching messages before:', before);
       commit('setConversationListLoading', true);
       const {
         data: { payload, meta },
       } = await getMessagesAPI({ before });
       const { contact_last_seen_at: lastSeen } = meta;
       const formattedMessages = getNonDeletedMessages({ messages: payload });
+      console.log('[fetchOldConversations] Loaded', formattedMessages.length, 'messages');
       commit('conversation/setMetaUserLastSeenAt', lastSeen, { root: true });
       commit('setMessagesInConversation', formattedMessages);
     } catch (error) {
+      console.error('[fetchOldConversations] Error:', {
+        status: error.response?.status,
+        message: error.message,
+      });
       if (error.response?.status === 404) {
+        console.log('[fetchOldConversations] Conversation not found (404), clearing');
         commit('clearConversations');
       }
     } finally {
@@ -168,6 +175,8 @@ export const actions = {
     try {
       const { lastMessageId, conversations } = state;
 
+      console.log('[syncLatestMessages] Checking for new messages since ID:', lastMessageId);
+
       const {
         data: { payload, meta },
       } = await getMessagesAPI({ after: lastMessageId });
@@ -177,7 +186,14 @@ export const actions = {
       const missingMessages = formattedMessages.filter(
         message => conversations?.[message.id] === undefined
       );
-      if (!missingMessages.length) return;
+      
+      if (!missingMessages.length) {
+        console.log('[syncLatestMessages] No new messages');
+        return;
+      }
+      
+      console.log('[syncLatestMessages] Found', missingMessages.length, 'new messages:', missingMessages.map(m => ({ id: m.id, content: m.content?.substring(0, 50) })));
+      
       missingMessages.forEach(message => {
         conversations[message.id] = message;
       });
@@ -189,6 +205,10 @@ export const actions = {
       commit('conversation/setMetaUserLastSeenAt', lastSeen, { root: true });
       commit('setMissingMessagesInConversation', updatedConversation);
     } catch (error) {
+      console.error('[syncLatestMessages] Error:', {
+        status: error.response?.status,
+        message: error.message,
+      });
       // IgnoreError
     }
   },
