@@ -19,6 +19,9 @@ export default {
   mounted() {
     // Register event listener for conversation creation
     emitter.on(ON_CONVERSATION_CREATED, this.handleConversationCreated);
+    
+    // If there's a resolved conversation, clear it so we can start fresh
+    this.checkAndClearResolvedConversation();
   },
   beforeUnmount() {
     emitter.off(ON_CONVERSATION_CREATED, this.handleConversationCreated);
@@ -29,6 +32,15 @@ export default {
     handleConversationCreated() {
       // Redirect to messages page after conversation is created
       this.router.replace({ name: 'messages' });
+    },
+    async checkAndClearResolvedConversation() {
+      // Get conversation status from store
+      const conversationStatus = this.$store.getters['conversationAttributes/getConversationParams'];
+      if (conversationStatus && conversationStatus.status === 'resolved') {
+        console.log('[PreChatForm] Clearing resolved conversation');
+        this.clearConversations();
+        this.clearConversationAttributes();
+      }
     },
 
     async onSubmit({

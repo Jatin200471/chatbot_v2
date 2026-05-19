@@ -21,17 +21,23 @@ export default {
       availableAgents: 'agent/availableAgents',
       unreadMessageCount: 'conversation/getUnreadMessageCount',
       conversationSize: 'conversation/getConversationSize',
+      conversationStatus: 'conversationAttributes/getConversationParams',
     }),
     hasExistingConversation() {
       return this.conversationSize > 0;
+    },
+    isConversationOpen() {
+      // Only continue existing conversation if it's OPEN (not resolved, not pending)
+      const params = this.conversationStatus;
+      return params && params.status === 'open';
     },
   },
   methods: {
     startConversation() {
       // If an existing conversation was rehydrated on load (refresh / page
-      // change), resume it directly. Pre-chat form runs only for genuinely
-      // fresh sessions (first visit, or after Exit Chat clears storage).
-      if (this.hasExistingConversation) {
+      // change) AND it's still OPEN, resume it directly. Pre-chat form runs 
+      // only for genuinely fresh sessions or resolved conversations.
+      if (this.hasExistingConversation && this.isConversationOpen) {
         return this.router.replace({ name: 'messages' });
       }
       if (this.preChatFormEnabled) {

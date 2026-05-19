@@ -221,10 +221,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     {
       content: permitted_params.dig(:message, :content),
       message_type: :incoming,
-      sender: @contact,
-      referer_url: permitted_params.dig(:message, :referer_url),
-      timestamp: permitted_params.dig(:message, :timestamp),
-      echo_id: permitted_params.dig(:message, :echo_id)
+      sender: @contact
     }.compact
   end
 
