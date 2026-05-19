@@ -13,8 +13,8 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     ActiveRecord::Base.transaction do
       process_update_contact
       @conversation = create_conversation
-      conversation.messages.create!(message_params)
-      conversation.reload
+      @conversation.messages.create!(message_params)
+      @conversation.reload
     end
   end
 
