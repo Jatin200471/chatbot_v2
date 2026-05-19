@@ -39,17 +39,44 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     # this to `false` was rewriting the existing contact name to the new
     # form value, which collided with contact-uniqueness validations and
     # the whole transaction rolled back as Unprocessable Content.
-    
+
     Rails.logger.info "[CONTACT-UPDATE] contact_email=#{contact_email.inspect}, contact_name=#{contact_name.inspect}, contact_phone=#{contact_phone_number.inspect}"
-    
+
+    original_contact_id = @contact.id
+
     @contact = ContactIdentifyAction.new(
       contact: @contact,
       params: { email: contact_email, phone_number: contact_phone_number, name: contact_name },
       retain_original_contact_name: true,
       discard_invalid_attrs: true
     ).perform
-    
+
     Rails.logger.info "[CONTACT-UPDATE] Success: @contact.id=#{@contact.id}, @contact.email=#{@contact.email}"
+
+    # ── Re-sync @contact_inbox ─────────────────────────────────────────────
+    # ContactIdentifyAction may return a DIFFERENT contact (e.g. it found an
+    # existing contact by email and merged the visitor into it). When that
+    # happens @contact_inbox still belongs to the OLD visitor contact, so
+    # Conversation.create! would receive a mismatched contact_inbox_id whose
+    # contact's account/inbox differs → "Account can't be blank" 422.
+    #
+    # Strategy:
+    #   1. Try to find an existing contact_inbox for the new @contact on this inbox.
+    #   2. If none exists, move the original contact_inbox to the new contact.
+    #   3. This guarantees @contact_inbox.contact_id == @contact.id always.
+    if @contact.id != original_contact_id
+      Rails.logger.info "[CONTACT-UPDATE] Contact changed #{original_contact_id} → #{@contact.id}; re-syncing contact_inbox"
+
+      existing_ci = @web_widget.inbox.contact_inboxes.find_by(contact_id: @contact.id)
+      if existing_ci
+        @contact_inbox = existing_ci
+        Rails.logger.info "[CONTACT-UPDATE] Found existing contact_inbox #{@contact_inbox.id} for new contact"
+      else
+        # Re-use the visitor contact_inbox but re-assign it to the identified contact
+        @contact_inbox.update!(contact_id: @contact.id)
+        Rails.logger.info "[CONTACT-UPDATE] Moved contact_inbox #{@contact_inbox.id} to contact #{@contact.id}"
+      end
+    end
   rescue StandardError => e
     Rails.logger.error "[CONTACT-UPDATE] Failed: #{e.class} #{e.message}"
     raise

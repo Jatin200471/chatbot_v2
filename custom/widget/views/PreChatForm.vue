@@ -68,25 +68,18 @@ export default {
         this.clearConversations();
         this.clearConversationAttributes();
 
-        // ── Fire-and-forget contact update.
-        //    Form.vue already dispatched the same update before emitting
-        //    submitPreChat, so this is a safety net. We intentionally do NOT
-        //    `await` it here — if the contact-update API hangs (slow network,
-        //    backend lag) it would block createConversation and the visitor
-        //    would see "Start Conversation" do nothing forever. The AI bot
-        //    greeting uses the cached name in that edge case; correctness of
-        //    the greeting is a smaller cost than a stuck form.
-        try {
-          this.$store.dispatch('contacts/update', {
-            user: {
-              email: emailAddress,
-              name: fullName,
-              phone_number: phoneNumber,
-            },
-          });
-        } catch (_) {}
+        // Contact fields are sent inside the createConversation POST body
+        // (via the contact: { name, email, phone_number } key). The server's
+        // process_update_contact runs ContactIdentifyAction with those values
+        // inside the same transaction, so there is NO need to fire a separate
+        // PATCH /widget/contact here.
+        //
+        // Previously this dispatched contacts/update concurrently, which caused
+        // a race condition: both requests would create separate "Visitor"
+        // contacts on a fresh session (no auth token), then ContactIdentifyAction
+        // would return a third merged contact → @contact_inbox mismatch → 422.
 
-        this.$store.dispatch('conversation/createConversation', {
+        await this.$store.dispatch('conversation/createConversation', {
           fullName: fullName,
           emailAddress: emailAddress,
           message: message,

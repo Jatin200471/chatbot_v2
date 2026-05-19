@@ -20,15 +20,32 @@ export const actions = {
       // endPoints.createConversation expects:
       //   { message: "string", contact: { name, email, phone_number }, customAttributes: {} }
       // It wraps message into { content: message } internally before posting.
+      //
+      // IMPORTANT: contact fields MUST be included in this POST body — the
+      // server's process_update_contact reads them from permitted_params
+      // (:contact => { :name, :email, :phone_number }). Without them the
+      // server creates a new blank "Visitor" contact, ContactIdentifyAction
+      // finds/creates a DIFFERENT contact by email, and the mismatched
+      // contact_inbox causes "Account can't be blank" 422.
+      const contactName = params.fullName || params.contact?.name || '';
+      const contactEmail = params.emailAddress || params.contact?.email || '';
+      const contactPhone = params.phoneNumber || params.contact?.phone_number || '';
+
       const apiParams = {
         message: params.message || '',
         contact: {
-          name: params.fullName || params.contact?.name || '',
-          email: params.emailAddress || params.contact?.email || '',
-          phone_number: params.phoneNumber || params.contact?.phone_number || '',
+          name: contactName,
+          email: contactEmail,
+          phone_number: contactPhone,
         },
         customAttributes: params.customAttributes || {},
       };
+
+      // Strip blank contact fields so the server doesn't receive empty strings
+      // (empty string email would fail ContactIdentifyAction's email validation)
+      if (!apiParams.contact.name) delete apiParams.contact.name;
+      if (!apiParams.contact.email) delete apiParams.contact.email;
+      if (!apiParams.contact.phone_number) delete apiParams.contact.phone_number;
       const { data } = await createConversationAPI(apiParams);
       const { messages } = data;
       const [message = {}] = messages;
