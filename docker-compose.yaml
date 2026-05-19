@@ -32,8 +32,8 @@ services:
       retries: 5
 
   rails:
-    image: ghcr.io/jatinn71/chatwoot-custom:latest
-    pull_policy: always
+    image: chatwoot-custom:latest
+    pull_policy: never
     restart: unless-stopped
     depends_on:
       postgres:
@@ -66,8 +66,8 @@ services:
       "
 
   sidekiq:
-    image: ghcr.io/jatinn71/chatwoot-custom:latest
-    pull_policy: always
+    image: chatwoot-custom:latest
+    pull_policy: never
     restart: unless-stopped
     depends_on:
       postgres:

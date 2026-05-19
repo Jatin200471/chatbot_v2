@@ -269,6 +269,8 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   def message_params
     {
       content: permitted_params.dig(:message, :content),
+      account_id: @web_widget.inbox.account_id,
+      inbox_id: @web_widget.inbox.id,
       message_type: :incoming,
       sender: @contact
     }.compact
