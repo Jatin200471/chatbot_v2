@@ -25,8 +25,113 @@ import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CONVAI_EMBED_URL = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Global WebRTC + media-stream tracking.
+//
+// WHY: The previous endCall() removed the <elevenlabs-convai> element and stopped
+// the mic stream we explicitly requested. But the convai library still kept the
+// AI talking, because:
+//   1. Its RTCPeerConnection is owned by JS closures inside the convai bundle —
+//      our element removal doesn't reach them. The peer keeps decoding inbound
+//      audio.
+//   2. Audio playback is done with an <audio> element appended to document.body
+//      (NOT inside the shadow root we were searching).
+//   3. The convai library calls getUserMedia internally; that stream is separate
+//      from the one we grab in startCall() and stays open.
+//
+// FIX: Patch RTCPeerConnection and getUserMedia globally — once, at module load
+// — to keep a registry of every peer / stream created in this iframe. endCall()
+// closes the lot. The hooks are idempotent: installing twice is a no-op.
+// ─────────────────────────────────────────────────────────────────────────────
+const _peers = new Set();
+const _streams = new Set();
+let _hooksInstalled = false;
+
+const installGlobalHooks = () => {
+  if (_hooksInstalled) return;
+  _hooksInstalled = true;
+
+  // Hook RTCPeerConnection so every peer the convai bundle creates is tracked.
+  if (typeof window !== 'undefined' && window.RTCPeerConnection) {
+    const OriginalPC = window.RTCPeerConnection;
+    const PatchedPC = function (...args) {
+      const pc = new OriginalPC(...args);
+      _peers.add(pc);
+      pc.addEventListener('connectionstatechange', () => {
+        if (['closed', 'failed', 'disconnected'].includes(pc.connectionState)) {
+          _peers.delete(pc);
+        }
+      });
+      return pc;
+    };
+    PatchedPC.prototype = OriginalPC.prototype;
+    window.RTCPeerConnection = PatchedPC;
+  }
+
+  // Hook getUserMedia so every mic / audio stream is tracked too.
+  if (
+    typeof navigator !== 'undefined' &&
+    navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getUserMedia === 'function'
+  ) {
+    const originalGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async function (constraints) {
+      const stream = await originalGUM(constraints);
+      _streams.add(stream);
+      // Auto-evict the stream from the registry once all tracks are dead.
+      stream.getTracks().forEach(t =>
+        t.addEventListener('ended', () => {
+          if (stream.getTracks().every(x => x.readyState === 'ended')) {
+            _streams.delete(stream);
+          }
+        })
+      );
+      return stream;
+    };
+  }
+};
+
+// Kill every tracked peer + stream + any <audio>/<video> playing voice audio.
+// Called from endCall() and as the last-resort cleanup when the component is
+// unmounted mid-call.
+const killAllVoiceSessions = () => {
+  _peers.forEach(pc => {
+    try { pc.getSenders?.().forEach(s => { try { s.track?.stop(); } catch (_) {} }); } catch (_) {}
+    try { pc.getReceivers?.().forEach(r => { try { r.track?.stop(); } catch (_) {} }); } catch (_) {}
+    try { pc.close(); } catch (_) {}
+  });
+  _peers.clear();
+
+  _streams.forEach(stream => {
+    try { stream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} }); } catch (_) {}
+  });
+  _streams.clear();
+
+  // Sweep the entire document for media elements (the convai embed appends an
+  // <audio> to document.body for playback, NOT inside its shadow root).
+  if (typeof document !== 'undefined') {
+    document.querySelectorAll('audio, video').forEach(p => {
+      try { p.pause(); } catch (_) {}
+      try { p.muted = true; } catch (_) {}
+      try {
+        if (p.srcObject) {
+          p.srcObject.getTracks?.().forEach(t => { try { t.stop(); } catch (_) {} });
+          p.srcObject = null;
+        }
+      } catch (_) {}
+      try { p.removeAttribute('src'); p.load?.(); } catch (_) {}
+    });
+  }
+};
+
 let convaiScriptPromise = null;
 const loadConvaiScript = () => {
+  // Install hooks BEFORE the convai script runs so we capture every peer +
+  // stream it creates. Safe to call repeatedly — installGlobalHooks() bails
+  // out on subsequent calls.
+  installGlobalHooks();
+
   if (convaiScriptPromise) return convaiScriptPromise;
   if (document.querySelector('script[src*="@elevenlabs/convai-widget-embed"]')) {
     convaiScriptPromise = Promise.resolve();
@@ -208,31 +313,22 @@ export default {
     },
 
     stopAllMediaTracks() {
-      // 1. Stop the mic stream we explicitly requested in startCall().
+      // 1. Stop our own mic stream from startCall() — covers the case where the
+      //    visitor never let the convai bundle hit getUserMedia (e.g. the call
+      //    never connected past our preflight check).
       if (this.micStream) {
         try {
           this.micStream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
         } catch (_) {}
         this.micStream = null;
       }
-      // 2. Pause/mute any <audio> elements the embed mounted inside its shadow
-      //    root — that's where the agent's voice is playing back. Without this
-      //    the AI keeps talking for a moment after the WebRTC peer closes.
-      const el = this.widgetElement;
-      if (el?.shadowRoot) {
-        const players = el.shadowRoot.querySelectorAll('audio, video');
-        players.forEach(p => {
-          try { p.pause(); } catch (_) {}
-          try { p.muted = true; } catch (_) {}
-          try {
-            if (p.srcObject) {
-              p.srcObject.getTracks?.().forEach(t => { try { t.stop(); } catch (_) {} });
-              p.srcObject = null;
-            }
-          } catch (_) {}
-          try { p.removeAttribute('src'); p.load?.(); } catch (_) {}
-        });
-      }
+
+      // 2. The real cleanup — close every RTCPeerConnection and stop every
+      //    getUserMedia stream that the convai bundle created (tracked via the
+      //    module-level hooks), and mute any <audio>/<video> playback elements
+      //    anywhere in the document. Without this the AI's voice keeps
+      //    streaming through an <audio> the embed appended to document.body.
+      killAllVoiceSessions();
     },
 
     handleClick() {

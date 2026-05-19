@@ -131,23 +131,36 @@ The `<elevenlabs-convai>` web component does not reliably close its underlying
 WebSocket / WebRTC when you click its in-shadow-DOM end button — the mic
 keeps streaming AND a previous fix made it worse: text-based button matching
 fell back to `buttons[0]` (which is the START button when the call is active),
-so "End call" was actually RESTARTING the call. `endCall()` now tears down
-synchronously, in this order:
+so "End call" was actually RESTARTING the call. Even removing the host element
+was not enough — the convai bundle keeps its RTCPeerConnection alive in JS
+closures we can't reach, and the AI's audio plays through an `<audio>` element
+appended to `document.body` (NOT inside the shadow root).
 
-1. Call any public end method on the custom element
-   (`endSession` / `endCall` / `disconnect` / `stop` / `close`).
-2. Try to click an END button matched against `textContent`, `aria-label`,
-   AND `title` — and **bail out instead of clicking the first button** if
-   nothing matches end-ish keywords.
-3. Stop the mic stream we saved from `startCall`'s `getUserMedia`, plus any
-   `<audio>` / `<video>` elements inside the shadow DOM (mute + clear
-   `srcObject` so the agent's voice cuts immediately).
-4. Remove the custom element from the DOM **immediately** — no setTimeout.
-   Its `disconnectedCallback` closes the WebSocket + RTCPeerConnection.
+The fix is a module-level patch of two browser APIs, installed once before the
+convai script loads:
 
-We deliberately do NOT remount eagerly after endCall — the next `startCall`
-re-mounts a fresh embed. Eager remounting was creating a second invisible
-session that occasionally auto-started.
+1. `window.RTCPeerConnection` is wrapped so every peer the convai bundle (or
+   any other code in this iframe) creates is added to a `_peers` Set.
+2. `navigator.mediaDevices.getUserMedia` is wrapped so every stream is added
+   to a `_streams` Set.
+
+`endCall()` then calls `killAllVoiceSessions()` which:
+- Stops every track on every tracked peer's senders + receivers, then closes
+  the peer.
+- Stops every track on every tracked stream.
+- Pauses + mutes + clears `srcObject` on every `<audio>` / `<video>` element
+  in the whole document.
+
+Plus the existing layered fallbacks: call any public end method on the host
+element, try to click an END button matched by `textContent` / `aria-label` /
+`title` (with **no fallback to `buttons[0]`** — clicking the wrong button
+restarts the call), then remove the host element synchronously. The next
+`startCall()` mounts a fresh embed — we do NOT remount eagerly on endCall,
+because eager remounting was creating a second invisible session.
+
+Touchpoints:
+- `custom/widget/components/ElevenLabsVoiceButton.vue` — `installGlobalHooks`,
+  `killAllVoiceSessions`, `clickWidgetButton`, `endCall`, `stopAllMediaTracks`.
 
 ## Operator-facing setup guide
 
