@@ -17,6 +17,7 @@ export const actions = {
   createConversation: async ({ commit, dispatch }, params) => {
     commit('setConversationUIFlag', { isCreating: true });
     try {
+      console.log('[createConversation] Starting with params:', params);
       const { data } = await createConversationAPI(params);
       const { messages } = data;
       const [message = {}] = messages;
@@ -25,7 +26,17 @@ export const actions = {
       // Emit event to notify that conversation is created and show the chat screen
       emitter.emit(ON_CONVERSATION_CREATED);
     } catch (error) {
-      // Ignore error
+      console.error('[createConversation] Failed:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message,
+      });
+      // Show error to user
+      const errorMsg = error.response?.data?.error || error.message || 'Failed to create conversation';
+      console.error('[createConversation] Error message:', errorMsg);
+      // You could dispatch an error notification here if needed
+      // e.g., dispatch('notifications/showError', errorMsg, { root: true });
     } finally {
       commit('setConversationUIFlag', { isCreating: false });
     }

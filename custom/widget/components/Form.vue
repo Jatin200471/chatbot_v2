@@ -218,6 +218,19 @@ export default {
     onSubmit() {
       const { emailAddress, fullName, phoneNumber, message } = this.formValues;
 
+      // Validate required fields
+      if (!message || message.trim() === '') {
+        console.error('[Form.onSubmit] Message is required but empty');
+        alert(this.$t('PRE_CHAT_FORM.FIELDS.MESSAGE.ERROR'));
+        return;
+      }
+
+      if (!emailAddress && !phoneNumber) {
+        console.error('[Form.onSubmit] Either email or phone is required');
+        alert(this.$t('PRE_CHAT_FORM.REQUIRED'));
+        return;
+      }
+
       const userData = {
         name: fullName,
         email: emailAddress,
@@ -247,11 +260,18 @@ export default {
       // Send to n8n webhook silently (fire and forget)
       this.sendToN8n(userData);
 
+      console.log('[Form.onSubmit] Emitting submitPreChat with:', {
+        fullName,
+        emailAddress,
+        phoneNumber,
+        messageLength: message?.length,
+      });
+
       this.$emit('submitPreChat', {
         fullName,
         phoneNumber,
         emailAddress,
-        message,
+        message: message.trim(),
         activeCampaignId: this.activeCampaign.id,
         conversationCustomAttributes: this.conversationCustomAttributes,
         contactCustomAttributes: this.contactCustomAttributes,

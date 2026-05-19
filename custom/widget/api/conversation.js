@@ -29,10 +29,35 @@ const buildConvUrl = path => {
 // ─── Conversation API helpers ─────────────────────────────────────────────────
 
 const createConversationAPI = async content => {
+  // Validate required parameters
+  if (!content || typeof content !== 'object') {
+    console.error('[createConversationAPI] Invalid content:', content);
+    throw new Error('Invalid conversation parameters');
+  }
+  
+  if (!content.message || content.message.trim() === '') {
+    console.error('[createConversationAPI] Message is required but empty:', content);
+    throw new Error('Message cannot be empty');
+  }
+  
   const urlData = endPoints.createConversation(content);
   // endPoints returns { url, params } where url already has its own query string.
   // We need to inject website_token into that url.
-  return API.post(buildConvUrl(urlData.url), urlData.params);
+  
+  console.log('[createConversationAPI] Request URL:', buildConvUrl(urlData.url));
+  console.log('[createConversationAPI] Request params:', urlData.params);
+  
+  try {
+    return await API.post(buildConvUrl(urlData.url), urlData.params);
+  } catch (error) {
+    console.error('[createConversationAPI] Request failed:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      message: error.message,
+    });
+    throw error;
+  }
 };
 
 const sendMessageAPI = async (
