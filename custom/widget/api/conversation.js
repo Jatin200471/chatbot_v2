@@ -3,24 +3,11 @@ import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
 
 // Build a widget conversation API URL that always includes the website_token.
 //
-// WHY NOT use window.location.search directly?
-// ─────────────────────────────────────────────
-// window.location.search reflects the iframe's *current* URL query string.
-// During exit-chat, clearCurrentUser() calls window.history.replaceState()
-// to strip session params from the URL. If website_token were ever stripped
-// there, every API call after that would send website_token = null → 404.
-//
-// Instead we use WEBSITE_TOKEN, which is captured once at module load time
-// (in axios.js) from the original iframe URL before any replaceState() runs.
-// This makes all API calls immune to URL mutations for the lifetime of the
-// iframe.
+// WEBSITE_TOKEN is captured once at module load from the original iframe URL,
+// making all API calls immune to later window.history.replaceState() mutations.
 const buildConvUrl = path => {
   if (!WEBSITE_TOKEN) return path;
-  // Skip if the path already carries a website_token — endPoints.createConversation
-  // builds its URL via buildSearchParamsWithLocale(window.location.search), which
-  // copies the token from the iframe URL. Adding it again here was producing
-  // duplicate query params (`?website_token=X&...&website_token=X`) and Rails
-  // intermittently 500'd on those requests.
+  // Skip if the path already carries a website_token to avoid duplicates.
   if (/[?&]website_token=/.test(path)) return path;
   const sep = path.includes('?') ? '&' : '?';
   return `${path}${sep}website_token=${WEBSITE_TOKEN}`;
@@ -29,32 +16,34 @@ const buildConvUrl = path => {
 // ─── Conversation API helpers ─────────────────────────────────────────────────
 
 const createConversationAPI = async content => {
-  // Validate required parameters
+  // content shape expected by endPoints.createConversation:
+  //   {
+  //     message: "string",              ← plain string, endPoints wraps it into { content }
+  //     contact: { name, email, phone_number },
+  //     customAttributes: {}
+  //   }
+
   if (!content || typeof content !== 'object') {
-    console.error('[createConversationAPI] Invalid content:', content);
     throw new Error('Invalid conversation parameters');
   }
-  
-  if (!content.message || content.message.trim() === '') {
-    console.error('[createConversationAPI] Message is required but empty:', content);
+
+  // message is a plain string here
+  const messageStr = typeof content.message === 'string'
+    ? content.message
+    : content.message?.content || '';
+
+  if (!messageStr.trim()) {
     throw new Error('Message cannot be empty');
   }
-  
+
   const urlData = endPoints.createConversation(content);
-  // endPoints returns { url, params } where url already has its own query string.
-  // We need to inject website_token into that url.
-  
-  console.log('[createConversationAPI] Request URL:', buildConvUrl(urlData.url));
-  console.log('[createConversationAPI] Request params:', urlData.params);
-  
+
   try {
     return await API.post(buildConvUrl(urlData.url), urlData.params);
   } catch (error) {
     console.error('[createConversationAPI] Request failed:', {
       status: error.response?.status,
-      statusText: error.response?.statusText,
       data: error.response?.data,
-      message: error.message,
     });
     throw error;
   }

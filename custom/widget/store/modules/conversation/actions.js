@@ -17,22 +17,27 @@ export const actions = {
   createConversation: async ({ commit, dispatch }, params) => {
     commit('setConversationUIFlag', { isCreating: true });
     try {
-      console.log('[createConversation] Starting with params:', params);
-      const { data } = await createConversationAPI(params);
+      // endPoints.createConversation expects:
+      //   { message: "string", contact: { name, email, phone_number }, customAttributes: {} }
+      // It wraps message into { content: message } internally before posting.
+      const apiParams = {
+        message: params.message || '',
+        contact: {
+          name: params.fullName || params.contact?.name || '',
+          email: params.emailAddress || params.contact?.email || '',
+          phone_number: params.phoneNumber || params.contact?.phone_number || '',
+        },
+        customAttributes: params.customAttributes || {},
+      };
+      const { data } = await createConversationAPI(apiParams);
       const { messages } = data;
       const [message = {}] = messages;
       commit('pushMessageToConversation', message);
       dispatch('conversationAttributes/getAttributes', {}, { root: true });
       emitter.emit(ON_CONVERSATION_CREATED);
     } catch (error) {
-      console.error('[createConversation] Failed:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        message: error.message,
-      });
       const errorMsg = error.response?.data?.error || error.message || 'Failed to create conversation';
-      console.error('[createConversation] Error message:', errorMsg);
+      console.error('[createConversation] Failed:', errorMsg);
     } finally {
       commit('setConversationUIFlag', { isCreating: false });
     }
@@ -147,16 +152,24 @@ export const actions = {
 
   fetchOldConversations: async ({ commit }, { before } = {}) => {
     try {
+      console.log('[fetchOldConversations] Fetching messages before:', before);
       commit('setConversationListLoading', true);
-      const {
-        data: { payload, meta },
-      } = await getMessagesAPI({ before });
+      const response = await getMessagesAPI({ before });
+      const payload = response?.data?.payload;
+      const meta = response?.data?.meta;
+      if (!meta || !payload) return;
       const { contact_last_seen_at: lastSeen } = meta;
       const formattedMessages = getNonDeletedMessages({ messages: payload });
+      console.log('[fetchOldConversations] Loaded', formattedMessages.length, 'messages');
       commit('conversation/setMetaUserLastSeenAt', lastSeen, { root: true });
       commit('setMessagesInConversation', formattedMessages);
     } catch (error) {
+      console.error('[fetchOldConversations] Error:', {
+        status: error.response?.status,
+        message: error.message,
+      });
       if (error.response?.status === 404) {
+        console.log('[fetchOldConversations] Conversation not found (404), clearing');
         commit('clearConversations');
       }
     } finally {
@@ -168,26 +181,29 @@ export const actions = {
     try {
       const { lastMessageId, conversations } = state;
 
-      // Guard: don't poll if there's no conversation yet.
-      // lastMessageId is null on a fresh session — the API returns 500
-      // because there's no conversation row, and the undefined response
-      // body then crashes the destructure with:
-      // "Cannot destructure property 'contact_last_seen_at' of undefined"
+      // Don't poll if we don't have a conversation yet — avoids 500s on fresh sessions
       if (!lastMessageId) return;
 
       const response = await getMessagesAPI({ after: lastMessageId });
-
-      // Guard: malformed / error responses won't have data.payload or data.meta
       const payload = response?.data?.payload;
       const meta = response?.data?.meta;
-      if (!payload || !meta) return;
+
+      // Guard: if the server returned an error body without payload/meta, bail quietly
+      if (!meta || !payload) return;
 
       const { contact_last_seen_at: lastSeen } = meta;
       const formattedMessages = getNonDeletedMessages({ messages: payload });
       const missingMessages = formattedMessages.filter(
         message => conversations?.[message.id] === undefined
       );
-      if (!missingMessages.length) return;
+      
+      if (!missingMessages.length) {
+        console.log('[syncLatestMessages] No new messages');
+        return;
+      }
+      
+      console.log('[syncLatestMessages] Found', missingMessages.length, 'new messages:', missingMessages.map(m => ({ id: m.id, content: m.content?.substring(0, 50) })));
+      
       missingMessages.forEach(message => {
         conversations[message.id] = message;
       });
@@ -199,6 +215,10 @@ export const actions = {
       commit('conversation/setMetaUserLastSeenAt', lastSeen, { root: true });
       commit('setMissingMessagesInConversation', updatedConversation);
     } catch (error) {
+      console.error('[syncLatestMessages] Error:', {
+        status: error.response?.status,
+        message: error.message,
+      });
       // IgnoreError
     }
   },
