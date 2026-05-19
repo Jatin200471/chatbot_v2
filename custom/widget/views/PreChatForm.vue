@@ -6,6 +6,7 @@ import configMixin from '../mixins/configMixin';
 import { isEmptyObject } from 'widget/helpers/utils';
 import { ON_CONVERSATION_CREATED } from '../constants/widgetBusEvents';
 import { emitter } from 'shared/helpers/mitt';
+import { removeHeader } from 'widget/helpers/axios';
 
 export default {
   components: {
@@ -34,12 +35,13 @@ export default {
       this.router.replace({ name: 'messages' });
     },
     async checkAndClearResolvedConversation() {
-      // Get conversation status from store
       const conversationStatus = this.$store.getters['conversationAttributes/getConversationParams'];
       if (conversationStatus && conversationStatus.status === 'resolved') {
-        console.log('[PreChatForm] Clearing resolved conversation');
         this.clearConversations();
         this.clearConversationAttributes();
+        // Clear stale auth token so the backend creates a fresh contact_inbox
+        // for the new conversation instead of trying to reuse the old one.
+        removeHeader('X-Auth-Token');
       }
     },
 

@@ -16,30 +16,18 @@ const buildConvUrl = path => {
 // ─── Conversation API helpers ─────────────────────────────────────────────────
 
 const createConversationAPI = async content => {
-  // content shape expected by endPoints.createConversation:
-  //   {
-  //     message: "string",              ← plain string, endPoints wraps it into { content }
-  //     contact: { name, email, phone_number },
-  //     customAttributes: {}
-  //   }
+  // content shape: { fullName, emailAddress, phoneNumber, message, customAttributes }
+  // endPoints.createConversation maps these to { contact: {name,email,phone_number}, message: {content} }
 
   if (!content || typeof content !== 'object') {
     throw new Error('Invalid conversation parameters');
   }
 
-  // message is a plain string here
-  const messageStr = typeof content.message === 'string'
-    ? content.message
-    : content.message?.content || '';
+  const messageStr = typeof content.message === 'string' ? content.message : '';
 
   if (!messageStr.trim()) {
     throw new Error('Message cannot be empty');
   }
-
-  console.log('[createConversationAPI] Sending payload:', {
-    message: messageStr.substring(0, 50),
-    contact: content.contact,
-  });
 
   const urlData = endPoints.createConversation(content);
 
