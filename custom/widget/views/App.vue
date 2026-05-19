@@ -43,6 +43,8 @@ export default {
       campaignsSnoozedTill: undefined,
       configReady: false,
       conversationStatusCheckInterval: null,
+      replyPollInterval: null,
+      replyPollTimeout: null,
     };
   },
   computed: {
@@ -76,6 +78,14 @@ export default {
       handler(value) {
         document.documentElement.dir = value ? 'rtl' : 'ltr';
       },
+    },
+    messageCount(newVal, oldVal) {
+      // When user sends a message, start a 30s polling window to catch bot reply.
+      // This is a targeted fallback for environments where ActionCable (WebSocket)
+      // is unreliable (e.g. ngrok). Stops automatically after 30s.
+      if (newVal > oldVal && this.conversationSize > 0) {
+        this.startReplyPolling();
+      }
     },
   },
   mounted() {
@@ -114,6 +124,7 @@ export default {
     if (this.conversationStatusCheckInterval) {
       clearInterval(this.conversationStatusCheckInterval);
     }
+    this.stopReplyPolling();
   },
   methods: {
     ...mapActions('appConfig', [
@@ -123,7 +134,7 @@ export default {
       'setBubbleVisibility',
       'setColorScheme',
     ]),
-    ...mapActions('conversation', ['fetchOldConversations', 'clearConversations']),
+    ...mapActions('conversation', ['fetchOldConversations', 'clearConversations', 'syncLatestMessages']),
     ...mapActions('conversationAttributes', ['getAttributes']),
     ...mapActions('campaign', [
       'initCampaigns',
@@ -365,6 +376,28 @@ export default {
           this.checkAndClearResolvedConversation();
         }
       }, 60000);
+    },
+
+    startReplyPolling() {
+      this.stopReplyPolling();
+      this.replyPollInterval = setInterval(() => {
+        this.syncLatestMessages();
+      }, 3000);
+      // Auto-stop after 30 seconds — ActionCable should have delivered by then
+      this.replyPollTimeout = setTimeout(() => {
+        this.stopReplyPolling();
+      }, 30000);
+    },
+
+    stopReplyPolling() {
+      if (this.replyPollInterval) {
+        clearInterval(this.replyPollInterval);
+        this.replyPollInterval = null;
+      }
+      if (this.replyPollTimeout) {
+        clearTimeout(this.replyPollTimeout);
+        this.replyPollTimeout = null;
+      }
     },
 
     async checkAndClearResolvedConversation() {

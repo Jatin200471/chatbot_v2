@@ -293,6 +293,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       inbox_id: @web_widget.inbox.id,
       contact_id: @contact.id,
       contact_inbox_id: @contact_inbox.id,
+      status: :open,
       additional_attributes: {}
     )
   end
