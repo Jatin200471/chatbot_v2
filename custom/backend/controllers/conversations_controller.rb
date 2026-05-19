@@ -33,16 +33,25 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   end
 
   def process_update_contact
-    # NOTE: `retain_original_contact_name: true` matches upstream and avoids
-    # a 422 when the visitor already has a contact (from a previous session)
-    # and submits the form with a blank or differently-cased name. Setting
-    # this to `false` was rewriting the existing contact name to the new
-    # form value, which collided with contact-uniqueness validations and
-    # the whole transaction rolled back as Unprocessable Content.
-
     Rails.logger.info "[CONTACT-UPDATE] contact_email=#{contact_email.inspect}, contact_name=#{contact_name.inspect}, contact_phone=#{contact_phone_number.inspect}"
 
     original_contact_id = @contact.id
+
+    # ── Fast-path: email already belongs to a known contact ───────────────────
+    # ContactIdentifyAction can raise "Email has already been taken" when the
+    # visitor contact (no email yet) is being merged into an existing contact
+    # and the merge path tries to write the email onto the wrong record.
+    # Pre-lookup avoids the merge entirely in the common case where the visitor
+    # re-submits the form with the same email from a previous session.
+    if contact_email.present?
+      already_exists = @web_widget.inbox.account.contacts.find_by(email: contact_email)
+      if already_exists && already_exists.id != @contact.id
+        Rails.logger.info "[CONTACT-UPDATE] Email #{contact_email} already belongs to contact #{already_exists.id}; using directly"
+        @contact = already_exists
+        resync_contact_inbox(original_contact_id)
+        return
+      end
+    end
 
     @contact = ContactIdentifyAction.new(
       contact: @contact,
@@ -64,19 +73,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     #   1. Try to find an existing contact_inbox for the new @contact on this inbox.
     #   2. If none exists, move the original contact_inbox to the new contact.
     #   3. This guarantees @contact_inbox.contact_id == @contact.id always.
-    if @contact.id != original_contact_id
-      Rails.logger.info "[CONTACT-UPDATE] Contact changed #{original_contact_id} → #{@contact.id}; re-syncing contact_inbox"
-
-      existing_ci = @web_widget.inbox.contact_inboxes.find_by(contact_id: @contact.id)
-      if existing_ci
-        @contact_inbox = existing_ci
-        Rails.logger.info "[CONTACT-UPDATE] Found existing contact_inbox #{@contact_inbox.id} for new contact"
-      else
-        # Re-use the visitor contact_inbox but re-assign it to the identified contact
-        @contact_inbox.update!(contact_id: @contact.id)
-        Rails.logger.info "[CONTACT-UPDATE] Moved contact_inbox #{@contact_inbox.id} to contact #{@contact.id}"
-      end
-    end
+    resync_contact_inbox(original_contact_id)
   rescue StandardError => e
     Rails.logger.error "[CONTACT-UPDATE] Failed: #{e.class} #{e.message}"
     raise
@@ -221,6 +218,20 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   # sending any text message. Creates a new conversation tied to the existing
   # contact / inbox / contact_inbox so the SDK's polling layer can pick it up
   # on next fetch.
+  def resync_contact_inbox(original_contact_id)
+    return if @contact.id == original_contact_id
+
+    Rails.logger.info "[CONTACT-UPDATE] Contact changed #{original_contact_id} → #{@contact.id}; re-syncing contact_inbox"
+    existing_ci = @web_widget.inbox.contact_inboxes.find_by(contact_id: @contact.id)
+    if existing_ci
+      @contact_inbox = existing_ci
+      Rails.logger.info "[CONTACT-UPDATE] Found existing contact_inbox #{@contact_inbox.id} for new contact"
+    else
+      @contact_inbox.update!(contact_id: @contact.id)
+      Rails.logger.info "[CONTACT-UPDATE] Moved contact_inbox #{@contact_inbox.id} to contact #{@contact.id}"
+    end
+  end
+
   def build_conversation_for_voice
     Conversation.create!(
       account_id: @web_widget.inbox.account_id,
