@@ -125,20 +125,29 @@ If a future hardcoded fallback is genuinely required for some edge case,
 prefer adding it to `appConfig.js` as a default — do NOT reintroduce the env
 var indirection.
 
-## Call-end teardown is layered
+## Call-end teardown is layered (and unforgiving)
 
-The `<elevenlabs-convai>` web component does not always close its underlying
+The `<elevenlabs-convai>` web component does not reliably close its underlying
 WebSocket / WebRTC when you click its in-shadow-DOM end button — the mic
-keeps streaming. `ElevenLabsVoiceButton.endCall()` therefore tears down in
-three layers before remounting:
+keeps streaming AND a previous fix made it worse: text-based button matching
+fell back to `buttons[0]` (which is the START button when the call is active),
+so "End call" was actually RESTARTING the call. `endCall()` now tears down
+synchronously, in this order:
 
-1. Call any public end method exposed on the custom element
+1. Call any public end method on the custom element
    (`endSession` / `endCall` / `disconnect` / `stop` / `close`).
-2. Click the embed's internal end button as a fallback.
-3. Remove the element from the DOM 300 ms later — its
-   `disconnectedCallback` force-closes the WebSocket + RTCPeerConnection.
+2. Try to click an END button matched against `textContent`, `aria-label`,
+   AND `title` — and **bail out instead of clicking the first button** if
+   nothing matches end-ish keywords.
+3. Stop the mic stream we saved from `startCall`'s `getUserMedia`, plus any
+   `<audio>` / `<video>` elements inside the shadow DOM (mute + clear
+   `srcObject` so the agent's voice cuts immediately).
+4. Remove the custom element from the DOM **immediately** — no setTimeout.
+   Its `disconnectedCallback` closes the WebSocket + RTCPeerConnection.
 
-Then we remount a fresh embed so the next call starts cold.
+We deliberately do NOT remount eagerly after endCall — the next `startCall`
+re-mounts a fresh embed. Eager remounting was creating a second invisible
+session that occasionally auto-started.
 
 ## Operator-facing setup guide
 
@@ -151,14 +160,18 @@ Keep it in sync with reality — it is referenced from Dockerfile labels.
 ## Widget branding override
 
 The "Powered by …" footer at the bottom of the widget is rendered by upstream
-`app/javascript/widget/components/Branding.vue`, which wraps the label in an
-`<a href="https://www.chatwoot.com">`. Even after the i18n key `POWERED_BY` is
-re-labelled (see `custom/widget/i18n/en.json`), the link still points to
-Chatwoot.
+**`app/javascript/shared/components/Branding.vue`** (NOT under `widget/`!),
+which wraps the label in an `<a href="...">` built from `window.globalConfig`.
+Even after re-labelling the `POWERED_BY` i18n key (see
+`custom/widget/i18n/en.json`), the anchor still pointed visitors away.
 
 We override the whole component with `custom/widget/components/Branding.vue`
 which renders just a `<span>` — no anchor, no Chatwoot logo, no outbound
-navigation. Dockerfile COPY directive maps it onto the upstream path.
+navigation. The Dockerfile COPY directive MUST map it onto
+`app/javascript/shared/components/Branding.vue` — copying to
+`app/javascript/widget/components/Branding.vue` creates a file no module
+imports, so the upstream anchor survives. (This was the actual bug behind the
+"hyperlink still there after fix" report.)
 
 ## Things to verify / TODO
 

@@ -1,5 +1,9 @@
 <script>
-// Override of upstream `app/javascript/widget/components/Branding.vue`.
+// Override of upstream `app/javascript/shared/components/Branding.vue`.
+// NOTE the path — Branding lives under `shared/`, not `widget/`. Earlier
+// versions of the Dockerfile copied this file to the wrong destination
+// (widget/components/Branding.vue, which nothing imports), so the upstream
+// component with its <a href="https://www.chatwoot.com"> kept being used.
 //
 // Upstream wraps the "Powered by …" text in an <a href="https://www.chatwoot.com">
 // which still pointed visitors back to Chatwoot even after we localised the

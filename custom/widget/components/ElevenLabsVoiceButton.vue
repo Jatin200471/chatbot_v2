@@ -63,6 +63,7 @@ export default {
       isCallActive: false,
       widgetElement: null,
       transcriptHandler: null,
+      micStream: null,
     };
   },
   computed: {
@@ -124,6 +125,7 @@ export default {
     }
   },
   beforeUnmount() {
+    this.stopAllMediaTracks();
     this.removeWidget();
   },
   methods: {
@@ -175,15 +177,62 @@ export default {
       if (!el?.shadowRoot) return false;
       const buttons = Array.from(el.shadowRoot.querySelectorAll('button'));
       if (!buttons.length) return false;
-      const pick = btn => {
+      const matchEnd = btn => {
         const text = (btn.textContent || '').toLowerCase();
-        return preferEnd
-          ? text.includes('end') || text.includes('hang')
-          : text.includes('start') || text.includes('call');
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+        const title = (btn.getAttribute('title') || '').toLowerCase();
+        const combined = `${text} ${label} ${title}`;
+        return /(end|hang|stop|close|disconnect)/.test(combined);
       };
-      const target = buttons.find(pick) || buttons[0];
+      const matchStart = btn => {
+        const text = (btn.textContent || '').toLowerCase();
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+        const title = (btn.getAttribute('title') || '').toLowerCase();
+        const combined = `${text} ${label} ${title}`;
+        return /(start|call|begin|talk)/.test(combined);
+      };
+      // For END: never fall back to a random button — clicking the wrong one
+      // (e.g. buttons[0] = Start) would RESTART the call we just tried to end.
+      // Return false so endCall() falls through to forcibly removing the element.
+      if (preferEnd) {
+        const target = buttons.find(matchEnd);
+        if (!target) return false;
+        target.click();
+        return true;
+      }
+      // For START: fall back to first button only if nothing matches — older
+      // bundles render an unlabeled icon button as the only entry point.
+      const target = buttons.find(matchStart) || buttons[0];
       target.click();
       return true;
+    },
+
+    stopAllMediaTracks() {
+      // 1. Stop the mic stream we explicitly requested in startCall().
+      if (this.micStream) {
+        try {
+          this.micStream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+        } catch (_) {}
+        this.micStream = null;
+      }
+      // 2. Pause/mute any <audio> elements the embed mounted inside its shadow
+      //    root — that's where the agent's voice is playing back. Without this
+      //    the AI keeps talking for a moment after the WebRTC peer closes.
+      const el = this.widgetElement;
+      if (el?.shadowRoot) {
+        const players = el.shadowRoot.querySelectorAll('audio, video');
+        players.forEach(p => {
+          try { p.pause(); } catch (_) {}
+          try { p.muted = true; } catch (_) {}
+          try {
+            if (p.srcObject) {
+              p.srcObject.getTracks?.().forEach(t => { try { t.stop(); } catch (_) {} });
+              p.srcObject = null;
+            }
+          } catch (_) {}
+          try { p.removeAttribute('src'); p.load?.(); } catch (_) {}
+        });
+      }
     },
 
     handleClick() {
@@ -204,7 +253,10 @@ export default {
 
       try {
         if (navigator.mediaDevices?.getUserMedia) {
-          await navigator.mediaDevices.getUserMedia({ audio: true });
+          // Keep a reference so we can stop these tracks on endCall — otherwise
+          // the mic LED stays on and audio keeps streaming even after we tear
+          // down the embed.
+          this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         }
         await loadConvaiScript();
         this.ensureWidgetMounted();
@@ -224,6 +276,7 @@ export default {
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error('[VOICE-AGENT] Failed to start call:', error);
+        this.stopAllMediaTracks();
         this._cleanupSession();
         if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') {
           alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS'));
@@ -232,19 +285,24 @@ export default {
     },
 
     endCall() {
-      // The convai web component does NOT always close its underlying
-      // WebSocket / WebRTC session when we just "click the end button"
-      // inside its shadow DOM — sometimes the call keeps running with the
-      // visitor's mic still streaming. Tear it down in three layers so the
-      // session is *actually* dead before we remount:
+      // The convai web component does NOT reliably close its WebSocket /
+      // WebRTC session when we just "click the end button" inside its shadow
+      // DOM. The previous implementation also tried a text-matched button
+      // click that often resolved to the START button (icon-only END button
+      // had no matching text), which RESTARTED the call. This version is
+      // unforgiving — kill everything in this order, synchronously:
       //
-      //   1. Call the embed's public API methods if any are exposed on the
-      //      element itself (different SDK versions have used different
-      //      names: endSession / endCall / disconnect / stop).
-      //   2. Click the embed's internal end button as a fallback for older
-      //      bundles that don't expose any public methods.
-      //   3. Remove the custom element entirely — its `disconnectedCallback`
-      //      forces the SDK to close the WebSocket and the WebRTC peer.
+      //   1. Call any public end method exposed on the element.
+      //   2. Try to click a button that clearly looks like END (no fallback
+      //      to "first button" — see clickWidgetButton).
+      //   3. Stop our mic stream + any <audio>/<video> in the shadow DOM so
+      //      the AI's voice cuts out immediately.
+      //   4. Remove the custom element NOW (not after 300ms) — its
+      //      disconnectedCallback closes the WebSocket + RTCPeerConnection.
+      //
+      // We deliberately do NOT remount here. The next startCall() will mount
+      // a fresh embed; remounting eagerly was creating a second invisible
+      // session that occasionally auto-started.
       const el = this.widgetElement;
       if (el) {
         try {
@@ -259,15 +317,9 @@ export default {
         this.clickWidgetButton({ preferEnd: true });
       }
 
-      // Flip our local state immediately so the UI shows the idle phone icon.
+      this.stopAllMediaTracks();
+      this.removeWidget();
       this._cleanupSession();
-
-      // Give the embed ~300ms to flush the disconnect frame, then remove +
-      // remount so the next call starts from a clean RTCPeerConnection.
-      setTimeout(() => {
-        this.removeWidget();
-        this.ensureWidgetMounted();
-      }, 300);
     },
 
     removeWidget() {
