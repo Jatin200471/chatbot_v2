@@ -43,7 +43,6 @@ export default {
       campaignsSnoozedTill: undefined,
       configReady: false,
       conversationStatusCheckInterval: null,
-      messagePollingInterval: null,
     };
   },
   computed: {
@@ -116,9 +115,6 @@ export default {
     if (this.conversationStatusCheckInterval) {
       clearInterval(this.conversationStatusCheckInterval);
     }
-    if (this.messagePollingInterval) {
-      clearInterval(this.messagePollingInterval);
-    }
   },
   methods: {
     ...mapActions('appConfig', [
@@ -128,7 +124,7 @@ export default {
       'setBubbleVisibility',
       'setColorScheme',
     ]),
-    ...mapActions('conversation', ['fetchOldConversations', 'clearConversations', 'syncLatestMessages']),
+    ...mapActions('conversation', ['fetchOldConversations', 'clearConversations']),
     ...mapActions('conversationAttributes', ['getAttributes']),
     ...mapActions('campaign', [
       'initCampaigns',
@@ -373,20 +369,6 @@ export default {
           this.checkAndClearResolvedConversation();
         }
       }, 60000);
-
-      // ── MESSAGE POLLING: Fetch new messages every 5 seconds ──────────────
-      // This ensures agent replies appear in the widget in near real-time.
-      // Only poll when widget is open AND a conversation exists.
-      // ────────────────────────────────────────────────────────────────────
-      this.messagePollingInterval = setInterval(() => {
-        if (this.isWidgetOpen && this.conversationSize > 0) {
-          try {
-            this.syncLatestMessages();
-          } catch (error) {
-            console.error('[Message Polling] Error syncing messages:', error.message);
-          }
-        }
-      }, 5000);
     },
 
     async checkAndClearResolvedConversation() {
