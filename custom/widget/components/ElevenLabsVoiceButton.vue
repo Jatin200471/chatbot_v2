@@ -230,8 +230,11 @@ export default {
     }
   },
   beforeUnmount() {
-    this.stopAllMediaTracks();
+    // Full teardown on unmount — handles page navigation mid-call.
+    // Must kill sessions BEFORE removeWidget() while elements still exist.
+    this.stopAllMediaTracks(); // internally calls killAllVoiceSessions()
     this.removeWidget();
+    this._cleanupSession();
   },
   methods: {
     ...mapActions('elevenlabsVoice', ['setActive', 'setConnecting']),
@@ -381,24 +384,14 @@ export default {
     },
 
     endCall() {
-      // The convai web component does NOT reliably close its WebSocket /
-      // WebRTC session when we just "click the end button" inside its shadow
-      // DOM. The previous implementation also tried a text-matched button
-      // click that often resolved to the START button (icon-only END button
-      // had no matching text), which RESTARTED the call. This version is
-      // unforgiving — kill everything in this order, synchronously:
-      //
+      // Kill order:
       //   1. Call any public end method exposed on the element.
-      //   2. Try to click a button that clearly looks like END (no fallback
-      //      to "first button" — see clickWidgetButton).
-      //   3. Stop our mic stream + any <audio>/<video> in the shadow DOM so
-      //      the AI's voice cuts out immediately.
-      //   4. Remove the custom element NOW (not after 300ms) — its
-      //      disconnectedCallback closes the WebSocket + RTCPeerConnection.
-      //
-      // We deliberately do NOT remount here. The next startCall() will mount
-      // a fresh embed; remounting eagerly was creating a second invisible
-      // session that occasionally auto-started.
+      //   2. Try to click the END button inside shadow DOM.
+      //   3. killAllVoiceSessions() — closes every RTCPeerConnection, stops
+      //      every getUserMedia stream, pauses every <audio>/<video> in the
+      //      document. THIS is what actually silences the AI voice; without
+      //      it the peer keeps decoding inbound audio even after element removal.
+      //   4. Remove the custom element — its disconnectedCallback closes the WS.
       const el = this.widgetElement;
       if (el) {
         try {
@@ -413,7 +406,9 @@ export default {
         this.clickWidgetButton({ preferEnd: true });
       }
 
-      this.stopAllMediaTracks();
+      // ── CRITICAL: must be called BEFORE removeWidget() so the element is
+      //    still in the DOM when we sweep for <audio>/<video> nodes.
+      this.stopAllMediaTracks(); // internally calls killAllVoiceSessions()
       this.removeWidget();
       this._cleanupSession();
     },

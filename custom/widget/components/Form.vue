@@ -1,7 +1,7 @@
 <script>
 import CustomButton from 'shared/components/Button.vue';
 import Spinner from 'shared/components/Spinner.vue';
-import { mapGetters, mapActions } from 'vuex';
+import { mapGetters } from 'vuex';
 import { getContrastingTextColor } from '@chatwoot/utils';
 import { isEmptyObject } from 'widget/helpers/utils';
 import { getRegexp } from 'shared/helpers/Validators';
@@ -123,7 +123,6 @@ export default {
     },
   },
   methods: {
-    ...mapActions('contacts', ['update']),
     labelClass(input) {
       const { state } = input.context;
       const hasErrors = state.invalid;
@@ -216,62 +215,52 @@ export default {
       return {};
     },
     onSubmit() {
-      const { emailAddress, fullName, phoneNumber, message } = this.formValues;
+      // FormKit stores all field values in formValues keyed by the field `name`.
+      // The textarea is named "message" in the FormKit template.
+      const emailAddress = this.formValues.emailAddress || '';
+      const fullName = this.formValues.fullName || '';
+      const phoneNumber = this.formValues.phoneNumber || '';
+      // FormKit writes the textarea value under the key matching its `name` attr.
+      const message = (this.formValues.message || '').trim();
 
-      // Validate required fields
-      if (!message || message.trim() === '') {
-        console.error('[Form.onSubmit] Message is required but empty');
-        alert(this.$t('PRE_CHAT_FORM.FIELDS.MESSAGE.ERROR'));
+      // Guard: FormKit already validates required fields before calling @submit,
+      // but we add a runtime check as a safety net.
+      if (!message) {
+        console.error('[Form.onSubmit] Message is empty after trim');
         return;
       }
-
-      if (!emailAddress && !phoneNumber) {
-        console.error('[Form.onSubmit] Either email or phone is required');
-        alert(this.$t('PRE_CHAT_FORM.REQUIRED'));
-        return;
-      }
-
-      const userData = {
-        name: fullName,
-        email: emailAddress,
-        phone_number: phoneNumber,
-        submitted_at: new Date().toISOString(),
-      };
 
       // ── Persist to localStorage so greetings/exit-chat always reflect
       //    the CURRENT session's name, not a previous session's name.
       try {
-        localStorage.setItem('chatwoot_user_data', JSON.stringify(userData));
-      } catch (_) {}
-
-      // ── Update the contact on the server so the AI greeting uses the
-      //    name the user just typed, not the old cached contact name.
-      //    Fire-and-forget — don't block the conversation creation.
-      try {
-        this.$store.dispatch('contacts/update', {
-          user: {
+        localStorage.setItem(
+          'chatwoot_user_data',
+          JSON.stringify({
             name: fullName,
             email: emailAddress,
             phone_number: phoneNumber,
-          },
-        });
+            submitted_at: new Date().toISOString(),
+          })
+        );
       } catch (_) {}
 
-      // Send to n8n webhook silently (fire and forget)
-      this.sendToN8n(userData);
+      // ── DO NOT call contacts/update here ──────────────────────────────────
+      // Calling PATCH /widget/contact before the conversation is created means
+      // there is no auth token yet on a fresh session → server returns 422
+      // Unprocessable Content, which breaks the session entirely.
+      // The conversation create endpoint (POST /widget/conversations) already
+      // runs ContactIdentifyAction with the supplied email/name/phone, so the
+      // contact record is updated as part of that single transactional call.
+      // ──────────────────────────────────────────────────────────────────────
 
-      console.log('[Form.onSubmit] Emitting submitPreChat with:', {
-        fullName,
-        emailAddress,
-        phoneNumber,
-        messageLength: message?.length,
-      });
+      // Send to n8n webhook silently (fire and forget)
+      this.sendToN8n({ name: fullName, email: emailAddress, phone_number: phoneNumber });
 
       this.$emit('submitPreChat', {
         fullName,
         phoneNumber,
         emailAddress,
-        message: message.trim(),
+        message,
         activeCampaignId: this.activeCampaign.id,
         conversationCustomAttributes: this.conversationCustomAttributes,
         contactCustomAttributes: this.contactCustomAttributes,
