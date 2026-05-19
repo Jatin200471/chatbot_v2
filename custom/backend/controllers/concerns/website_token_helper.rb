@@ -30,6 +30,10 @@ module WebsiteTokenHelper
     params.permit(:website_token)
   end
 
+  def conversation
+    @conversation ||= @contact_inbox&.conversation
+  end
+
   private
 
   def create_new_contact

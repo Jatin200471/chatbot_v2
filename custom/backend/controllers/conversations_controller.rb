@@ -204,4 +204,37 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
                                                                message: [:content, :referer_url, :timestamp, :echo_id],
                                                                custom_attributes: {})
   end
+
+  def contact_email
+    permitted_params.dig(:contact, :email) || permitted_params[:email]
+  end
+
+  def contact_name
+    permitted_params.dig(:contact, :name)
+  end
+
+  def contact_phone_number
+    permitted_params.dig(:contact, :phone_number)
+  end
+
+  def message_params
+    {
+      content: permitted_params.dig(:message, :content),
+      message_type: :incoming,
+      sender: @contact,
+      referer_url: permitted_params.dig(:message, :referer_url),
+      timestamp: permitted_params.dig(:message, :timestamp),
+      echo_id: permitted_params.dig(:message, :echo_id)
+    }.compact
+  end
+
+  def create_conversation
+    Conversation.create!(
+      account_id: @web_widget.inbox.account_id,
+      inbox_id: @web_widget.inbox.id,
+      contact_id: @contact.id,
+      contact_inbox_id: @contact_inbox.id,
+      additional_attributes: {}
+    )
+  end
 end
