@@ -56,16 +56,23 @@ export default {
         this.clearConversations();
         this.clearConversationAttributes();
 
-        // ── Update the contact name/email on the server BEFORE creating the
-        //    conversation so the AI bot greeting uses the name just entered,
-        //    not the cached name from a previous session.
-        await this.$store.dispatch('contacts/update', {
-          user: {
-            email: emailAddress,
-            name: fullName,
-            phone_number: phoneNumber,
-          },
-        });
+        // ── Fire-and-forget contact update.
+        //    Form.vue already dispatched the same update before emitting
+        //    submitPreChat, so this is a safety net. We intentionally do NOT
+        //    `await` it here — if the contact-update API hangs (slow network,
+        //    backend lag) it would block createConversation and the visitor
+        //    would see "Start Conversation" do nothing forever. The AI bot
+        //    greeting uses the cached name in that edge case; correctness of
+        //    the greeting is a smaller cost than a stuck form.
+        try {
+          this.$store.dispatch('contacts/update', {
+            user: {
+              email: emailAddress,
+              name: fullName,
+              phone_number: phoneNumber,
+            },
+          });
+        } catch (_) {}
 
         this.$store.dispatch('conversation/createConversation', {
           fullName: fullName,
