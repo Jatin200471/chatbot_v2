@@ -43,6 +43,7 @@ export default {
       campaignsSnoozedTill: undefined,
       configReady: false,
       conversationStatusCheckInterval: null,
+      messagePollingInterval: null,
     };
   },
   computed: {
@@ -107,13 +108,17 @@ export default {
     this.fetchVoiceAgentConfig();
 
     // ── AUTO-CLEAR: Check if conversation was resolved from dashboard ──
-    // If external system (dashboard) resolved the conversation, clear the widget
-    // and force the user to start fresh. Run periodically while widget is open.
     this.startConversationStatusCheck();
+
+    // ── MESSAGE POLLING: Fallback for ActionCable through ngrok/proxies ──
+    this.startMessagePolling();
   },
   beforeUnmount() {
     if (this.conversationStatusCheckInterval) {
       clearInterval(this.conversationStatusCheckInterval);
+    }
+    if (this.messagePollingInterval) {
+      clearInterval(this.messagePollingInterval);
     }
   },
   methods: {
@@ -124,7 +129,7 @@ export default {
       'setBubbleVisibility',
       'setColorScheme',
     ]),
-    ...mapActions('conversation', ['fetchOldConversations', 'clearConversations']),
+    ...mapActions('conversation', ['fetchOldConversations', 'clearConversations', 'syncLatestMessages']),
     ...mapActions('conversationAttributes', ['getAttributes']),
     ...mapActions('campaign', [
       'initCampaigns',
@@ -360,15 +365,25 @@ export default {
     },
 
     startConversationStatusCheck() {
-      // Check once on mount, then every 60s only while the widget is open
-      // AND a conversation actually exists. (Both guards prevent the noisy
-      // every-30s polling we used to do even on an empty home view.)
       this.checkAndClearResolvedConversation();
       this.conversationStatusCheckInterval = setInterval(() => {
         if (this.isWidgetOpen && this.conversationSize > 0) {
           this.checkAndClearResolvedConversation();
         }
       }, 60000);
+    },
+
+    startMessagePolling() {
+      // Poll for new messages every 3s when widget is open and conversation exists.
+      // This is the fallback for ActionCable (WebSocket) which may not work through
+      // ngrok or reverse proxies. syncLatestMessages only fetches messages newer
+      // than the last known message ID, so it's cheap and non-destructive.
+      if (this.messagePollingInterval) return;
+      this.messagePollingInterval = setInterval(() => {
+        if (this.isWidgetOpen && this.conversationSize > 0) {
+          this.syncLatestMessages();
+        }
+      }, 3000);
     },
 
     async checkAndClearResolvedConversation() {
