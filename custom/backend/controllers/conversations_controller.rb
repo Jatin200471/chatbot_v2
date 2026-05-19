@@ -19,10 +19,16 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   end
 
   def process_update_contact
+    # NOTE: `retain_original_contact_name: true` matches upstream and avoids
+    # a 422 when the visitor already has a contact (from a previous session)
+    # and submits the form with a blank or differently-cased name. Setting
+    # this to `false` was rewriting the existing contact name to the new
+    # form value, which collided with contact-uniqueness validations and
+    # the whole transaction rolled back as Unprocessable Content.
     @contact = ContactIdentifyAction.new(
       contact: @contact,
       params: { email: contact_email, phone_number: contact_phone_number, name: contact_name },
-      retain_original_contact_name: false,
+      retain_original_contact_name: true,
       discard_invalid_attrs: true
     ).perform
   end
