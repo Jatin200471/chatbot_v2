@@ -36,14 +36,26 @@ const createConversationAPI = async content => {
     throw new Error('Message cannot be empty');
   }
 
+  console.log('[createConversationAPI] Sending payload:', {
+    message: messageStr.substring(0, 50),
+    contact: content.contact,
+  });
+
   const urlData = endPoints.createConversation(content);
 
+  console.log('[createConversationAPI] Built URL:', buildConvUrl(urlData.url));
+  console.log('[createConversationAPI] Request params:', urlData.params);
+
   try {
-    return await API.post(buildConvUrl(urlData.url), urlData.params);
+    const response = await API.post(buildConvUrl(urlData.url), urlData.params);
+    console.log('[createConversationAPI] Success:', response.data);
+    return response;
   } catch (error) {
     console.error('[createConversationAPI] Request failed:', {
       status: error.response?.status,
+      statusText: error.response?.statusText,
       data: error.response?.data,
+      message: error.message,
     });
     throw error;
   }

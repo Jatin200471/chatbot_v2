@@ -10,12 +10,26 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   end
 
   def create
+    Rails.logger.info "[CREATE-CONVERSATION] Starting with params: #{permitted_params.inspect}"
+    
     ActiveRecord::Base.transaction do
+      Rails.logger.info "[CREATE-CONVERSATION] Step 1: Calling process_update_contact"
       process_update_contact
+      
+      Rails.logger.info "[CREATE-CONVERSATION] Step 2: Creating conversation for contact_id=#{@contact.id}, contact_inbox_id=#{@contact_inbox.id}"
       @conversation = create_conversation
+      
+      Rails.logger.info "[CREATE-CONVERSATION] Step 3: Creating message with content length=#{message_params[:content].to_s.length}"
       @conversation.messages.create!(message_params)
+      
+      Rails.logger.info "[CREATE-CONVERSATION] Step 4: Reloading conversation"
       @conversation.reload
+      
+      Rails.logger.info "[CREATE-CONVERSATION] Success: conversation.id=#{@conversation.id}"
     end
+  rescue StandardError => e
+    Rails.logger.error "[CREATE-CONVERSATION] Error: #{e.class} #{e.message}\n#{e.backtrace.first(5).join("\n")}"
+    raise
   end
 
   def process_update_contact
@@ -25,12 +39,20 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     # this to `false` was rewriting the existing contact name to the new
     # form value, which collided with contact-uniqueness validations and
     # the whole transaction rolled back as Unprocessable Content.
+    
+    Rails.logger.info "[CONTACT-UPDATE] contact_email=#{contact_email.inspect}, contact_name=#{contact_name.inspect}, contact_phone=#{contact_phone_number.inspect}"
+    
     @contact = ContactIdentifyAction.new(
       contact: @contact,
       params: { email: contact_email, phone_number: contact_phone_number, name: contact_name },
       retain_original_contact_name: true,
       discard_invalid_attrs: true
     ).perform
+    
+    Rails.logger.info "[CONTACT-UPDATE] Success: @contact.id=#{@contact.id}, @contact.email=#{@contact.email}"
+  rescue StandardError => e
+    Rails.logger.error "[CONTACT-UPDATE] Failed: #{e.class} #{e.message}"
+    raise
   end
 
   def update_last_seen

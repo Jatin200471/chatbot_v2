@@ -36,8 +36,13 @@ export const actions = {
       dispatch('conversationAttributes/getAttributes', {}, { root: true });
       emitter.emit(ON_CONVERSATION_CREATED);
     } catch (error) {
-      const errorMsg = error.response?.data?.error || error.message || 'Failed to create conversation';
-      console.error('[createConversation] Failed:', errorMsg);
+      const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message || 'Failed to create conversation';
+      console.error('[createConversation] Failed:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        errorData: error.response?.data,
+        errorMsg,
+      });
     } finally {
       commit('setConversationUIFlag', { isCreating: false });
     }
