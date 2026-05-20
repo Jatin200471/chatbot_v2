@@ -39,11 +39,10 @@ module WebsiteTokenHelper
   private
 
   def create_new_contact
-    @current_account.contacts.create!(
-      name: params.dig(:contact, :name).presence || 'Visitor',
-      email: params.dig(:contact, :email).presence,
-      phone_number: params.dig(:contact, :phone_number).presence
-    )
+    # Do NOT set email/phone here — if the email already belongs to another contact,
+    # contacts.create! raises "Email has already been taken" before our create action
+    # even runs. Email linking happens in process_update_contact via ContactIdentifyAction.
+    @current_account.contacts.create!(name: 'Visitor')
   end
 
   def create_contact_inbox(contact)
