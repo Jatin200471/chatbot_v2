@@ -95,20 +95,6 @@ export default {
     this.setWidgetColorVariable(widgetColor);
     setHeader(window.authToken);
 
-    // ── TAB-CLOSE DETECTION ───────────────────────────────────────────────────
-    // sessionStorage is scoped to the browser tab and is cleared when the tab
-    // closes. localStorage persists across tab closes. By checking a sessionStorage
-    // marker we can tell:
-    //   • No marker   → new tab or first visit → clear stale session → pre-chat form
-    //   • Marker exists → same tab, page refresh → resume existing conversation
-    // The marker is also cleared by softExitChat so refreshing after Exit Chat
-    // also shows the pre-chat form instead of an empty messages view.
-    // ─────────────────────────────────────────────────────────────────────────
-    if (!sessionStorage.getItem('tab_open')) {
-      this.$store.dispatch('contacts/softExitChat');
-    }
-    sessionStorage.setItem('tab_open', 'active');
-
     if (this.isIFrame) {
       this.registerListeners();
       this.sendLoadedEvent();
