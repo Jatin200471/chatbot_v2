@@ -27,9 +27,8 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       
       Rails.logger.info "[CREATE-CONVERSATION] Success: conversation.id=#{@conversation.id}"
       @widget_auth_token = ::Widget::TokenService.new(
-        source_id: @contact_inbox.source_id,
-        inbox_id:  @web_widget.inbox.id
-      ).encode_token
+        payload: { source_id: @contact_inbox.source_id, inbox_id: @web_widget.inbox.id }
+      ).generate_token
     end
   rescue StandardError => e
     Rails.logger.error "[CREATE-CONVERSATION] Error: #{e.class} #{e.message}\n#{e.backtrace.first(5).join("\n")}"
