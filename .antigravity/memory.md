@@ -186,6 +186,34 @@ navigation. The Dockerfile COPY directive MUST map it onto
 imports, so the upstream anchor survives. (This was the actual bug behind the
 "hyperlink still there after fix" report.)
 
+## Critical widget bugs (root causes)
+
+### `lastMessageId` must be set after loading messages
+`syncLatestMessages` guards with `if (!lastMessageId) return` — if `lastMessageId`
+is null, the polling fallback NEVER fetches bot replies. Must call
+`commit('setLastMessageId')` after both `pushMessageToConversation` (in
+`createConversation`) and `setMessagesInConversation` (in `fetchOldConversations`).
+Touchpoint: `custom/widget/store/modules/conversation/actions.js`
+
+### Bot-inbox inboxes force conversations to :pending
+`app/models/conversation.rb` has a `before_create :determine_conversation_status`
+callback that overrides status to `:pending` when `inbox.active_bot?` is true.
+n8n webhook integrations count as an active bot. Fix: after `Conversation.create!`,
+call `conv.update_columns(status: Conversation.statuses[:open]) if conv.pending?`
+Touchpoint: `custom/backend/controllers/conversations_controller.rb#create_conversation`
+
+### Tab-close detection via sessionStorage
+`sessionStorage` is cleared when the browser tab closes (not on page refresh).
+We store a `tab_open` marker in sessionStorage. On mount: if marker absent →
+`softExitChat` (clear stale session) → pre-chat form. On refresh: marker present →
+don't clear → conversation resumes. softExitChat also removes the marker so
+refreshing after Exit Chat also shows pre-chat form.
+Touchpoints: `custom/widget/views/App.vue#mounted`, `custom/widget/store/modules/contacts.js#softExitChat`
+
+### Polling strategy
+- Burst poll: every 3s for 60s after a message is sent (catches bot reply fast)
+- Steady fallback: every 30s in `startConversationStatusCheck` (catches any ActionCable miss)
+
 ## Things to verify / TODO
 
 - Purpose of empty `custom-widget/` directory at repo root vs `custom/widget/`

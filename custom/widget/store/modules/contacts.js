@@ -229,6 +229,7 @@ export const actions = {
   },
 
   softExitChat: ({ commit, dispatch }) => {
+    sessionStorage.removeItem('tab_open'); // reset so next tab/refresh also starts fresh
     commit(SET_CURRENT_USER, EMPTY_USER);
     removeHeader('X-Auth-Token');
     removeHeader('api_access_token');

@@ -34,6 +34,7 @@ export const actions = {
       const { messages } = data;
       const [message = {}] = messages;
       commit('pushMessageToConversation', message);
+      commit('setLastMessageId'); // required so syncLatestMessages can poll for bot replies
       dispatch('conversationAttributes/getAttributes', {}, { root: true });
       emitter.emit(ON_CONVERSATION_CREATED);
     } catch (error) {
@@ -169,6 +170,7 @@ export const actions = {
       console.log('[fetchOldConversations] Loaded', formattedMessages.length, 'messages');
       commit('conversation/setMetaUserLastSeenAt', lastSeen, { root: true });
       commit('setMessagesInConversation', formattedMessages);
+      commit('setLastMessageId'); // anchor for polling so syncLatestMessages fetches from here
     } catch (error) {
       console.error('[fetchOldConversations] Error:', {
         status: error.response?.status,

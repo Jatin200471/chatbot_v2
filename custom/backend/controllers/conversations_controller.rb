@@ -288,13 +288,18 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   end
 
   def create_conversation
-    Conversation.create!(
+    conv = Conversation.create!(
       account_id: @web_widget.inbox.account_id,
       inbox_id: @web_widget.inbox.id,
       contact_id: @contact.id,
       contact_inbox_id: @contact_inbox.id,
-      status: :open,
       additional_attributes: {}
     )
+    # The before_create callback `determine_conversation_status` overrides the
+    # status to :pending when inbox.active_bot? is true (n8n / agent-bot inboxes).
+    # Widget conversations must be :open so visitors receive bot replies in the
+    # same session. update_columns skips callbacks to avoid extra events.
+    conv.update_columns(status: Conversation.statuses[:open]) if conv.pending?
+    conv
   end
 end

@@ -95,6 +95,20 @@ export default {
     this.setWidgetColorVariable(widgetColor);
     setHeader(window.authToken);
 
+    // ── TAB-CLOSE DETECTION ───────────────────────────────────────────────────
+    // sessionStorage is scoped to the browser tab and is cleared when the tab
+    // closes. localStorage persists across tab closes. By checking a sessionStorage
+    // marker we can tell:
+    //   • No marker   → new tab or first visit → clear stale session → pre-chat form
+    //   • Marker exists → same tab, page refresh → resume existing conversation
+    // The marker is also cleared by softExitChat so refreshing after Exit Chat
+    // also shows the pre-chat form instead of an empty messages view.
+    // ─────────────────────────────────────────────────────────────────────────
+    if (!sessionStorage.getItem('tab_open')) {
+      this.$store.dispatch('contacts/softExitChat');
+    }
+    sessionStorage.setItem('tab_open', 'active');
+
     if (this.isIFrame) {
       this.registerListeners();
       this.sendLoadedEvent();
@@ -374,8 +388,10 @@ export default {
       this.conversationStatusCheckInterval = setInterval(() => {
         if (this.isWidgetOpen && this.conversationSize > 0) {
           this.checkAndClearResolvedConversation();
+          // Steady fallback sync: catches any messages ActionCable missed
+          this.syncLatestMessages();
         }
-      }, 60000);
+      }, 30000);
     },
 
     startReplyPolling() {
@@ -383,10 +399,10 @@ export default {
       this.replyPollInterval = setInterval(() => {
         this.syncLatestMessages();
       }, 3000);
-      // Auto-stop after 30 seconds — ActionCable should have delivered by then
+      // Stop burst poll after 60s; steady 30s poll above keeps syncing after that
       this.replyPollTimeout = setTimeout(() => {
         this.stopReplyPolling();
-      }, 30000);
+      }, 60000);
     },
 
     stopReplyPolling() {
