@@ -9,6 +9,7 @@ import {
   setCustomAttributes,
   deleteCustomAttribute,
 } from 'widget/api/conversation';
+import { updateWidgetAuthToken } from 'widget/store/modules/contacts';
 
 import { ON_CONVERSATION_CREATED } from 'widget/constants/widgetBusEvents';
 import { createTemporaryMessage, getNonDeletedMessages } from './helpers';
@@ -31,6 +32,10 @@ export const actions = {
       };
 
       const { data } = await createConversationAPI(apiParams);
+      // Set auth token immediately so all subsequent polling uses the correct contact
+      if (data.widget_auth_token) {
+        updateWidgetAuthToken(data.widget_auth_token);
+      }
       const { messages } = data;
       const [message = {}] = messages;
       commit('pushMessageToConversation', message);

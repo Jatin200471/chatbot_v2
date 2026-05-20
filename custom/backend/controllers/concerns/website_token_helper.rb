@@ -31,7 +31,9 @@ module WebsiteTokenHelper
   end
 
   def conversation
-    @conversation ||= @contact_inbox&.conversation
+    @conversation ||= @contact_inbox&.conversations
+      &.where(inbox_id: @web_widget.inbox.id)
+      &.last
   end
 
   private

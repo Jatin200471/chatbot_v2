@@ -83,6 +83,7 @@ COPY --from=node-builder /chatwoot-src/public /app/public
 COPY custom/backend/models/web_widget.rb /app/app/models/channel/web_widget.rb
 COPY custom/backend/views/show.html.erb /app/app/views/widgets/show.html.erb
 COPY custom/backend/views/_inbox.json.jbuilder /app/app/views/api/v1/models/_inbox.json.jbuilder
+COPY custom/backend/views/conversations/create.json.jbuilder /app/app/views/api/v1/widget/conversations/create.json.jbuilder
 COPY custom/backend/controllers/inboxes_controller.rb /app/app/controllers/api/v1/accounts/inboxes_controller.rb
 COPY custom/backend/controllers/conversations_controller.rb /app/app/controllers/api/v1/widget/conversations_controller.rb
 COPY custom/backend/controllers/concerns/website_token_helper.rb /app/app/controllers/concerns/website_token_helper.rb
