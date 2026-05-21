@@ -106,18 +106,17 @@ export default {
           try { await toggleStatus(); } catch (_) {}
         }
 
-        // STEP 2: soft-reset inside the iframe — no postMessage('exitChat'),
-        // no window.location.reload(). The full reload was wiping the iframe
-        // (white flash, lost view state) and the SDK's exitChat handler was
-        // re-rendering the host page. Soft-reset keeps the widget alive and
-        // just navigates back to home with a clean Vuex + storage state.
+        // STEP 2: Clear session data (auth token, storage, Vuex state)
         this.$store.dispatch('contacts/softExitChat');
-        try { this.router.replace({ name: 'home' }); } catch (_) {}
 
-        // STEP 3: ask the parent SDK to collapse the iframe panel (bubble
-        // visible). On next open the widget mounts the prechat-form path
-        // because conversationSize === 0 and storage is empty.
-        this.sendCloseMessage();
+        // STEP 3: Reload the iframe so that:
+        //   - ActionCable WebSocket connection resets (no stale 404s)
+        //   - Fresh visitor session starts cleanly on next bubble click
+        //   - No old pubsub token leaks into new conversation
+        // Small delay lets the server-side resolve (step 1) finish first.
+        setTimeout(() => {
+          window.location.reload();
+        }, 300);
 
       } catch (_) {
         // Last-resort safety net so the user is never stuck. No reload.
