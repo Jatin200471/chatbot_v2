@@ -1,8 +1,20 @@
 *.bak
 *.bak2
 *.map
+
+# Secrets
 .env
+
+# Claude Code internal files
 .claude/
 .harness/
+.antigravity/
+
+# Agent task state
+agents/state/
+
+# Build output
 custom/widget/assets/vite/
+
+# Logs
 logs/
