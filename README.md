@@ -1,103 +1,206 @@
 # Chatwoot Custom — Voice Agent Edition
 
-A customized Chatwoot instance with built-in AI Voice Assistant support (ElevenLabs & multi-provider).
+A fork of [Chatwoot](https://www.chatwoot.com/) with built-in AI Voice Agent support. Visitors can chat with your support team or talk to an AI voice agent (powered by [ElevenLabs Conversational AI](https://elevenlabs.io/docs/conversational-ai)) directly in the widget.
+
+**What's included:**
+- ✅ Voice Agent section in each web-widget inbox's Configuration tab
+- ✅ Real-time voice calls with transcripts auto-posted to conversations
+- ✅ Support for ElevenLabs agents (public & private)
+- ✅ Full Chatwoot dashboard for team collaboration
 
 ---
 
-## 🚀 Quick Start (Anyone Can Run This!)
+## 📋 Prerequisites
 
-### Step 1 — Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed
-- Git installed
+- **Docker Desktop** (Windows / Mac / Linux) — https://docker.com
+- **Git** — to clone the repo
+- **8 GB RAM** free (Vite bundle is large during first build)
+- **10 GB disk space** free
 
-### Step 2 — Clone the repo
+---
+
+## 🚀 Quick Start — Choose Your Path
+
+### **Option A: Run from Pre-Built Image** (Fastest ⚡)
+
+Use this if the image is already pushed to a registry.
+
 ```bash
-git clone https://github.com/Jatin200471/chatbot_v2.git
-cd chatbot_v2
-```
+# 1. Pull the image
+docker pull jatin71/chatwoot-custom:latest
 
-### Step 3 — Setup environment
-```bash
-# Copy the example file
+# 2. Clone the repo (for docker-compose.yaml and .env)
+git clone https://github.com/Jatin200471/chatwoot-custom-master.git
+cd chatwoot-custom-master
+
+# 3. Setup environment
 cp .env.example .env
-```
+# Edit .env with your values (see "Environment Variables" below)
 
-Now open `.env` and fill in these values:
+# 4. Update docker-compose.yaml
+# Change the `image:` line under rails/sidekiq services to:
+#   image: jatin71/chatwoot-custom:latest
+# (Remove or comment out any `build:` block)
 
-**Generate SECRET_KEY_BASE:**
-```bash
-docker run --rm ruby:3 ruby -e "require 'securerandom'; puts SecureRandom.hex(64)"
-```
-
-**Minimum required values in `.env`:**
-```env
-FRONTEND_URL=http://localhost:3000
-SECRET_KEY_BASE=<paste generated secret here>
-POSTGRES_PASSWORD=any_strong_password
-REDIS_PASSWORD=any_strong_password
-REDIS_URL=redis://:any_strong_password@redis:6379
-```
-> ⚠️ Use the **same password** in `REDIS_PASSWORD` and inside `REDIS_URL`
-
-### Step 4 — Create logs folder
-```bash
-mkdir -p logs
-```
-
-### Step 5 — Start the app
-```bash
+# 5. Start everything
 docker compose up -d
-```
-> ⏳ First time takes 5–10 minutes (database setup)
 
-### Step 6 — Check everything is running
+# 6. Wait ~60 seconds, then open http://localhost:3000
+```
+
+### **Option B: Build Locally from Source** (Slower, ~5–15 min)
+
+Use this if you want to modify code or don't have a pre-built image.
+
 ```bash
-docker compose ps
-```
-All services should show `Up` or `healthy`.
+# 1. Clone the repo
+git clone https://github.com/Jatin200471/chatwoot-custom-master.git
+cd chatwoot-custom-master
 
-### Step 7 — Open in browser
-```
-http://localhost:3000
+# 2. Setup environment
+cp .env.example .env
+# Edit .env with your values
+
+# 3. Build the image
+./build.sh
+
+# 4. Start everything
+docker compose up -d
+
+# 5. Wait ~60 seconds, then open http://localhost:3000
 ```
 
 ---
 
-## 🔧 First Time Setup in Browser
+## 🔐 Environment Variables
 
-1. Go to `http://localhost:3000`
-2. Click **"Create a new account"**
-3. Fill in your name, email & password
-4. Done! You're logged in ✅
+Copy `.env.example` to `.env` and fill in these values:
+
+```env
+# Public URL of your Chatwoot instance
+# Localhost OK for testing, but HTTPS required for voice/mic outside localhost
+FRONTEND_URL=http://localhost:3000
+
+# Generate with: docker run --rm chatwoot/chatwoot:latest rails secret
+SECRET_KEY_BASE=<your_generated_secret>
+
+# Strong passwords for services (must match docker-compose.yaml)
+POSTGRES_PASSWORD=your_postgres_password
+REDIS_PASSWORD=your_redis_password
+```
 
 ---
 
-## 💬 Setup Chat Widget
+## 🎯 Post-Install: Wire Up Voice Agent
 
-1. Go to **Settings → Inboxes → Add Inbox**
-2. Select **"Website"**
-3. Fill inbox name & website URL
-4. Click Next → Finish
-5. Copy the **Website Token** shown
-6. Embed the widget in your HTML:
+After the dashboard loads, configure your ElevenLabs voice agent:
+
+1. **Log in** to http://localhost:3000
+
+2. **Create or open a Web Widget inbox**
+   - Settings → Inboxes → "Add Inbox" → Website
+   - Fill in name & URL → Finish
+
+3. **Open the "Configuration" tab** of your inbox
+
+4. **Scroll to "Voice Agent" section** and fill in:
+   - **Enable Voice Agent** → Toggle ON
+   - **Provider** → `elevenlabs`
+   - **API Key** → Leave blank if agent is Public; paste only if Private (requires `convai_write` permission)
+   - **Agent ID** → Copy from your ElevenLabs URL: `https://elevenlabs.io/app/conversational-ai/agents/agent_XXXXXXX`
+     - Paste just the `agent_XXXXXXX` part
+   - Click Save
+
+5. **Verify your ElevenLabs agent is configured:**
+   - ✅ Voice is assigned
+   - ✅ First Message is set (e.g., "Hi, how can I help?")
+   - ✅ System Prompt is set
+   - ✅ Security → "Allow public access" is ON (for Public agents)
+
+---
+
+## 💬 Embed Widget on Your Website
+
+Works with any tech stack — React, Vue, Angular, Next.js, WordPress, Shopify, plain HTML, etc.
+
+1. **In the dashboard:** Settings → Inboxes → Your Inbox → Configuration tab
+
+2. **Copy the "Messenger Script"** block
+
+3. **Paste it before `</body>`** on your website:
 
 ```html
 <script>
   (function(d,t) {
-    var BASE_URL = "http://localhost:3000";
-    var g = d.createElement(t), s = d.getElementsByTagName(t)[0];
-    g.src = BASE_URL + "/packs/js/sdk.js";
-    g.defer = true;
+    var BASE_URL="http://localhost:3000";
+    var g=d.createElement(t),s=d.getElementsByTagName(t)[0];
+    g.src=BASE_URL+"/packs/js/sdk.js";
     g.async = true;
     s.parentNode.insertBefore(g,s);
-    g.onload = function() {
+    g.onload=function(){
       window.chatwootSDK.run({
-        websiteToken: 'YOUR_WEBSITE_TOKEN_HERE',
+        websiteToken: 'YOUR_WEBSITE_TOKEN',
         baseUrl: BASE_URL
-      });
-    };
-  })(document, "script");
+      })
+    }
+  })(document,"script");
 </script>
+```
+
+**Where to paste by framework:**
+- **HTML / WordPress / Shopify** — footer template
+- **React / Next.js** — `<Head>` or `next/script` in `_document`
+- **Vue / Nuxt** — `public/index.html` or `nuxt.config.head.scripts`
+- **Angular** — `src/index.html` before `</body>`
+
+---
+
+## 🔧 Common Issues & Fixes
+
+| Problem | Solution |
+|---------|----------|
+| **Call button doesn't appear** | Toggle Voice Agent off → Save → On → Save. Close & reopen widget bubble. |
+| **Call connects then drops (~3 sec)** | ElevenLabs quota exceeded. Check https://elevenlabs.io/app/usage. Upgrade or wait. |
+| **"missing_permissions: convai_write" error** | Your API key lacks permissions. ElevenLabs Dashboard → API Keys → edit key → enable "ElevenAgents → Write" → re-paste in Chatwoot. |
+| **Voice transcript not appearing** | Check logs: `docker compose logs rails \| Select-String voice_transcript`. Successful POST should return 200. |
+| **"WebRTC negotiation timed out"** | Run `./build.sh` to refresh the bundle (uses latest ElevenLabs LiveKit protocol). |
+
+---
+
+## 🛠️ Useful Commands
+
+```bash
+# Start all services in background
+docker compose up -d
+
+# Stop and remove containers
+docker compose down
+
+# Tail Rails logs (Ctrl+C to exit)
+docker compose logs -f rails
+
+# Find voice-agent logs (PowerShell)
+docker compose logs rails | Select-String VOICE-AGENT
+
+# Restart Rails after code changes
+docker compose restart rails
+
+# Open Rails console
+docker compose exec rails rails c
+
+# Shell into Rails container
+docker compose exec rails bash
+```
+
+---
+
+## 📚 Documentation
+
+- **Chatwoot Docs** — https://www.chatwoot.com/docs
+- **ElevenLabs Conversational AI** — https://elevenlabs.io/docs/conversational-ai
+- **This repo's memory** — [.antigravity/memory.md](.antigravity/memory.md)
+- **Coding rules & gotchas** — [.antigravity/RULES.md](.antigravity/RULES.md)
+- **Full setup guide** — [SETUP.txt](SETUP.txt)
 ```
 
 ---
