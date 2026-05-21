@@ -6,7 +6,6 @@ import { getInboxConfigAPI } from 'widget/api/inboxConfig';
 const state = {
   voiceAgentEnabled: false,
   voiceAgentProvider: 'elevenlabs',
-  voiceAgentApiKey: '',
   voiceAgentConfigData: {},
   elevenlabsAgentId: '',
   isLoading: false,
@@ -16,7 +15,6 @@ const state = {
 const getters = {
   isVoiceAgentEnabled: state => state.voiceAgentEnabled,
   getVoiceAgentProvider: state => state.voiceAgentProvider,
-  getVoiceAgentApiKey: state => state.voiceAgentApiKey,
   getVoiceAgentConfig: state => state.voiceAgentConfigData,
   getIsLoading: state => state.isLoading,
   getError: state => state.error,
@@ -72,7 +70,6 @@ const actions = {
           flags.includes('elevenlabs_voice') || flags.includes('voice_agent')
         );
         commit('setVoiceAgentProvider', inbox.voice_agent_provider || 'elevenlabs');
-        commit('setVoiceAgentApiKey', inbox.voice_agent_api_key || '');
         commit('setVoiceAgentConfigData', inbox.voice_agent_config_data || {});
         commit('setElevenlabsAgentId', inbox.elevenlabs_agent_id || '');
       }
@@ -85,10 +82,9 @@ const actions = {
   },
 
   // Update voice agent config (e.g., when settings change)
-  updateVoiceAgentConfig({ commit }, { enabled, provider, apiKey, configData }) {
+  updateVoiceAgentConfig({ commit }, { enabled, provider, configData }) {
     commit('setVoiceAgentEnabled', enabled);
     commit('setVoiceAgentProvider', provider);
-    commit('setVoiceAgentApiKey', apiKey);
     commit('setVoiceAgentConfigData', configData);
   },
 };
@@ -102,9 +98,6 @@ const mutations = {
   },
   setVoiceAgentProvider(state, provider) {
     state.voiceAgentProvider = provider;
-  },
-  setVoiceAgentApiKey(state, apiKey) {
-    state.voiceAgentApiKey = apiKey;
   },
   setVoiceAgentConfigData(state, configData) {
     state.voiceAgentConfigData = configData;

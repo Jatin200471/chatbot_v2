@@ -645,6 +645,7 @@ Rails.application.routes.draw do
       end
       resources :platform_apps, only: [:index, :new, :create, :show, :edit, :update, :destroy]
       resource :instance_status, only: [:show]
+      resources :push_diagnostics, only: [:index]
 
       resource :settings, only: [:show] do
         get :refresh, on: :collection

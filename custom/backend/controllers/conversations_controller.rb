@@ -10,7 +10,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   end
 
   def create
-    Rails.logger.info "[CREATE-CONVERSATION] Starting with params: #{permitted_params.inspect}"
+    Rails.logger.info "[CREATE-CONVERSATION] Starting with params: #{permitted_params.except(:email).inspect}"
     
     ActiveRecord::Base.transaction do
       Rails.logger.info "[CREATE-CONVERSATION] Step 1: Calling process_update_contact"
@@ -36,7 +36,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   end
 
   def process_update_contact
-    Rails.logger.info "[CONTACT-UPDATE] contact_email=#{contact_email.inspect}, contact_name=#{contact_name.inspect}, contact_phone=#{contact_phone_number.inspect}"
+    Rails.logger.info "[CONTACT-UPDATE] contact_email=#{contact_email.present? ? '[PRESENT]' : 'nil'}, contact_name=#{contact_name.present? ? '[PRESENT]' : 'nil'}, contact_phone=#{contact_phone_number.present? ? '[PRESENT]' : 'nil'}"
 
     original_contact_id = @contact.id
 
@@ -49,7 +49,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     if contact_email.present?
       already_exists = @web_widget.inbox.account.contacts.find_by(email: contact_email)
       if already_exists && already_exists.id != @contact.id
-        Rails.logger.info "[CONTACT-UPDATE] Email #{contact_email} already belongs to contact #{already_exists.id}; using directly"
+        Rails.logger.info "[CONTACT-UPDATE] Email [REDACTED] already belongs to contact #{already_exists.id}; using directly"
         @contact = already_exists
         resync_contact_inbox(original_contact_id)
         return
@@ -63,7 +63,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       discard_invalid_attrs: true
     ).perform
 
-    Rails.logger.info "[CONTACT-UPDATE] Success: @contact.id=#{@contact.id}, @contact.email=#{@contact.email}"
+    Rails.logger.info "[CONTACT-UPDATE] Success: @contact.id=#{@contact.id}, email=[REDACTED]"
 
     # ── Re-sync @contact_inbox ─────────────────────────────────────────────
     # ContactIdentifyAction may return a DIFFERENT contact (e.g. it found an
@@ -128,7 +128,6 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
           name: @inbox.name,
           selected_feature_flags: @web_widget.selected_feature_flags || [],
           voice_agent_provider: @web_widget.voice_agent_provider || 'elevenlabs',
-          voice_agent_api_key: @web_widget.voice_agent_api_key || '',
           voice_agent_config_data: @web_widget.voice_agent_config_data || {},
           elevenlabs_agent_id: @web_widget.elevenlabs_agent_id || ''
         }

@@ -44,7 +44,7 @@ json.website_token resource.channel.try(:website_token)
 json.selected_feature_flags resource.channel.try(:selected_feature_flags)
 json.elevenlabs_agent_id resource.channel.try(:elevenlabs_agent_id)
 json.voice_agent_provider resource.channel.try(:voice_agent_provider)
-json.voice_agent_api_key resource.channel.try(:voice_agent_api_key)
+json.voice_agent_api_key resource.channel.try(:voice_agent_api_key) if Current.account_user&.administrator?
 
 # Ensure voice_agent_config_data is properly serialized as JSON
 voice_config = resource.channel.try(:voice_agent_config_data) || {}
