@@ -94,8 +94,7 @@ export default {
       this.showConfirmExitChat = false;
 
       try {
-        // STEP 1: resolve the conversation server-side. Must run BEFORE we
-        // strip the auth headers in step 2.
+        // STEP 1: Resolve the conversation server-side (before clearing auth).
         if (
           [
             CONVERSATION_STATUS.OPEN,
@@ -106,21 +105,23 @@ export default {
           try { await toggleStatus(); } catch (_) {}
         }
 
-        // STEP 2: Clear session data (auth token, storage, Vuex state)
+        // STEP 2: Clear session data (auth token, storage, Vuex state).
         this.$store.dispatch('contacts/softExitChat');
 
-        // STEP 3: Reload the iframe so that:
-        //   - ActionCable WebSocket connection resets (no stale 404s)
-        //   - Fresh visitor session starts cleanly on next bubble click
-        //   - No old pubsub token leaks into new conversation
-        // Small delay lets the server-side resolve (step 1) finish first.
+        // STEP 3: Close the widget immediately so the user sees it disappear.
+        this.sendCloseMessage();
+
+        // STEP 4: Reload the iframe in the background (widget is now hidden).
+        //   - Resets the ActionCable WebSocket — no stale pubsub token 404s.
+        //   - Next bubble click opens a clean fresh session.
         setTimeout(() => {
           window.location.reload();
-        }, 300);
+        }, 400);
 
       } catch (_) {
-        // Last-resort safety net so the user is never stuck. No reload.
+        // Safety net — always close so the user is never stuck.
         try { this.sendCloseMessage(); } catch (__) {}
+        try { window.location.reload(); } catch (___) {}
       } finally {
         this.isEndingChat = false;
       }
