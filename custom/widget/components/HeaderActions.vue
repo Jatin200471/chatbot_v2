@@ -111,9 +111,14 @@ export default {
         // STEP 3: Close the widget immediately so the user sees it disappear.
         this.sendCloseMessage();
 
-        // STEP 4: Reload the iframe in the background (widget is now hidden).
+        // STEP 4: Navigate to home FIRST so the URL hash resets to #/
+        //   before reload. Without this, reload restores #/chat (messages
+        //   route) which shows a blank screen because the session is cleared.
+        try { this.router.replace({ name: 'home' }); } catch (_) {}
+
+        // STEP 5: Reload the iframe in the background (widget is now hidden).
         //   - Resets the ActionCable WebSocket — no stale pubsub token 404s.
-        //   - Next bubble click opens a clean fresh session.
+        //   - Next bubble click opens a clean fresh session at home route.
         setTimeout(() => {
           window.location.reload();
         }, 400);
