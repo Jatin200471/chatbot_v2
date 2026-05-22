@@ -62,6 +62,8 @@ export default {
       isRightAligned: 'appConfig/isRightAligned',
       isWidgetOpen: 'appConfig/getIsWidgetOpen',
       messageCount: 'conversation/getMessageCount',
+      isVoiceActive: 'elevenlabsVoice/getIsActive',
+      isVoiceConnecting: 'elevenlabsVoice/getIsConnecting',
       unreadMessageCount: 'conversation/getUnreadMessageCount',
       isWidgetStyleFlat: 'appConfig/isWidgetStyleFlat',
       showUnreadMessagesDialog: 'appConfig/getShowUnreadMessagesDialog',
@@ -466,7 +468,13 @@ export default {
 
     // ── SHARED RESET HELPER ───────────────────────────────────────────────────
     // Used by both dashboard-resolve detection and inactivity auto-resolve.
+    // VOICE GUARD: If a voice call is active or connecting, do NOT close the
+    // widget — interrupting a live call is a bad user experience.
     softResetAndClose() {
+      if (this.isVoiceActive || this.isVoiceConnecting) {
+        // Voice call is live — skip close, let call finish naturally
+        return;
+      }
       this.$store.dispatch('contacts/softExitChat');
       try { this.router.replace({ name: 'home' }); } catch (_) {}
       if (IFrameHelper.isIFrame()) {
