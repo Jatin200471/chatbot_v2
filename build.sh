@@ -22,7 +22,9 @@ echo "Image Tag:    $IMAGE_TAG"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Build Docker image
-docker build \
+# DOCKER_BUILDKIT=1 is required for --mount=type=cache in Dockerfile.
+# It also gives better build output and parallel layer execution.
+DOCKER_BUILDKIT=1 docker build \
   --build-arg VITE_ELEVENLABS_AGENT_ID="$AGENT_ID" \
   --build-arg VITE_ELEVENLABS_VOICE_ID="$VOICE_ID" \
   --build-arg VITE_ELEVENLABS_AGENT_NAME="$AGENT_NAME" \

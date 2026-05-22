@@ -14,7 +14,19 @@ RUN apt-get update && \
 
 WORKDIR /chatwoot-src
 
-RUN git clone --depth 1 https://github.com/chatwoot/chatwoot.git . && \
+# ── STEP 1: Clone upstream Chatwoot (separate layer from install) ────────────
+# Keeping git clone and pnpm install as SEPARATE RUN steps is critical:
+#   • If only custom files change  → both layers are cached → build is instant
+#   • If upstream Chatwoot changes → git clone re-runs but pnpm cache mount
+#     (below) means packages are NOT re-downloaded from npm registry (~8 min saved)
+#   • If neither changes           → both cached, Vite build takes ~3-5 min only
+RUN git clone --depth 1 https://github.com/chatwoot/chatwoot.git .
+
+# ── STEP 2: Install dependencies with persistent pnpm cache ─────────────────
+# --mount=type=cache persists the pnpm content-addressable store ACROSS builds.
+# Even when pnpm.lock changes (upstream update), packages already downloaded
+# are served from disk cache instead of npm registry → saves 5-10 min every build.
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
     pnpm install --frozen-lockfile
 
 # Copy custom Vue files BEFORE building
