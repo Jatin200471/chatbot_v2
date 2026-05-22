@@ -22,7 +22,7 @@ import { useRouter } from 'vue-router';
 import { useAvailability } from 'widget/composables/useAvailability';
 import { SDK_SET_BUBBLE_VISIBILITY } from '../shared/constants/sharedFrameEvents';
 import { emitter } from 'shared/helpers/mitt';
-import { getConversationAPI } from 'widget/api/conversation';
+import { getConversationAPI, toggleStatus } from 'widget/api/conversation';
 
 export default {
   name: 'App',
@@ -45,6 +45,12 @@ export default {
       conversationStatusCheckInterval: null,
       replyPollInterval: null,
       replyPollTimeout: null,
+      // ── INACTIVITY AUTO-RESOLVE ──────────────────────────────────────────
+      // Tracks the last time any message was sent/received.
+      // If no activity for INACTIVITY_TIMEOUT_MS, conversation is auto-resolved
+      // and widget is closed so it looks professional.
+      lastActivityAt: null,
+      INACTIVITY_TIMEOUT_MS: 10 * 60 * 1000, // 10 minutes — change as needed
     };
   },
   computed: {
@@ -84,6 +90,8 @@ export default {
       // This is a targeted fallback for environments where ActionCable (WebSocket)
       // is unreliable (e.g. ngrok). Stops automatically after 30s.
       if (newVal > oldVal && this.conversationSize > 0) {
+        // Reset inactivity timer — new message means user is active
+        this.lastActivityAt = Date.now();
         this.startReplyPolling();
       }
     },
@@ -372,10 +380,12 @@ export default {
     startConversationStatusCheck() {
       this.checkAndClearResolvedConversation();
       this.conversationStatusCheckInterval = setInterval(() => {
-        if (this.isWidgetOpen && this.conversationSize > 0) {
+        if (this.conversationSize > 0) {
           this.checkAndClearResolvedConversation();
           // Steady fallback sync: catches any messages ActionCable missed
           this.syncLatestMessages();
+          // Check inactivity — auto-resolve if no message for INACTIVITY_TIMEOUT_MS
+          this.checkInactivity();
         }
       }, 30000);
     },
@@ -408,28 +418,59 @@ export default {
 
       try {
         const { data } = await getConversationAPI();
-        const conversationStatus = data?.payload?.status || data?.status;
+
+        // ── FIX: API returns an ARRAY of conversations, not a single object.
+        // Previous code did data?.payload?.status which is always undefined
+        // on an array — that's why dashboard resolve was NOT closing the widget.
+        // Now we correctly pick the first conversation's status.
+        const payload = data?.payload ?? data;
+        const conversation = Array.isArray(payload) ? payload[0] : payload;
+        const conversationStatus = conversation?.status;
 
         if (conversationStatus !== 'resolved') return;
 
-        // Same behaviour as the Exit Chat button: soft-reset Vuex + storage,
-        // go back to home, and collapse the iframe panel. The next time the
-        // visitor opens the bubble they land on the prechat form with no
-        // residue from the resolved chat. NO window.location.reload().
-        this.$store.dispatch('contacts/softExitChat');
-        try { this.router.replace({ name: 'home' }); } catch (_) {}
-        if (IFrameHelper.isIFrame()) {
-          IFrameHelper.sendMessage({ event: 'closeWindow' });
-        }
+        // Conversation was resolved from dashboard — soft-reset everything.
+        // Widget closes, next open shows pre-chat form fresh.
+        this.softResetAndClose();
       } catch (error) {
         // 404 = conversation deleted/resolved externally — same handling.
         if (error?.response?.status === 404) {
-          this.$store.dispatch('contacts/softExitChat');
-          try { this.router.replace({ name: 'home' }); } catch (_) {}
-          if (IFrameHelper.isIFrame()) {
-            IFrameHelper.sendMessage({ event: 'closeWindow' });
-          }
+          this.softResetAndClose();
         }
+      }
+    },
+
+    // ── INACTIVITY CHECK ──────────────────────────────────────────────────────
+    // Called every 30s. If no message for INACTIVITY_TIMEOUT_MS, auto-resolve.
+    checkInactivity() {
+      if (!this.lastActivityAt) return;
+      if (this.conversationSize === 0) return;
+
+      const elapsed = Date.now() - this.lastActivityAt;
+      if (elapsed >= this.INACTIVITY_TIMEOUT_MS) {
+        this.autoResolveInactiveConversation();
+      }
+    },
+
+    async autoResolveInactiveConversation() {
+      // Reset timer immediately so this doesn't fire twice
+      this.lastActivityAt = null;
+      try {
+        // Resolve conversation on server so agent dashboard shows it resolved
+        await toggleStatus();
+      } catch (_) {
+        // Even if API fails, still clear widget locally
+      }
+      this.softResetAndClose();
+    },
+
+    // ── SHARED RESET HELPER ───────────────────────────────────────────────────
+    // Used by both dashboard-resolve detection and inactivity auto-resolve.
+    softResetAndClose() {
+      this.$store.dispatch('contacts/softExitChat');
+      try { this.router.replace({ name: 'home' }); } catch (_) {}
+      if (IFrameHelper.isIFrame()) {
+        IFrameHelper.sendMessage({ event: 'closeWindow' });
       }
     },
   },
