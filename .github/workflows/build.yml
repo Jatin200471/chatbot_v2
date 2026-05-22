@@ -8,12 +8,11 @@ name: Build & Push Docker Image
 #   - the version tag if any     (e.g. ghcr.io/jatinn71/chatwoot-custom:v1.0.0)
 #   - `latest`                   (only on main branch)
 #
-# Why GHCR instead of Docker Hub:
-#   - Free, unlimited storage for public packages.
-#   - Native to GitHub: uses the auto-provisioned GITHUB_TOKEN, so no PAT to
-#     rotate. Private packages are free for the repo owner too.
-#   - Image visibility (public/private) is controlled per-package from the
-#     GitHub UI: https://github.com/<owner>?tab=packages
+# SPEED: target 3-5 min on repeat builds (was 20 min)
+#   - Single platform linux/amd64 only (multi-platform doubles build time)
+#   - GHA layer cache (type=gha, mode=max) caches git clone + pnpm install layers
+#   - Dockerfile splits git clone and pnpm install as separate layers
+#   - pnpm store uses --mount=type=cache for persistent disk cache
 
 on:
   push:
@@ -61,10 +60,12 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Layer cache speeds up subsequent CI builds significantly.
+          # GHA layer cache — caches ALL intermediate layers (mode=max).
+          # This means git clone + pnpm install layers are reused on
+          # repeat builds. Only vite build re-runs (~3-5 min).
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
