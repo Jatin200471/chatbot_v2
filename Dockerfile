@@ -52,6 +52,7 @@ COPY custom/widget/api/conversation.js app/javascript/widget/api/conversation.js
 COPY custom/widget/api/endpoint.js app/javascript/widget/api/endPoints.js
 COPY custom/widget/api/inboxConfig.js app/javascript/widget/api/inboxConfig.js
 COPY custom/dashboard/ConfigurationPage.vue app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue
+COPY custom/dashboard/ResolveAction.vue app/javascript/dashboard/components/buttons/ResolveAction.vue
 
 # Voice agent (ElevenLabs / Dograh / etc.) configuration is now done per
 # inbox from the Chatwoot dashboard at runtime. No build-time ARG/ENV vars
