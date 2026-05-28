@@ -31,20 +31,9 @@ const createConversationAPI = async content => {
 
   const urlData = endPoints.createConversation(content);
 
-  console.log('[createConversationAPI] Built URL:', buildConvUrl(urlData.url));
-  console.log('[createConversationAPI] Request params:', urlData.params);
-
   try {
-    const response = await API.post(buildConvUrl(urlData.url), urlData.params);
-    console.log('[createConversationAPI] Success:', response.data);
-    return response;
+    return await API.post(buildConvUrl(urlData.url), urlData.params);
   } catch (error) {
-    console.error('[createConversationAPI] Request failed:', {
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-      message: error.message,
-    });
     throw error;
   }
 };

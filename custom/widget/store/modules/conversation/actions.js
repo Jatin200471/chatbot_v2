@@ -42,24 +42,15 @@ export const actions = {
       commit('setLastMessageId'); // required so syncLatestMessages can poll for bot replies
       dispatch('conversationAttributes/getAttributes', {}, { root: true });
       emitter.emit(ON_CONVERSATION_CREATED);
-    } catch (error) {
-      const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message || 'Failed to create conversation';
-      console.error('[createConversation] Failed:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        errorData: error.response?.data,
-        errorMsg,
-      });
+    } catch (_) {
+      // Silently fail — error is shown via isCreating flag UI state
     } finally {
       commit('setConversationUIFlag', { isCreating: false });
     }
   },
   sendMessage: async ({ dispatch, state: conversationState }, params) => {
     const { content, replyTo } = params;
-    console.log('[sendMessage] Starting with:', { content: content?.substring(0, 50), replyTo });
-    
     if (!content || content.trim() === '') {
-      console.error('[sendMessage] Content is empty');
       return;
     }
     
@@ -80,31 +71,18 @@ export const actions = {
       Object.keys(pendingCustomAttributes).length > 0 ||
       pendingLabels.length > 0;
 
-    console.log('[sendMessageWithData] Adding message to store:', { id, content: content?.substring(0, 50) });
     commit('pushMessageToConversation', message);
     commit('updateMessageMeta', { id, meta: { ...meta, error: '' } });
     try {
-      console.log('[sendMessageWithData] Calling API...');
       const { data } = await sendMessageAPI(content, replyTo, {
-        customAttributes: hasPendingMetadata
-          ? pendingCustomAttributes
-          : undefined,
+        customAttributes: hasPendingMetadata ? pendingCustomAttributes : undefined,
         labels: hasPendingMetadata ? pendingLabels : undefined,
       });
-      console.log('[sendMessageWithData] API response:', { id: data.id, status: data.status });
-      
       if (hasPendingMetadata) {
         commit('clearPendingConversationMetadata');
       }
-
       commit('pushMessageToConversation', { ...data, status: 'sent' });
     } catch (error) {
-      console.error('[sendMessageWithData] Error:', {
-        messageId: id,
-        status: error.response?.status,
-        errorData: error.response?.data,
-        message: error.message,
-      });
       commit('pushMessageToConversation', { ...message, status: 'failed' });
       commit('updateMessageMeta', {
         id,
@@ -164,7 +142,6 @@ export const actions = {
 
   fetchOldConversations: async ({ commit }, { before } = {}) => {
     try {
-      console.log('[fetchOldConversations] Fetching messages before:', before);
       commit('setConversationListLoading', true);
       const response = await getMessagesAPI({ before });
       const payload = response?.data?.payload;
@@ -172,17 +149,11 @@ export const actions = {
       if (!meta || !payload) return;
       const { contact_last_seen_at: lastSeen } = meta;
       const formattedMessages = getNonDeletedMessages({ messages: payload });
-      console.log('[fetchOldConversations] Loaded', formattedMessages.length, 'messages');
       commit('conversation/setMetaUserLastSeenAt', lastSeen, { root: true });
       commit('setMessagesInConversation', formattedMessages);
-      commit('setLastMessageId'); // anchor for polling so syncLatestMessages fetches from here
+      commit('setLastMessageId');
     } catch (error) {
-      console.error('[fetchOldConversations] Error:', {
-        status: error.response?.status,
-        message: error.message,
-      });
       if (error.response?.status === 404) {
-        console.log('[fetchOldConversations] Conversation not found (404), clearing');
         commit('clearConversations');
       }
     } finally {
@@ -209,14 +180,7 @@ export const actions = {
       const missingMessages = formattedMessages.filter(
         message => conversations?.[message.id] === undefined
       );
-      
-      if (!missingMessages.length) {
-        console.log('[syncLatestMessages] No new messages');
-        return;
-      }
-      
-      console.log('[syncLatestMessages] Found', missingMessages.length, 'new messages:', missingMessages.map(m => ({ id: m.id, content: m.content?.substring(0, 50) })));
-      
+      if (!missingMessages.length) return;
       missingMessages.forEach(message => {
         conversations[message.id] = message;
       });
@@ -227,11 +191,7 @@ export const actions = {
       );
       commit('conversation/setMetaUserLastSeenAt', lastSeen, { root: true });
       commit('setMissingMessagesInConversation', updatedConversation);
-    } catch (error) {
-      console.error('[syncLatestMessages] Error:', {
-        status: error.response?.status,
-        message: error.message,
-      });
+    } catch (_) {
       // IgnoreError
     }
   },

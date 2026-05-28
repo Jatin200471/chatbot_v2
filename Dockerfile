@@ -100,6 +100,7 @@ COPY custom/backend/views/conversations/create.json.jbuilder /app/app/views/api/
 COPY custom/backend/controllers/inboxes_controller.rb /app/app/controllers/api/v1/accounts/inboxes_controller.rb
 COPY custom/backend/controllers/conversations_controller.rb /app/app/controllers/api/v1/widget/conversations_controller.rb
 COPY custom/backend/controllers/concerns/website_token_helper.rb /app/app/controllers/concerns/website_token_helper.rb
+COPY custom/backend/controllers/security_headers_concern.rb /app/app/controllers/concerns/security_headers_concern.rb
 COPY custom/backend/routes.rb /app/config/routes.rb
 COPY custom/backend/migrations/20260520000001_add_elevenlabs_to_channel_web_widgets.rb \
      /app/db/migrate/20260520000001_add_elevenlabs_to_channel_web_widgets.rb
