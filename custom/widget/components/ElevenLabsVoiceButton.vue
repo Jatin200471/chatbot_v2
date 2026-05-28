@@ -2,6 +2,7 @@
 import { mapGetters, mapActions } from 'vuex';
 import configMixin from '../mixins/configMixin';
 import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
+import { IFrameHelper } from 'widget/helpers/utils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ElevenLabs Conversational AI integration.
@@ -220,13 +221,23 @@ export default {
         if (this.isCallActive) this.endCall();
         this.removeWidget();
       } else {
-        loadConvaiScript().then(() => this.ensureWidgetMounted());
+        // Also check for pending reconnect here — in popup mode voiceAgentConfig
+        // may load AFTER the component mounts, so mounted() already ran without
+        // hasElevenLabsVoiceEnabled being true. This watcher path catches it.
+        loadConvaiScript().then(() => {
+          this.ensureWidgetMounted();
+          this._checkAutoReconnect();
+        });
       }
     },
   },
   mounted() {
     if (this.hasElevenLabsVoiceEnabled) {
-      loadConvaiScript().then(() => this.ensureWidgetMounted());
+      loadConvaiScript().then(() => {
+        this.ensureWidgetMounted();
+        // If a call was active when the user navigated away, auto-reconnect.
+        this._checkAutoReconnect();
+      });
     }
   },
   beforeUnmount() {
@@ -235,6 +246,16 @@ export default {
     this.stopAllMediaTracks(); // internally calls killAllVoiceSessions()
     this.removeWidget();
     this._cleanupSession();
+    // Reconnect flag logic:
+    //   • Iframe mode   — do NOT clear. beforeUnmount fires on every page
+    //     navigation inside the parent site, but we WANT the popup that was
+    //     opened (or the next page load) to pick up the reconnect flag.
+    //   • Popup / standalone mode — CLEAR. The popup window is being closed
+    //     (or refreshed), which means the call is truly ending. No further
+    //     reconnect should trigger from this flag.
+    if (!IFrameHelper.isIFrame()) {
+      this._clearReconnectFlag();
+    }
   },
   methods: {
     ...mapActions('elevenlabsVoice', ['setActive', 'setConnecting']),
@@ -343,12 +364,101 @@ export default {
       }
     },
 
+    // ── Voice call reconnect across page navigation ──────────────────────────
+    // When a page navigation happens mid-call the iframe is destroyed (and so
+    // is the WebRTC session). We save a flag in localStorage when a call starts
+    // and restore it on the next page load so the user hears a seamless
+    // reconnect rather than a silent drop.
+    _saveReconnectFlag() {
+      try {
+        localStorage.setItem('cw_voice_reconnect', JSON.stringify({
+          agentId: this.resolvedAgentId,
+          startedAt: Date.now(),
+        }));
+      } catch (_) {}
+    },
+    _clearReconnectFlag() {
+      try { localStorage.removeItem('cw_voice_reconnect'); } catch (_) {}
+    },
+    _checkAutoReconnect() {
+      try {
+        const raw = localStorage.getItem('cw_voice_reconnect');
+        if (!raw) return;
+        const { agentId, startedAt } = JSON.parse(raw);
+        // Only reconnect within a 2-minute window and for the same agent.
+        const withinWindow = Date.now() - startedAt < 2 * 60 * 1000;
+        if (agentId === this.resolvedAgentId && withinWindow) {
+          // Delay slightly so the widget fully mounts before we request mic.
+          setTimeout(() => this.startCall(), 1200);
+        } else {
+          this._clearReconnectFlag();
+        }
+      } catch (_) {
+        this._clearReconnectFlag();
+      }
+    },
+    // ─────────────────────────────────────────────────────────────────────────
+
     async startCall() {
       if (this.isConnecting || this.isCallActive) return;
       if (!this.resolvedAgentId || !this.hasElevenLabsVoiceEnabled) return;
 
+      // ── POPUP PERSISTENCE ────────────────────────────────────────────────────
+      // WebRTC sessions are tied to the page / iframe context that created them.
+      // When the user navigates to another page the parent document replaces the
+      // iframe, destroying the WebRTC peer and dropping the call.
+      //
+      // Solution: the first time "Start call" is clicked inside the iframe, we
+      // pop the widget out into a standalone popup window.  That window lives
+      // outside the parent page's navigation lifecycle, so it stays open and
+      // the call continues while the user browses.
+      //
+      // How it works:
+      //   1. Save a reconnect flag to localStorage (agentId + timestamp).
+      //   2. Open the widget as a standalone popup via window.open().
+      //   3. Close the iframe bubble (user now sees the popup instead).
+      //   4. Return — the popup will auto-start the call via _checkAutoReconnect().
+      //
+      // If the browser blocks the popup we fall through and start the call
+      // inline (best-effort; call will still drop on navigation in that case).
+      // ─────────────────────────────────────────────────────────────────────────
+      if (IFrameHelper.isIFrame()) {
+        this._saveReconnectFlag();
+        let popup = null;
+        try {
+          const { origin } = window.location;
+          const { websiteToken } = window.chatwootWebChannel || {};
+          const locale = (this.$root?.$i18n?.locale) || 'en';
+          // Build the widget URL. The cw_d cookie (same origin) gives the popup
+          // the correct auth token automatically — no need to pass it as a param.
+          const params = new URLSearchParams({ website_token: websiteToken, locale });
+          popup = window.open(
+            `${origin}/widget?${params}`,
+            'chatwoot_voice_popup',
+            'width=400,height=700,resizable=yes,scrollbars=no'
+          );
+        } catch (_) {
+          // window.open threw — treat as blocked
+        }
+        if (popup) {
+          // Close the iframe bubble; the standalone popup is now the widget UI.
+          // The popup will auto-start the call via _checkAutoReconnect().
+          IFrameHelper.sendMessage({ event: 'closeWindow' });
+          return;
+        }
+        // Popup was blocked — clear the reconnect flag and fall through to
+        // start the call inline (best-effort; will drop on page navigation).
+        this._clearReconnectFlag();
+      }
+
       this.isConnecting = true;
       this.setConnecting(true);
+
+      // Persist reconnect flag BEFORE the async work so that even if the
+      // user navigates away during the connecting phase it is captured.
+      // (Not needed in popup mode — the popup doesn't navigate; only kept
+      //  here for the popup-blocked fallback path above.)
+      this._saveReconnectFlag();
 
       try {
         if (navigator.mediaDevices?.getUserMedia) {
@@ -373,9 +483,8 @@ export default {
         this.isCallActive = true;
         this.setActive(true);
       } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('[VOICE-AGENT] Failed to start call:', error);
         this.stopAllMediaTracks();
+        this._clearReconnectFlag();
         this._cleanupSession();
         if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') {
           alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS'));
@@ -384,6 +493,10 @@ export default {
     },
 
     endCall() {
+      // User explicitly ended the call — clear the reconnect flag so it does
+      // NOT restart automatically on the next page load.
+      this._clearReconnectFlag();
+
       // Kill order:
       //   1. Call any public end method exposed on the element.
       //   2. Try to click the END button inside shadow DOM.

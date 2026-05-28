@@ -579,8 +579,9 @@ export default {
     width: 2.75rem;   /* 44px */
     height: 1.5rem;   /* 24px */
     border-radius: 9999px;
-    background-color: var(--color-background-200, #3a3f4b);
-    border: 2px solid var(--color-border-light, #4a4f5c);
+    /* Light mode: light gray off-state */
+    background-color: #d1d5db;
+    border: 2px solid #d1d5db;
     transition: background-color 0.2s ease, border-color 0.2s ease;
     position: relative;
 
@@ -593,15 +594,15 @@ export default {
       width: 1rem;    /* 16px thumb */
       height: 1rem;
       border-radius: 50%;
-      background-color: var(--color-background-400, #6b7280);
+      background-color: #ffffff;
       transition: left 0.2s ease, background-color 0.2s ease;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
     }
   }
 
   &--active .voice-agent-toggle__track {
-    background-color: var(--color-woot-500, #1f93ff);
-    border-color: var(--color-woot-500, #1f93ff);
+    background-color: #1f93ff;
+    border-color: #1f93ff;
 
     &::after {
       left: calc(100% - 18px);
@@ -610,27 +611,38 @@ export default {
   }
 
   &:hover .voice-agent-toggle__track {
-    border-color: var(--color-woot-400, #3fa9ff);
+    border-color: #3fa9ff;
   }
 }
 
-/* ── Shared input style matching Chatwoot's dark inputs ── */
+/* Dark mode override for toggle */
+:global(.dark) .voice-agent-toggle__track {
+  background-color: #3a3f4b;
+  border-color: #4a4f5c;
+
+  &::after {
+    background-color: #9ca3af;
+  }
+}
+
+/* ── Shared input style — light mode by default, dark mode override ── */
 .chatwoot-input {
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
   border-radius: 0.5rem;
-  border: 1px solid var(--color-border-light, #3a3f4b);
-  background-color: var(--color-background-100, #1e2228);
-  color: var(--color-foreground, #e2e8f0);
+  /* Light mode defaults */
+  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+  color: #1e293b;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   outline: none;
 
   &::placeholder {
-    color: var(--color-foreground-muted, #6b7280);
+    color: #94a3b8;
   }
 
   &:focus {
-    border-color: var(--color-woot-500, #1f93ff);
+    border-color: #1f93ff;
     box-shadow: 0 0 0 3px rgba(31, 147, 255, 0.15);
   }
 
@@ -638,6 +650,17 @@ export default {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.8125rem;
     resize: vertical;
+  }
+}
+
+/* Dark mode override for inputs */
+:global(.dark) .chatwoot-input {
+  background-color: #1e2228;
+  color: #e2e8f0;
+  border-color: #3a3f4b;
+
+  &::placeholder {
+    color: #6b7280;
   }
 }
 

@@ -105,6 +105,21 @@ export default {
       this.clearConversations();
       this.fetchAvailableAgents(websiteToken);
       this.setLocale(getLocale(window.location.search));
+
+      // ── VOICE RECONNECT IN POPUP ────────────────────────────────────────────
+      // When the user clicked "Start call" inside the iframe, ElevenLabsVoiceButton
+      // saved a reconnect flag and opened THIS popup window.  We detect the flag
+      // here and immediately navigate to the messages route so that
+      // ChatInputWrap → ElevenLabsVoiceButton mounts.  Once mounted (or once
+      // voiceAgentConfig finishes loading), _checkAutoReconnect() fires and
+      // starts the call automatically.
+      try {
+        if (localStorage.getItem('cw_voice_reconnect')) {
+          this.$nextTick(() => {
+            this.router.replace({ name: 'messages' }).catch(() => {});
+          });
+        }
+      } catch (_) {}
     }
 
     if (this.isRNWebView) {
@@ -416,19 +431,27 @@ export default {
       try {
         const { data } = await getConversationAPI();
 
-        // ── FIX: API returns an ARRAY of conversations, not a single object.
-        // Previous code did data?.payload?.status which is always undefined
-        // on an array — that's why dashboard resolve was NOT closing the widget.
-        // Now we correctly pick the first conversation's status.
+        // API returns an ARRAY of conversations for this contact.
+        // Bug-fix: previously we only checked payload[0] — if the API returns
+        // conversations sorted oldest-first, payload[0] could be a previously
+        // resolved conversation while the CURRENT one (payload[1]) is still open.
+        // Correct check: if ANY conversation is open/pending, the customer is
+        // still chatting — do NOT reset. Only reset when every conversation is
+        // resolved (meaning the active one was resolved from the dashboard).
         const payload = data?.payload ?? data;
-        const conversation = Array.isArray(payload) ? payload[0] : payload;
-        const conversationStatus = conversation?.status;
+        const conversations = Array.isArray(payload)
+          ? payload
+          : (payload ? [payload] : []);
 
-        if (conversationStatus !== 'resolved') return;
+        const hasActiveConversation = conversations.some(
+          c => c?.status === 'open' || c?.status === 'pending'
+        );
+        if (hasActiveConversation) return;
 
-        // Conversation was resolved from dashboard — soft-reset everything.
-        // Widget closes, next open shows pre-chat form fresh.
-        this.softResetAndClose();
+        // No open/pending conversations — the active one was resolved.
+        if (conversations.length > 0) {
+          this.softResetAndClose();
+        }
       } catch (error) {
         // 404 = conversation deleted/resolved externally — same handling.
         if (error?.response?.status === 404) {
