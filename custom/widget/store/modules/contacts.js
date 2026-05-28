@@ -236,6 +236,17 @@ export const actions = {
     clearSessionStorage();
     try { dispatch('conversation/clearConversations', null, { root: true }); } catch (_) {}
   },
+
+  // Used when the conversation is resolved from the dashboard (or auto-resolved).
+  // Unlike softExitChat, this keeps the auth token AND contact identity intact
+  // so the customer is recognised as the same person on their next visit and a
+  // duplicate "Visitor" account is NOT created in Chatwoot.
+  // Only the conversation + attribute state is cleared so the widget shows the
+  // pre-chat form / blank message view fresh.
+  resetConversationOnly: ({ dispatch }) => {
+    try { dispatch('conversation/clearConversations', null, { root: true }); } catch (_) {}
+    try { dispatch('conversationAttributes/clearConversationAttributes', {}, { root: true }); } catch (_) {}
+  },
 };
 
 export const mutations = {

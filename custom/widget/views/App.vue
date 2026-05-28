@@ -144,7 +144,7 @@ export default {
       'resetCampaign',
     ]),
     ...mapActions('agent', ['fetchAvailableAgents']),
-    ...mapActions('contacts', ['clearCurrentUser']),
+    ...mapActions('contacts', ['clearCurrentUser', 'resetConversationOnly']),
     ...mapActions('voiceAgentConfig', ['fetchVoiceAgentConfig']),
 
     setWidgetColorVariable(widgetColor) {
@@ -434,6 +434,16 @@ export default {
 
     // ── SHARED RESET HELPER ───────────────────────────────────────────────────
     // Used by both dashboard-resolve detection and inactivity auto-resolve.
+    //
+    // KEY BEHAVIOUR: we call resetConversationOnly (NOT softExitChat) so that
+    // the customer's auth token is preserved.  This means when the customer
+    // reopens the widget they are recognised as the SAME contact and a fresh
+    // conversation is created for them — rather than the backend creating a
+    // brand-new "Visitor" account (which caused duplicate contacts).
+    //
+    // softExitChat (full wipe) is only used when the customer explicitly clicks
+    // "Exit Chat" themselves (HeaderActions.vue).
+    //
     // VOICE GUARD: If a voice call is active or connecting, do NOT close the
     // widget — interrupting a live call is a bad user experience.
     softResetAndClose() {
@@ -441,7 +451,7 @@ export default {
         // Voice call is live — skip close, let call finish naturally
         return;
       }
-      this.$store.dispatch('contacts/softExitChat');
+      this.resetConversationOnly();
       try { this.router.replace({ name: 'home' }); } catch (_) {}
       if (IFrameHelper.isIFrame()) {
         IFrameHelper.sendMessage({ event: 'closeWindow' });

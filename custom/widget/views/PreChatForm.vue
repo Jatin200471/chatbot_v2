@@ -6,7 +6,6 @@ import configMixin from '../mixins/configMixin';
 import { isEmptyObject } from 'widget/helpers/utils';
 import { ON_CONVERSATION_CREATED } from '../constants/widgetBusEvents';
 import { emitter } from 'shared/helpers/mitt';
-import { removeHeader } from 'widget/helpers/axios';
 
 export default {
   components: {
@@ -39,9 +38,10 @@ export default {
       if (conversationStatus && conversationStatus.status === 'resolved') {
         this.clearConversations();
         this.clearConversationAttributes();
-        // Clear stale auth token so the backend creates a fresh contact_inbox
-        // for the new conversation instead of trying to reuse the old one.
-        removeHeader('X-Auth-Token');
+        // NOTE: we intentionally do NOT removeHeader('X-Auth-Token') here.
+        // Keeping the auth token means the customer is recognised as the same
+        // contact when they submit the pre-chat form, so no duplicate "Visitor"
+        // account is created in Chatwoot.
       }
     },
 
