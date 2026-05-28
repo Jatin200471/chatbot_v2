@@ -144,7 +144,7 @@ export default {
       'resetCampaign',
     ]),
     ...mapActions('agent', ['fetchAvailableAgents']),
-    ...mapActions('contacts', ['clearCurrentUser', 'resetConversationOnly']),
+    ...mapActions('contacts', ['clearCurrentUser']),
     ...mapActions('voiceAgentConfig', ['fetchVoiceAgentConfig']),
 
     setWidgetColorVariable(widgetColor) {
@@ -269,14 +269,19 @@ export default {
 
           // ── REHYDRATE EXISTING SESSION ──────────────────────────────────
           // On every iframe load (initial open, refresh, page change) we
-          // pull the existing conversation + attributes from the server so
-          // the widget continues the same conversation instead of starting
-          // a new one. Exit Chat is the ONLY path that wipes session data
-          // (handled by contacts/clearCurrentUser → reload), so the storage
-          // keys here are guaranteed to point at a real, unresolved chat.
+          // pull the existing conversation + attributes from the server.
+          // After both complete, we immediately check whether the loaded
+          // conversation is already resolved (e.g. auto-resolved while the
+          // widget was closed). If it is, softResetAndClose() fires so the
+          // customer never sees old conversation messages — they get a fresh
+          // blank session instead.
           // ────────────────────────────────────────────────────────────────
-          this.fetchOldConversations();
-          this.getAttributes();
+          Promise.all([
+            this.fetchOldConversations(),
+            this.getAttributes(),
+          ]).then(() => {
+            this.checkAndClearResolvedConversation();
+          });
 
           this.fetchAvailableAgents(websiteToken);
           this.setCampaignReadData(message.campaignsSnoozedTill);
@@ -433,16 +438,16 @@ export default {
     },
 
     // ── SHARED RESET HELPER ───────────────────────────────────────────────────
-    // Used by both dashboard-resolve detection and inactivity auto-resolve.
+    // Called when a conversation is resolved from the dashboard (manual or
+    // auto-resolve).  Mirrors the "Exit Chat" button (HeaderActions.endChat)
+    // exactly so the customer gets a completely fresh session next time.
     //
-    // KEY BEHAVIOUR: we call resetConversationOnly (NOT softExitChat) so that
-    // the customer's auth token is preserved.  This means when the customer
-    // reopens the widget they are recognised as the SAME contact and a fresh
-    // conversation is created for them — rather than the backend creating a
-    // brand-new "Visitor" account (which caused duplicate contacts).
-    //
-    // softExitChat (full wipe) is only used when the customer explicitly clicks
-    // "Exit Chat" themselves (HeaderActions.vue).
+    // WHY RELOAD: Without window.location.reload() the iframe stays alive in
+    // memory.  Even though Vuex is cleared, the next config-set/fetchOldConversations
+    // call re-fetches the resolved conversation from the server (auth cookie is
+    // still valid) and the old messages re-appear.  A reload wipes all in-memory
+    // state AND clears the cw_d auth cookie (same domain), so the server issues
+    // a brand-new session — truly blank slate, no old messages.
     //
     // VOICE GUARD: If a voice call is active or connecting, do NOT close the
     // widget — interrupting a live call is a bad user experience.
@@ -451,11 +456,27 @@ export default {
         // Voice call is live — skip close, let call finish naturally
         return;
       }
-      this.resetConversationOnly();
+
+      // Full wipe: auth token, storage, Vuex state (same as Exit Chat).
+      this.$store.dispatch('contacts/softExitChat');
+
+      // Navigate home first so the reload lands on the clean home route,
+      // not /chat (which would show a blank messages screen with no session).
       try { this.router.replace({ name: 'home' }); } catch (_) {}
+
+      // Close the widget bubble immediately.
       if (IFrameHelper.isIFrame()) {
         IFrameHelper.sendMessage({ event: 'closeWindow' });
       }
+
+      // Reload the iframe in the background (widget is now hidden).
+      // Next time the customer opens the bubble they get a fresh session
+      // — pre-chat form or empty message input, no old conversation visible.
+      // 400 ms delay matches HeaderActions.endChat so any close animation
+      // can complete before the page refreshes.
+      setTimeout(() => {
+        window.location.reload();
+      }, 400);
     },
   },
 };
