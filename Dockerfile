@@ -76,10 +76,12 @@ ENV NODE_OPTIONS="--max-old-space-size=6144 --max-semi-space-size=128 --max-http
 ENV UV_THREADPOOL_SIZE=4
 ENV GOMAXPROCS=2
 
-RUN node_modules/.bin/vite build --config vite.config.ts --minify esbuild
+# Minification disabled — reduces peak memory from ~4GB to ~1.5GB.
+# Re-enable --minify esbuild once Docker Desktop has ≥5GB RAM allocated.
+RUN node_modules/.bin/vite build --config vite.config.ts
 
-# Fallback (no minification) if the line above still OOMs in your CI:
-# RUN node_modules/.bin/vite build --config vite.config.ts
+# Full minified build (re-enable when enough RAM is available):
+# RUN node_modules/.bin/vite build --config vite.config.ts --minify esbuild
 
 RUN echo "=== BUILD OUTPUT ===" && \
     find /chatwoot-src/public -type f | head -30 && \

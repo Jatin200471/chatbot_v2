@@ -1,7 +1,7 @@
 *.bak
 *.bak2
 *.map
-
+  
 # Secrets
 .env
 
@@ -9,6 +9,7 @@
 .claude/
 .harness/
 .antigravity/
+.github/
 
 # Agent task state
 agents/state/
