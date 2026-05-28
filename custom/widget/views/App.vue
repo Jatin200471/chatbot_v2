@@ -105,21 +105,6 @@ export default {
       this.clearConversations();
       this.fetchAvailableAgents(websiteToken);
       this.setLocale(getLocale(window.location.search));
-
-      // ── VOICE RECONNECT IN POPUP ────────────────────────────────────────────
-      // When the user clicked "Start call" inside the iframe, ElevenLabsVoiceButton
-      // saved a reconnect flag and opened THIS popup window.  We detect the flag
-      // here and immediately navigate to the messages route so that
-      // ChatInputWrap → ElevenLabsVoiceButton mounts.  Once mounted (or once
-      // voiceAgentConfig finishes loading), _checkAutoReconnect() fires and
-      // starts the call automatically.
-      try {
-        if (localStorage.getItem('cw_voice_reconnect')) {
-          this.$nextTick(() => {
-            this.router.replace({ name: 'messages' }).catch(() => {});
-          });
-        }
-      } catch (_) {}
     }
 
     if (this.isRNWebView) {
@@ -367,10 +352,12 @@ export default {
             this.resetCampaign();
           } else {
             // When widget opens: re-pull inbox/voice config so admin toggle
-            // changes take effect without a full page reload, then verify the
-            // conversation hasn't been resolved externally.
+            // changes take effect without a full page reload.
+            // NOTE: we intentionally do NOT call checkAndClearResolvedConversation()
+            // here — it fires too aggressively (every open) and can wipe a valid
+            // session if the API is slow. The 30-second polling in
+            // startConversationStatusCheck() already handles this case reliably.
             this.fetchVoiceAgentConfig();
-            this.checkAndClearResolvedConversation();
           }
 
         } else if (message.event === SDK_SET_BUBBLE_VISIBILITY) {

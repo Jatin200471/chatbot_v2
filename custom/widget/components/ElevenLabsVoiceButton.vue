@@ -2,7 +2,6 @@
 import { mapGetters, mapActions } from 'vuex';
 import configMixin from '../mixins/configMixin';
 import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
-import { IFrameHelper } from 'widget/helpers/utils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ElevenLabs Conversational AI integration.
@@ -221,13 +220,7 @@ export default {
         if (this.isCallActive) this.endCall();
         this.removeWidget();
       } else {
-        // Also check for pending reconnect here — in popup mode voiceAgentConfig
-        // may load AFTER the component mounts, so mounted() already ran without
-        // hasElevenLabsVoiceEnabled being true. This watcher path catches it.
-        loadConvaiScript().then(() => {
-          this.ensureWidgetMounted();
-          this._checkAutoReconnect();
-        });
+        loadConvaiScript().then(() => this.ensureWidgetMounted());
       }
     },
   },
@@ -246,16 +239,10 @@ export default {
     this.stopAllMediaTracks(); // internally calls killAllVoiceSessions()
     this.removeWidget();
     this._cleanupSession();
-    // Reconnect flag logic:
-    //   • Iframe mode   — do NOT clear. beforeUnmount fires on every page
-    //     navigation inside the parent site, but we WANT the popup that was
-    //     opened (or the next page load) to pick up the reconnect flag.
-    //   • Popup / standalone mode — CLEAR. The popup window is being closed
-    //     (or refreshed), which means the call is truly ending. No further
-    //     reconnect should trigger from this flag.
-    if (!IFrameHelper.isIFrame()) {
-      this._clearReconnectFlag();
-    }
+    // Note: we do NOT clear the localStorage reconnect flag here because
+    // beforeUnmount fires on page navigation — we WANT to reconnect on the
+    // next page. The flag is only cleared when the user explicitly ends the
+    // call or it times out.
   },
   methods: {
     ...mapActions('elevenlabsVoice', ['setActive', 'setConnecting']),
@@ -403,61 +390,11 @@ export default {
       if (this.isConnecting || this.isCallActive) return;
       if (!this.resolvedAgentId || !this.hasElevenLabsVoiceEnabled) return;
 
-      // ── POPUP PERSISTENCE ────────────────────────────────────────────────────
-      // WebRTC sessions are tied to the page / iframe context that created them.
-      // When the user navigates to another page the parent document replaces the
-      // iframe, destroying the WebRTC peer and dropping the call.
-      //
-      // Solution: the first time "Start call" is clicked inside the iframe, we
-      // pop the widget out into a standalone popup window.  That window lives
-      // outside the parent page's navigation lifecycle, so it stays open and
-      // the call continues while the user browses.
-      //
-      // How it works:
-      //   1. Save a reconnect flag to localStorage (agentId + timestamp).
-      //   2. Open the widget as a standalone popup via window.open().
-      //   3. Close the iframe bubble (user now sees the popup instead).
-      //   4. Return — the popup will auto-start the call via _checkAutoReconnect().
-      //
-      // If the browser blocks the popup we fall through and start the call
-      // inline (best-effort; call will still drop on navigation in that case).
-      // ─────────────────────────────────────────────────────────────────────────
-      if (IFrameHelper.isIFrame()) {
-        this._saveReconnectFlag();
-        let popup = null;
-        try {
-          const { origin } = window.location;
-          const { websiteToken } = window.chatwootWebChannel || {};
-          const locale = (this.$root?.$i18n?.locale) || 'en';
-          // Build the widget URL. The cw_d cookie (same origin) gives the popup
-          // the correct auth token automatically — no need to pass it as a param.
-          const params = new URLSearchParams({ website_token: websiteToken, locale });
-          popup = window.open(
-            `${origin}/widget?${params}`,
-            'chatwoot_voice_popup',
-            'width=400,height=700,resizable=yes,scrollbars=no'
-          );
-        } catch (_) {
-          // window.open threw — treat as blocked
-        }
-        if (popup) {
-          // Close the iframe bubble; the standalone popup is now the widget UI.
-          // The popup will auto-start the call via _checkAutoReconnect().
-          IFrameHelper.sendMessage({ event: 'closeWindow' });
-          return;
-        }
-        // Popup was blocked — clear the reconnect flag and fall through to
-        // start the call inline (best-effort; will drop on page navigation).
-        this._clearReconnectFlag();
-      }
-
       this.isConnecting = true;
       this.setConnecting(true);
 
       // Persist reconnect flag BEFORE the async work so that even if the
       // user navigates away during the connecting phase it is captured.
-      // (Not needed in popup mode — the popup doesn't navigate; only kept
-      //  here for the popup-blocked fallback path above.)
       this._saveReconnectFlag();
 
       try {
