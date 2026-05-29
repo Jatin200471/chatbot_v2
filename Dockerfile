@@ -122,11 +122,6 @@ COPY custom/backend/migrations/20260520000001_add_elevenlabs_to_channel_web_widg
 COPY custom/backend/migrations/20260520000002_add_voice_agent_config_to_channel_web_widgets.rb \
      /app/db/migrate/20260520000002_add_voice_agent_config_to_channel_web_widgets.rb
 
-# ── Test Website: served as static files at /test/* ─────────────────────────
-# Rails automatically serves anything in /app/public as static files.
-# Access at: https://your-domain/test/index.html
-COPY test/ /app/public/test/
-
 # ── Frontend: Dashboard & Widget files processed by Vite in Stage 1 ────────────
 # All Vue components, store modules, and helpers are bundled by Vite in Stage 1
 # and copied to /app/public above. Do NOT copy raw Vue files here — they will
