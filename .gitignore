@@ -9,7 +9,7 @@
 .claude/
 .harness/
 .antigravity/
-.github/
+
 
 # Agent task state
 agents/state/

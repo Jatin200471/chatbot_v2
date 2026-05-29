@@ -2,6 +2,7 @@
 import { mapGetters, mapActions } from 'vuex';
 import configMixin from '../mixins/configMixin';
 import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
+import { emitter } from 'shared/helpers/mitt';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ElevenLabs Conversational AI integration.
@@ -225,6 +226,11 @@ export default {
     },
   },
   mounted() {
+    // Listen for end-call signal from the floating parent-page button.
+    // When the user clicks the red "End Call" button while the widget is closed,
+    // App.vue receives the postMessage and emits this event to us here.
+    emitter.on('end-voice-call', this.endCall);
+
     if (this.hasElevenLabsVoiceEnabled) {
       loadConvaiScript().then(() => {
         this.ensureWidgetMounted();
@@ -234,6 +240,9 @@ export default {
     }
   },
   beforeUnmount() {
+    // Remove the end-voice-call listener before full teardown.
+    emitter.off('end-voice-call', this.endCall);
+
     // Full teardown on unmount — handles page navigation mid-call.
     // Must kill sessions BEFORE removeWidget() while elements still exist.
     this.stopAllMediaTracks(); // internally calls killAllVoiceSessions()

@@ -89,6 +89,32 @@ export default {
         this.startReplyPolling();
       }
     },
+
+    // ── FLOATING END CALL BUTTON ─────────────────────────────────────────────
+    // Tells the parent page to show/hide the red floating "End Call" button.
+    // Show when: call is active AND widget bubble is closed.
+    // Hide when: call ends OR widget is opened (user can end from inside).
+    isVoiceActive(val) {
+      if (!this.isIFrame) return;
+      if (!val) {
+        // Call ended — always hide the floating button
+        IFrameHelper.sendMessage({ event: 'voice-call-active', isActive: false });
+      } else if (!this.isWidgetOpen) {
+        // Call started / still active and widget is currently closed
+        IFrameHelper.sendMessage({ event: 'voice-call-active', isActive: true });
+      }
+    },
+    isWidgetOpen(val) {
+      if (!this.isIFrame) return;
+      if (!val && (this.isVoiceActive || this.isVoiceConnecting)) {
+        // Widget just closed while a call is in progress — show floating button
+        IFrameHelper.sendMessage({ event: 'voice-call-active', isActive: true });
+      } else if (val) {
+        // Widget opened — hide floating button (user ends call from inside widget)
+        IFrameHelper.sendMessage({ event: 'voice-call-active', isActive: false });
+      }
+    },
+    // ─────────────────────────────────────────────────────────────────────────
   },
   mounted() {
     const { websiteToken, locale, widgetColor } = window.chatwootWebChannel;
@@ -281,6 +307,28 @@ export default {
             this.getAttributes(),
           ]).then(() => {
             this.checkAndClearResolvedConversation();
+
+            // ── VOICE RECONNECT (background, no popup needed) ─────────────────
+            // If a voice call was active when the user navigated away, silently
+            // route to the messages view so ElevenLabsVoiceButton mounts and
+            // _checkAutoReconnect() fires automatically.
+            //
+            // WHY this works even with widget closed:
+            //   The widget iframe keeps running JavaScript in the background even
+            //   when the bubble is minimized. Navigating internally here is
+            //   invisible to the customer. When they open the widget they see
+            //   the call already reconnected and active.
+            //
+            // GUARD: only do this if a conversation exists (conversationSize > 0)
+            //   so we don't incorrectly land on messages for fresh sessions.
+            try {
+              if (
+                localStorage.getItem('cw_voice_reconnect') &&
+                this.conversationSize > 0
+              ) {
+                this.router.replace({ name: 'messages' }).catch(() => {});
+              }
+            } catch (_) {}
           });
 
           this.fetchAvailableAgents(websiteToken);
@@ -362,6 +410,17 @@ export default {
 
         } else if (message.event === SDK_SET_BUBBLE_VISIBILITY) {
           this.setBubbleVisibility(message.hideMessageBubble);
+        }
+      });
+
+      // ── FLOATING END CALL BUTTON: parent → iframe ────────────────────────
+      // When the user clicks the red floating "End Call" button on the parent
+      // page, this message arrives here. We forward it via emitter so that
+      // ElevenLabsVoiceButton.endCall() fires cleanly — same path as clicking
+      // the button inside the widget itself.
+      window.addEventListener('message', e => {
+        if (e.data?.event === 'end-voice-call-from-parent') {
+          emitter.emit('end-voice-call');
         }
       });
     },
