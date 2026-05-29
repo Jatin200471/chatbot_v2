@@ -78,7 +78,13 @@ class Channel::WebWidget < ApplicationRecord
           })
         }
       })(document,\"script\");
-      /* Floating End Call button is bundled inside sdk.js automatically. */
+      /*
+       * Included automatically via sdk.js:
+       *  1. Chat widget (text + voice)
+       *  2. Widget state persistence — if widget was open, auto-reopens on next page
+       *  3. Floating End Call button — visible even when widget is minimised
+       *  4. Voice-aware navigation — active voice call survives page changes
+       */
     </script>
     "
   end

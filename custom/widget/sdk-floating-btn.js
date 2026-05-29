@@ -1,12 +1,86 @@
-// ── Chatwoot Voice: floating End Call button ─────────────────────────────────
-// Appended to sdk.js at Docker build time — runs on parent page automatically.
+// ── Chatwoot Voice + Widget Extensions ───────────────────────────────────────
+// Appended to sdk.js at Docker build time — runs on every parent page that
+// loads sdk.js. Nothing extra needed in the embed snippet.
 //
-// Shows a red pulsing "End Call" button as soon as a voice call becomes active.
-// Hides only when the call ends.
+// THREE FEATURES bundled here:
+//
+//  1. WIDGET STATE PERSISTENCE
+//     If widget was open when user navigated away, auto-open it on the new page.
+//     Works for both text chat and voice. Uses localStorage key 'cw_widget_open'.
+//
+//  2. FLOATING "END CALL" BUTTON
+//     Red pulsing button appears on the page when a voice call is active.
+//     Visible even when widget bubble is minimized. Click to end the call.
+//
+//  3. VOICE-AWARE SPA NAVIGATION
+//     When a voice call is active, link clicks are intercepted and the new page
+//     is loaded via fetch() — replacing only the body content. The Chatwoot
+//     widget iframe is detached before the swap and re-attached after, so the
+//     WebRTC connection is NEVER destroyed. Voice call continues without dropping.
+//     When no voice call is active, normal full-page navigation works as usual.
+//
 // ─────────────────────────────────────────────────────────────────────────────
-;(function() {
-  if (window._cwVoiceBtnInstalled) return;
-  window._cwVoiceBtnInstalled = true;
+;(function () {
+  if (window._cwVoiceInstalled) return;
+  window._cwVoiceInstalled = true;
+
+  // Shared flag — true while a voice call is in progress
+  window._cwVoiceActive = false;
+
+  // localStorage key for widget open/close state
+  var WIDGET_OPEN_KEY = 'cw_widget_open';
+
+  // ════════════════════════════════════════════════════════════════════════
+  // FEATURE 1 — Widget state persistence across page navigation
+  // ════════════════════════════════════════════════════════════════════════
+  //
+  // Flow:
+  //   Page A: widget open  → localStorage: cw_widget_open = "true"
+  //   Navigate to Page B   → widget closes (browser default)
+  //   chatwoot:ready fires → reads "true" → auto-opens widget after 800ms
+  //
+  // During voice SPA navigation the page is NOT reloaded, so chatwoot:ready
+  // does NOT fire — no conflict with feature 3 below.
+
+  window.addEventListener('chatwoot:ready', function () {
+
+    // ── Restore widget state from previous page ──────────────────────────
+    try {
+      if (localStorage.getItem(WIDGET_OPEN_KEY) === 'true') {
+        setTimeout(function () {
+          try {
+            if (window.$chatwoot && !window.$chatwoot.isOpen) {
+              window.$chatwoot.toggle('open');
+            }
+          } catch (_) {}
+        }, 800);
+      }
+    } catch (_) {}
+
+    // ── Save widget state on every open / close ──────────────────────────
+    // Primary: use Chatwoot's own open/close events (zero polling overhead).
+    window.addEventListener('chatwoot:on-open', function () {
+      try { localStorage.setItem(WIDGET_OPEN_KEY, 'true'); } catch (_) {}
+    });
+    window.addEventListener('chatwoot:on-close', function () {
+      try { localStorage.setItem(WIDGET_OPEN_KEY, 'false'); } catch (_) {}
+    });
+
+    // Fallback: poll every second in case events are not fired in this build.
+    setInterval(function () {
+      try {
+        if (window.$chatwoot) {
+          localStorage.setItem(WIDGET_OPEN_KEY,
+            window.$chatwoot.isOpen ? 'true' : 'false');
+        }
+      } catch (_) {}
+    }, 1000);
+
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // FEATURE 2 — Floating "End Call" button
+  // ════════════════════════════════════════════════════════════════════════
 
   var BTN_ID = 'cw-voice-end-btn';
 
@@ -19,12 +93,15 @@
     if (!document.getElementById('cw-voice-style')) {
       var s = document.createElement('style');
       s.id = 'cw-voice-style';
-      s.textContent = '@keyframes cwPulse{0%,100%{box-shadow:0 4px 16px rgba(239,68,68,.55)}50%{box-shadow:0 4px 28px rgba(239,68,68,.18)}} #cw-voice-end-btn:hover{background:#dc2626!important}';
+      s.textContent =
+        '@keyframes cwPulse{0%,100%{box-shadow:0 4px 16px rgba(239,68,68,.55)}' +
+        '50%{box-shadow:0 4px 28px rgba(239,68,68,.18)}}' +
+        ' #cw-voice-end-btn:hover{background:#dc2626!important}';
       document.head.appendChild(s);
     }
 
     btn = document.createElement('button');
-    btn.id = BTN_ID;
+    btn.id  = BTN_ID;
     btn.title = 'End Voice Call';
     btn.innerHTML =
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0">' +
@@ -42,9 +119,9 @@
       'animation:cwPulse 1.6s ease-in-out infinite'
     ].join(';');
 
-    btn.onclick = function() {
-      document.querySelectorAll('iframe').forEach(function(f) {
-        try { f.contentWindow.postMessage({ event: 'end-voice-call-from-parent' }, '*'); } catch(e) {}
+    btn.onclick = function () {
+      document.querySelectorAll('iframe').forEach(function (f) {
+        try { f.contentWindow.postMessage({ event: 'end-voice-call-from-parent' }, '*'); } catch (e) {}
       });
     };
 
@@ -56,37 +133,108 @@
     if (btn) btn.style.display = 'none';
   }
 
-  // Auto-open the Chatwoot widget (used after voice reconnect so user sees call).
-  // $chatwoot.toggle('open') is idempotent — if widget is already open it's a no-op.
+  // Auto-open widget after voice reconnect (idempotent — no-op if already open)
   function autoOpenWidget() {
     try {
       if (window.$chatwoot && typeof window.$chatwoot.toggle === 'function') {
         window.$chatwoot.toggle('open');
       }
-    } catch(_) {}
+    } catch (_) {}
   }
 
-  window.addEventListener('message', function(e) {
+  // ════════════════════════════════════════════════════════════════════════
+  // FEATURE 3 — Voice-aware SPA navigation
+  // ════════════════════════════════════════════════════════════════════════
+  //
+  // Elements preserved across SPA swaps:
+  //   #woot-widget-holder  — Chatwoot widget container (includes the iframe)
+  //   #cw-voice-end-btn    — floating End Call button
+  //   #cw-voice-style      — CSS keyframes for the button
+
+  function spaNavigate(href) {
+    // Step 1 — detach Chatwoot elements from DOM (kept alive in JS memory)
+    var saved = [];
+    document.querySelectorAll('#woot-widget-holder, #cw-voice-end-btn, #cw-voice-style')
+      .forEach(function (el) { saved.push(el); el.remove(); });
+
+    // Step 2 — fetch new page HTML
+    fetch(href, { credentials: 'same-origin' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var newDoc = new DOMParser().parseFromString(html, 'text/html');
+
+        // Step 3 — update URL + title
+        document.title = newDoc.title;
+        history.pushState({}, document.title, href);
+
+        // Step 4 — swap page-specific styles
+        var oldStyle = document.querySelector('head style');
+        var newStyle = newDoc.querySelector('head style');
+        if (oldStyle && newStyle)      { oldStyle.textContent = newStyle.textContent; }
+        else if (newStyle)             { document.head.appendChild(newStyle.cloneNode(true)); }
+
+        // Step 5 — replace body content
+        document.body.innerHTML = newDoc.body.innerHTML;
+
+        // Step 6 — re-attach Chatwoot elements (iframe WebRTC = INTACT)
+        saved.forEach(function (el) { document.body.appendChild(el); });
+      })
+      .catch(function () {
+        // Fallback: re-attach saved elements then do normal navigation
+        saved.forEach(function (el) { document.body.appendChild(el); });
+        location.href = href;
+      });
+  }
+
+  // Intercept <a> clicks — ONLY when a voice call is active
+  document.addEventListener('click', function (e) {
+    if (!window._cwVoiceActive) return;
+
+    var a = e.target.closest('a[href]');
+    if (!a || a.target || a.download) return;
+
+    var raw = a.getAttribute('href') || '';
+    if (raw.startsWith('#') || raw.startsWith('mailto:') ||
+        raw.startsWith('tel:') || raw.startsWith('javascript:')) return;
+
+    try {
+      var url = new URL(a.href, location.href);
+      if (url.origin !== location.origin) return; // external links → normal
+      e.preventDefault();
+      spaNavigate(url.href);
+    } catch (_) {}
+  });
+
+  // Handle browser Back / Forward during an active voice call
+  window.addEventListener('popstate', function () {
+    if (window._cwVoiceActive) spaNavigate(location.href);
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // postMessage listener — bridges Features 2 & 3
+  // ════════════════════════════════════════════════════════════════════════
+
+  window.addEventListener('message', function (e) {
     var data = e.data;
 
-    // Handle plain object (direct postMessage from App.vue)
+    // Plain object format (direct window.parent.postMessage from App.vue)
     if (data && typeof data === 'object' && data.event === 'voice-call-active') {
+      window._cwVoiceActive = !!data.isActive;
       if (data.isActive) {
         showBtn();
-        // autoOpen is true only on voice RECONNECT (user navigated mid-call).
-        // Opens the widget so the user immediately sees the active call on the new page.
-        if (data.autoOpen) autoOpenWidget();
+        if (data.autoOpen) autoOpenWidget(); // reconnect scenario
       } else {
         hideBtn();
       }
       return;
     }
 
-    // Handle "chatwoot-widget:{...}" string format (IFrameHelper fallback)
+    // Prefixed string format "chatwoot-widget:{...}" (IFrameHelper fallback)
     if (typeof data === 'string' && data.indexOf('chatwoot-widget:') === 0) {
       try {
         var parsed = JSON.parse(data.slice('chatwoot-widget:'.length));
         if (parsed && parsed.event === 'voice-call-active') {
+          window._cwVoiceActive = !!parsed.isActive;
           if (parsed.isActive) {
             showBtn();
             if (parsed.autoOpen) autoOpenWidget();
@@ -94,7 +242,8 @@
             hideBtn();
           }
         }
-      } catch(_) {}
+      } catch (_) {}
     }
   });
-})();
+
+}());
