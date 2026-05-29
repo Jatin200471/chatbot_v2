@@ -409,11 +409,17 @@ export default {
           } else {
             // When widget opens: re-pull inbox/voice config so admin toggle
             // changes take effect without a full page reload.
-            // NOTE: we intentionally do NOT call checkAndClearResolvedConversation()
-            // here — it fires too aggressively (every open) and can wipe a valid
-            // session if the API is slow. The 30-second polling in
-            // startConversationStatusCheck() already handles this case reliably.
             this.fetchVoiceAgentConfig();
+
+            // ── IMMEDIATE RESOLVE CHECK ON OPEN ───────────────────────────
+            // If the agent resolved the conversation while the widget was
+            // closed, the 8-second polling hasn't run yet. Check right now
+            // so the user sees a fresh session the moment they open the widget
+            // — not up to 8 seconds later.
+            if (this.conversationSize > 0) {
+              this.checkAndClearResolvedConversation();
+            }
+            // ──────────────────────────────────────────────────────────────
           }
 
         } else if (message.event === SDK_SET_BUBBLE_VISIBILITY) {
@@ -447,13 +453,21 @@ export default {
 
     startConversationStatusCheck() {
       this.checkAndClearResolvedConversation();
+
+      // ── WHY 8 seconds ─────────────────────────────────────────────────────
+      // When an agent resolves a conversation from the dashboard, the visitor's
+      // widget should close quickly — not after a 30-second wait.
+      // 8s means the widget detects resolution within 8 seconds of the agent
+      // action, which feels near-instant without hammering the API.
+      // Guard: only runs when a conversation is in progress (conversationSize>0).
+      // ─────────────────────────────────────────────────────────────────────
       this.conversationStatusCheckInterval = setInterval(() => {
         if (this.conversationSize > 0) {
           this.checkAndClearResolvedConversation();
           // Steady fallback sync: catches any messages ActionCable missed
           this.syncLatestMessages();
         }
-      }, 30000);
+      }, 8000);
     },
 
     startReplyPolling() {
@@ -461,7 +475,7 @@ export default {
       this.replyPollInterval = setInterval(() => {
         this.syncLatestMessages();
       }, 3000);
-      // Stop burst poll after 60s; steady 30s poll above keeps syncing after that
+      // Stop burst poll after 60s; steady 8s poll above keeps syncing after that
       this.replyPollTimeout = setTimeout(() => {
         this.stopReplyPolling();
       }, 60000);
