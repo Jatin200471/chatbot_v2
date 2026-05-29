@@ -91,28 +91,18 @@ export default {
     },
 
     // ── FLOATING END CALL BUTTON ─────────────────────────────────────────────
-    // Tells the parent page to show/hide the red floating "End Call" button.
-    // Show when: call is active AND widget bubble is closed.
-    // Hide when: call ends OR widget is opened (user can end from inside).
+    // Always show floating button when call is active (widget open or closed).
+    // Hide only when call ends.
+    //
+    // WHY window.parent.postMessage directly (not IFrameHelper.sendMessage):
+    //   IFrameHelper.sendMessage wraps messages as "chatwoot-widget:{...}" string.
+    //   Our sdk-floating-btn.js listener expects a plain object { event, isActive }.
+    //   Using window.parent.postMessage directly avoids the prefix mismatch.
     isVoiceActive(val) {
       if (!this.isIFrame) return;
-      if (!val) {
-        // Call ended — always hide the floating button
-        IFrameHelper.sendMessage({ event: 'voice-call-active', isActive: false });
-      } else if (!this.isWidgetOpen) {
-        // Call started / still active and widget is currently closed
-        IFrameHelper.sendMessage({ event: 'voice-call-active', isActive: true });
-      }
-    },
-    isWidgetOpen(val) {
-      if (!this.isIFrame) return;
-      if (!val && (this.isVoiceActive || this.isVoiceConnecting)) {
-        // Widget just closed while a call is in progress — show floating button
-        IFrameHelper.sendMessage({ event: 'voice-call-active', isActive: true });
-      } else if (val) {
-        // Widget opened — hide floating button (user ends call from inside widget)
-        IFrameHelper.sendMessage({ event: 'voice-call-active', isActive: false });
-      }
+      try {
+        window.parent.postMessage({ event: 'voice-call-active', isActive: !!val }, '*');
+      } catch (_) {}
     },
     // ─────────────────────────────────────────────────────────────────────────
   },

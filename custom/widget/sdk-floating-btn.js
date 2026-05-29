@@ -1,16 +1,8 @@
 // ── Chatwoot Voice: floating End Call button ─────────────────────────────────
-// This code is APPENDED to sdk.js at Docker build time.
-// It runs on the PARENT PAGE automatically — no extra code needed on the website.
+// Appended to sdk.js at Docker build time — runs on parent page automatically.
 //
-// How it works:
-//   1. Widget iframe (App.vue) sends { event: 'voice-call-active', isActive: true }
-//      when call is active AND widget bubble is closed.
-//   2. This listener on parent page shows the red "End Call" button.
-//   3. Button click sends { event: 'end-voice-call-from-parent' } back to iframe.
-//   4. App.vue receives it → emitter.emit('end-voice-call') → ElevenLabsVoiceButton.endCall()
-//
-// Guard: _cwVoiceBtnInstalled prevents double-inject if someone also pastes
-// the old embed script that contained this code.
+// Shows a red pulsing "End Call" button as soon as a voice call becomes active.
+// Hides only when the call ends.
 // ─────────────────────────────────────────────────────────────────────────────
 ;(function() {
   if (window._cwVoiceBtnInstalled) return;
@@ -65,9 +57,22 @@
   }
 
   window.addEventListener('message', function(e) {
-    if (!e.data || typeof e.data !== 'object') return;
-    if (e.data.event === 'voice-call-active') {
-      e.data.isActive ? showBtn() : hideBtn();
+    var data = e.data;
+
+    // Handle plain object (direct postMessage from App.vue)
+    if (data && typeof data === 'object' && data.event === 'voice-call-active') {
+      data.isActive ? showBtn() : hideBtn();
+      return;
+    }
+
+    // Handle "chatwoot-widget:{...}" string format (IFrameHelper fallback)
+    if (typeof data === 'string' && data.indexOf('chatwoot-widget:') === 0) {
+      try {
+        var parsed = JSON.parse(data.slice('chatwoot-widget:'.length));
+        if (parsed && parsed.event === 'voice-call-active') {
+          parsed.isActive ? showBtn() : hideBtn();
+        }
+      } catch(_) {}
     }
   });
 })();
