@@ -29,6 +29,9 @@ RUN git clone --depth 1 https://github.com/chatwoot/chatwoot.git .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
     pnpm install --frozen-lockfile
 
+# Copy floating button code (appended to sdk.js after build)
+COPY custom/widget/sdk-floating-btn.js /tmp/cw-floating-btn.js
+
 # Copy custom Vue files BEFORE building
 COPY custom/widget/components/ChatInputWrap.vue app/javascript/widget/components/ChatInputWrap.vue
 COPY custom/widget/components/ElevenLabsVoiceButton.vue app/javascript/widget/components/ElevenLabsVoiceButton.vue
@@ -83,6 +86,15 @@ RUN node_modules/.bin/vite build --config vite.config.ts
 # Full minified build (re-enable when enough RAM is available):
 # RUN node_modules/.bin/vite build --config vite.config.ts --minify esbuild
 
+# ── Inject floating End Call button into sdk.js ───────────────────────────
+# Append our IIFE to every sdk*.js file in the build output so it runs on
+# the parent page automatically — no extra code needed on customer websites.
+RUN for f in /chatwoot-src/public/packs/js/sdk*.js; do \
+      [ -f "$$f" ] || continue; \
+      echo "Injecting floating button into: $$f"; \
+      cat /tmp/cw-floating-btn.js >> "$$f"; \
+    done
+
 RUN echo "=== BUILD OUTPUT ===" && \
     find /chatwoot-src/public -type f | head -30 && \
     echo "==================="
@@ -109,6 +121,11 @@ COPY custom/backend/migrations/20260520000001_add_elevenlabs_to_channel_web_widg
      /app/db/migrate/20260520000001_add_elevenlabs_to_channel_web_widgets.rb
 COPY custom/backend/migrations/20260520000002_add_voice_agent_config_to_channel_web_widgets.rb \
      /app/db/migrate/20260520000002_add_voice_agent_config_to_channel_web_widgets.rb
+
+# ── Test Website: served as static files at /test/* ─────────────────────────
+# Rails automatically serves anything in /app/public as static files.
+# Access at: https://your-domain/test/index.html
+COPY test/ /app/public/test/
 
 # ── Frontend: Dashboard & Widget files processed by Vite in Stage 1 ────────────
 # All Vue components, store modules, and helpers are bundled by Vite in Stage 1
