@@ -45,6 +45,10 @@ export default {
       conversationStatusCheckInterval: null,
       replyPollInterval: null,
       replyPollTimeout: null,
+      // Set to true when a voice reconnect is pending (user navigated during call).
+      // Cleared after the first voice-active signal — used to auto-open the widget
+      // on the new page so the user immediately sees/hears the reconnected call.
+      _voiceReconnectPending: false,
     };
   },
   computed: {
@@ -98,10 +102,21 @@ export default {
     //   IFrameHelper.sendMessage wraps messages as "chatwoot-widget:{...}" string.
     //   Our sdk-floating-btn.js listener expects a plain object { event, isActive }.
     //   Using window.parent.postMessage directly avoids the prefix mismatch.
+    //
+    // autoOpen: true  → only on voice RECONNECT (user navigated mid-call).
+    //   This tells sdk-floating-btn.js to also call $chatwoot.toggle('open') so
+    //   the user sees the reconnected call immediately without having to click
+    //   the bubble manually. Flag is cleared after first use.
     isVoiceActive(val) {
       if (!this.isIFrame) return;
       try {
-        window.parent.postMessage({ event: 'voice-call-active', isActive: !!val }, '*');
+        const autoOpen = !!val && this._voiceReconnectPending;
+        if (val) this._voiceReconnectPending = false; // consume the flag
+        window.parent.postMessage({
+          event: 'voice-call-active',
+          isActive: !!val,
+          autoOpen,
+        }, '*');
       } catch (_) {}
     },
     // ─────────────────────────────────────────────────────────────────────────
@@ -316,6 +331,9 @@ export default {
                 localStorage.getItem('cw_voice_reconnect') &&
                 this.conversationSize > 0
               ) {
+                // Mark that the NEXT voice-active signal should auto-open widget.
+                // This flag is consumed (cleared) once isVoiceActive watcher fires.
+                this._voiceReconnectPending = true;
                 this.router.replace({ name: 'messages' }).catch(() => {});
               }
             } catch (_) {}

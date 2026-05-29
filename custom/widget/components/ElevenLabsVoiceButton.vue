@@ -385,7 +385,8 @@ export default {
         const withinWindow = Date.now() - startedAt < 2 * 60 * 1000;
         if (agentId === this.resolvedAgentId && withinWindow) {
           // Delay slightly so the widget fully mounts before we request mic.
-          setTimeout(() => this.startCall(), 1200);
+          // 600ms is enough for the Vue component tree to render completely.
+          setTimeout(() => this.startCall(), 600);
         } else {
           this._clearReconnectFlag();
         }

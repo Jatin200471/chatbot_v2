@@ -56,12 +56,29 @@
     if (btn) btn.style.display = 'none';
   }
 
+  // Auto-open the Chatwoot widget (used after voice reconnect so user sees call).
+  // $chatwoot.toggle('open') is idempotent — if widget is already open it's a no-op.
+  function autoOpenWidget() {
+    try {
+      if (window.$chatwoot && typeof window.$chatwoot.toggle === 'function') {
+        window.$chatwoot.toggle('open');
+      }
+    } catch(_) {}
+  }
+
   window.addEventListener('message', function(e) {
     var data = e.data;
 
     // Handle plain object (direct postMessage from App.vue)
     if (data && typeof data === 'object' && data.event === 'voice-call-active') {
-      data.isActive ? showBtn() : hideBtn();
+      if (data.isActive) {
+        showBtn();
+        // autoOpen is true only on voice RECONNECT (user navigated mid-call).
+        // Opens the widget so the user immediately sees the active call on the new page.
+        if (data.autoOpen) autoOpenWidget();
+      } else {
+        hideBtn();
+      }
       return;
     }
 
@@ -70,7 +87,12 @@
       try {
         var parsed = JSON.parse(data.slice('chatwoot-widget:'.length));
         if (parsed && parsed.event === 'voice-call-active') {
-          parsed.isActive ? showBtn() : hideBtn();
+          if (parsed.isActive) {
+            showBtn();
+            if (parsed.autoOpen) autoOpenWidget();
+          } else {
+            hideBtn();
+          }
         }
       } catch(_) {}
     }
