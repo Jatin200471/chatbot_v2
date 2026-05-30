@@ -79,12 +79,7 @@ ENV NODE_OPTIONS="--max-old-space-size=6144 --max-semi-space-size=128 --max-http
 ENV UV_THREADPOOL_SIZE=4
 ENV GOMAXPROCS=2
 
-# Minification disabled — reduces peak memory from ~4GB to ~1.5GB.
-# Re-enable --minify esbuild once Docker Desktop has ≥5GB RAM allocated.
-RUN node_modules/.bin/vite build --config vite.config.ts
-
-# Full minified build (re-enable when enough RAM is available):
-# RUN node_modules/.bin/vite build --config vite.config.ts --minify esbuild
+RUN node_modules/.bin/vite build --config vite.config.ts --minify esbuild
 
 # ── Inject floating End Call button into sdk.js ───────────────────────────
 # Append our IIFE to every sdk*.js file in the build output so it runs on
