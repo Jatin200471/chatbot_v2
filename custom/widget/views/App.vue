@@ -107,6 +107,11 @@ export default {
     //   This tells sdk-floating-btn.js to also call $chatwoot.toggle('open') so
     //   the user sees the reconnected call immediately without having to click
     //   the bubble manually. Flag is cleared after first use.
+    activeCampaign(newVal) {
+      if (!isEmptyObject(newVal)) {
+        this.setCampaignView();
+      }
+    },
     isVoiceActive(val) {
       if (!this.isIFrame) return;
       try {
