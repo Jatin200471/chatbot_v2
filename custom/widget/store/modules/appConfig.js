@@ -94,7 +94,7 @@ export const actions = {
       hideMessageBubble: !!hideMessageBubble,
       position: position || 'right',
       showPopoutButton: !!showPopoutButton,
-      showUnreadMessagesDialog: !!showUnreadMessagesDialog,
+      showUnreadMessagesDialog: showUnreadMessagesDialog !== false,
       widgetStyle,
       darkMode,
       welcomeTitle,
