@@ -38,6 +38,10 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Set lowercase owner
+        id: owner
+        run: echo "name=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -48,10 +52,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
             type=gha
-            type=registry,ref=ghcr.io/${{ github.repository_owner }}/chatwoot-custom:buildcache
+            type=registry,ref=ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom:buildcache
           cache-to: |
             type=gha,mode=max
-            type=registry,ref=ghcr.io/${{ github.repository_owner }}/chatwoot-custom:buildcache,mode=max
+            type=registry,ref=ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom:buildcache,mode=max
 
       - name: Image size report
         run: |
