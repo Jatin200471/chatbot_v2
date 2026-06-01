@@ -104,6 +104,20 @@ FROM chatwoot/chatwoot:latest
 # Copy ALL public build output
 COPY --from=node-builder /chatwoot-src/public /app/public
 
+# Copy floating button source so we can inject AFTER overwriting base image files
+COPY custom/widget/sdk-floating-btn.js /tmp/cw-floating-btn.js
+
+# ── Inject into sdk.js AFTER COPY (Stage 2) ──────────────────────────────────
+# Must run here (not Stage 1) because chatwoot:latest base image has its own
+# sdk.js that overwrites Stage 1 output. Injecting here guarantees our code lands.
+ARG CACHEBUST=1
+RUN SDK_FILE=$(find /app/public -name "sdk*.js" | head -1) && \
+    if [ -z "$SDK_FILE" ]; then echo "ERROR: sdk*.js not found in /app/public!" && exit 1; fi && \
+    echo "Injecting into: $SDK_FILE" && \
+    cat /tmp/cw-floating-btn.js >> "$SDK_FILE" && \
+    grep -c "_cwVoiceInstalled" "$SDK_FILE" && \
+    echo "=== Stage 2 injection verified OK ==="
+
 # ── Backend Patches: ElevenLabs Integration ────────────────────────────────
 # These files have custom code for ElevenLabs voice agent
 COPY custom/backend/models/web_widget.rb /app/app/models/channel/web_widget.rb
