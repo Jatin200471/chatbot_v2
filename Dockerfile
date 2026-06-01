@@ -108,11 +108,11 @@ COPY --from=node-builder /chatwoot-src/public /app/public
 COPY custom/widget/sdk-floating-btn.js /tmp/cw-floating-btn.js
 
 # ── Inject into sdk.js AFTER COPY (Stage 2) ──────────────────────────────────
-# Must run here (not Stage 1) because chatwoot:latest base image has its own
-# sdk.js that overwrites Stage 1 output. Injecting here guarantees our code lands.
+# The base image serves /app/public/packs/js/sdk.js as the embed script.
+# We must inject our floating-btn code into THIS specific file.
 ARG CACHEBUST=1
-RUN SDK_FILE=$(find /app/public -name "sdk*.js" | head -1) && \
-    if [ -z "$SDK_FILE" ]; then echo "ERROR: sdk*.js not found in /app/public!" && exit 1; fi && \
+RUN SDK_FILE="/app/public/packs/js/sdk.js" && \
+    if [ ! -f "$SDK_FILE" ]; then echo "ERROR: $SDK_FILE not found!" && exit 1; fi && \
     echo "Injecting into: $SDK_FILE" && \
     cat /tmp/cw-floating-btn.js >> "$SDK_FILE" && \
     grep -c "_cwVoiceInstalled" "$SDK_FILE" && \
