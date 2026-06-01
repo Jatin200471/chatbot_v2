@@ -112,20 +112,6 @@ export default {
         this.setCampaignView();
       }
     },
-    unreadMessageCount(newVal, oldVal) {
-      if (!this.isIFrame) return;
-      IFrameHelper.sendMessage({
-        event: 'handleNotificationDot',
-        unreadMessageCount: 0,
-      });
-      if (newVal > oldVal && !this.isWidgetOpen) {
-        this.router.replace({ name: 'unread-messages' }).catch(() => {});
-        this.$nextTick(() => {
-          this.setIframeHeight(true);
-          IFrameHelper.sendMessage({ event: 'setUnreadMode' });
-        });
-      }
-    },
     isVoiceActive(val) {
       if (!this.isIFrame) return;
       try {
@@ -162,6 +148,7 @@ export default {
       this.sendRNWebViewLoadedEvent();
     }
 
+    this.registerUnreadEvents();
     this.registerCampaignEvents();
 
     // ── VOICE AGENT CONFIG: Fetch voice agent settings from inbox config ──
@@ -243,6 +230,42 @@ export default {
       }
     },
 
+    registerUnreadEvents() {
+      emitter.on(ON_AGENT_MESSAGE_RECEIVED, () => {
+        const { name: routeName } = this.$route;
+        if ((this.isWidgetOpen || !this.isIFrame) && routeName === 'messages') {
+          this.$store.dispatch('conversation/setUserLastSeen');
+        }
+        this.setUnreadView();
+      });
+      emitter.on(ON_UNREAD_MESSAGE_CLICK, () => {
+        this.router
+          .replace({ name: 'messages' })
+          .then(() => this.unsetUnreadView());
+      });
+    },
+
+    setUnreadView() {
+      const { unreadMessageCount } = this;
+      if (!this.showUnreadMessagesDialog) {
+        this.handleUnreadNotificationDot();
+      } else if (this.isIFrame && unreadMessageCount > 0 && !this.isWidgetOpen) {
+        this.router.replace({ name: 'unread-messages' }).then(() => {
+          this.setIframeHeight(true);
+          IFrameHelper.sendMessage({ event: 'setUnreadMode' });
+        });
+        this.handleUnreadNotificationDot();
+      }
+    },
+
+    unsetUnreadView() {
+      if (this.isIFrame) {
+        IFrameHelper.sendMessage({ event: 'resetUnreadMode' });
+        this.setIframeHeight(false);
+        this.handleUnreadNotificationDot();
+      }
+    },
+
     registerCampaignEvents() {
       emitter.on(ON_CAMPAIGN_MESSAGE_CLICK, () => {
         if (this.shouldShowPreChatForm) {
@@ -290,6 +313,7 @@ export default {
 
     handleUnreadNotificationDot() {
       if (this.isIFrame) {
+        // Always 0 — no red dot on bubble
         IFrameHelper.sendMessage({
           event: 'handleNotificationDot',
           unreadMessageCount: 0,
