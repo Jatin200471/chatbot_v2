@@ -129,9 +129,9 @@ export default {
         event: 'handleNotificationDot',
         unreadMessageCount: newVal,
       });
-      // Show popup + unread card when new messages arrive and widget is closed
+      // Show popup when new messages arrive and widget is closed
       if (newVal > oldVal && !this.isWidgetOpen) {
-        // Show notification popup on parent page (same as campaign)
+        // Show notification popup on parent page (custom floating popup)
         try {
           window.parent.postMessage({
             event: 'cw-show-notification',
@@ -139,12 +139,6 @@ export default {
             count: newVal,
           }, '*');
         } catch (_) {}
-        // Navigate to unread-messages route so the card shows message preview
-        this.router.replace({ name: 'unread-messages' }).catch(() => {});
-        this.$nextTick(() => {
-          this.setIframeHeight(true);
-          IFrameHelper.sendMessage({ event: 'setUnreadMode' });
-        });
       }
     },
     isVoiceActive(val) {
@@ -301,11 +295,8 @@ export default {
         !messageCount &&
         !shouldSnoozeCampaign;
       if (this.isIFrame && isCampaignReadyToExecute) {
-        this.router.replace({ name: 'campaigns' }).then(() => {
-          this.setIframeHeight(true);
-          IFrameHelper.sendMessage({ event: 'setUnreadMode' });
-          IFrameHelper.sendMessage({ event: 'handleNotificationDot', unreadMessageCount: 1 });
-        });
+        // No setUnreadMode — we use the custom popup instead (no iframe expand glitch)
+        IFrameHelper.sendMessage({ event: 'handleNotificationDot', unreadMessageCount: 1 });
       }
     },
 
@@ -467,18 +458,6 @@ export default {
             // changes take effect without a full page reload.
             this.fetchVoiceAgentConfig();
 
-            // ── UNREAD MESSAGES DIALOG (like staging Chatwoot) ────────────
-            // When widget opens via setUnreadMode and there are unread messages,
-            // navigate to unread-messages route so the notification card shows
-            // correctly (same as default Chatwoot behavior on staging).
-            if (
-              this.unreadMessageCount > 0 &&
-              this.showUnreadMessagesDialog &&
-              this.conversationSize > 0
-            ) {
-              this.router.replace({ name: 'unread-messages' }).catch(() => {});
-            }
-            // ──────────────────────────────────────────────────────────────
 
             // ── IMMEDIATE RESOLVE CHECK ON OPEN ───────────────────────────
             if (this.conversationSize > 0) {
