@@ -124,10 +124,10 @@ export default {
     },
     unreadMessageCount(newVal, oldVal) {
       if (!this.isIFrame) return;
-      // Standard Chatwoot behavior: update notification dot
+      // Always send 0 so red dot never shows on bubble
       IFrameHelper.sendMessage({
         event: 'handleNotificationDot',
-        unreadMessageCount: newVal,
+        unreadMessageCount: 0,
       });
       // Standard Chatwoot behavior: show unread popup card when widget is closed
       if (newVal > oldVal && !this.isWidgetOpen) {
@@ -276,6 +276,11 @@ export default {
       emitter.on('snooze-campaigns', () => {
         const expireBy = addHours(new Date(), 1);
         this.campaignsSnoozedTill = Number(expireBy);
+      });
+      // When user clicks "See new messages" in unread view → open full messages
+      emitter.on(ON_UNREAD_MESSAGE_CLICK, () => {
+        this.router.replace({ name: 'messages' });
+        IFrameHelper.sendMessage({ event: 'resetUnreadMode' });
       });
     },
 
@@ -438,6 +443,12 @@ export default {
           this.$store.dispatch('appConfig/toggleWidgetOpen', message.isOpen);
 
           if (!message.isOpen) {
+            // If closing from unread-messages view → open full messages instead
+            if (this.$route && this.$route.name === 'unread-messages') {
+              this.router.replace({ name: 'messages' });
+              IFrameHelper.sendMessage({ event: 'resetUnreadMode' });
+              return;
+            }
             this.resetCampaign();
             // Immediately sync when widget closes so notification fires without delay
             if (this.conversationSize > 0) {
