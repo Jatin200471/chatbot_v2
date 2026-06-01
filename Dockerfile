@@ -118,6 +118,12 @@ RUN SDK_FILE="/app/public/packs/js/sdk.js" && \
     grep -c "_cwVoiceInstalled" "$SDK_FILE" && \
     echo "=== Stage 2 injection verified OK ==="
 
+# ── Auto-migrate entrypoint ───────────────────────────────────────────────────
+# Replaces the default entrypoint with one that runs db:migrate automatically
+# on every container start — no manual migration steps needed on ECS deploy.
+COPY custom/backend/entrypoints/rails.sh /app/docker/entrypoints/rails.sh
+RUN chmod +x /app/docker/entrypoints/rails.sh
+
 # ── Backend Patches: ElevenLabs Integration ────────────────────────────────
 # These files have custom code for ElevenLabs voice agent
 COPY custom/backend/models/web_widget.rb /app/app/models/channel/web_widget.rb
