@@ -129,9 +129,14 @@ export default {
         event: 'handleNotificationDot',
         unreadMessageCount: newVal,
       });
-      // Standard Chatwoot behavior: show unread popup when widget is closed
+      // Standard Chatwoot behavior: show unread popup card when widget is closed
       if (newVal > oldVal && !this.isWidgetOpen) {
-        IFrameHelper.sendMessage({ event: 'setUnreadMode' });
+        // Navigate to unread-messages route so the card shows message preview
+        this.router.replace({ name: 'unread-messages' }).catch(() => {});
+        this.$nextTick(() => {
+          this.setIframeHeight(true);
+          IFrameHelper.sendMessage({ event: 'setUnreadMode' });
+        });
       }
     },
     isVoiceActive(val) {
