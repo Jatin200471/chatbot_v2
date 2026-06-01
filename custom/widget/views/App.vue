@@ -110,6 +110,28 @@ export default {
     activeCampaign(newVal) {
       if (!isEmptyObject(newVal)) {
         this.setCampaignView();
+        // Notify parent page when widget bubble is closed
+        if (!this.isWidgetOpen && this.isIFrame) {
+          try {
+            window.parent.postMessage({
+              event: 'cw-show-notification',
+              type: 'campaign',
+              message: newVal.message || '',
+            }, '*');
+          } catch (_) {}
+        }
+      }
+    },
+    unreadMessageCount(newVal, oldVal) {
+      // Show notification on parent page when new agent/AI messages arrive while widget is closed
+      if (newVal > oldVal && !this.isWidgetOpen && this.isIFrame) {
+        try {
+          window.parent.postMessage({
+            event: 'cw-show-notification',
+            type: 'reply',
+            count: newVal,
+          }, '*');
+        } catch (_) {}
       }
     },
     isVoiceActive(val) {
