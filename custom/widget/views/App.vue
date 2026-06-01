@@ -124,10 +124,10 @@ export default {
     },
     unreadMessageCount(newVal, oldVal) {
       if (!this.isIFrame) return;
-      // Send actual count so the red dot shows on bubble
+      // No red dot on bubble
       IFrameHelper.sendMessage({
         event: 'handleNotificationDot',
-        unreadMessageCount: newVal,
+        unreadMessageCount: 0,
       });
       // Show popup when new messages arrive and widget is closed
       if (newVal > oldVal && !this.isWidgetOpen) {
@@ -296,7 +296,7 @@ export default {
         !shouldSnoozeCampaign;
       if (this.isIFrame && isCampaignReadyToExecute) {
         // No setUnreadMode — we use the custom popup instead (no iframe expand glitch)
-        IFrameHelper.sendMessage({ event: 'handleNotificationDot', unreadMessageCount: 1 });
+        IFrameHelper.sendMessage({ event: 'handleNotificationDot', unreadMessageCount: 0 });
       }
     },
 
@@ -304,7 +304,7 @@ export default {
       if (this.isIFrame) {
         IFrameHelper.sendMessage({
           event: 'handleNotificationDot',
-          unreadMessageCount: this.unreadMessageCount,
+          unreadMessageCount: 0,
         });
       }
     },
