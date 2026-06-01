@@ -110,35 +110,20 @@ export default {
     activeCampaign(newVal) {
       if (!isEmptyObject(newVal)) {
         this.setCampaignView();
-        // Notify parent page when widget bubble is closed
-        if (!this.isWidgetOpen && this.isIFrame) {
-          try {
-            window.parent.postMessage({
-              event: 'cw-show-notification',
-              type: 'campaign',
-              message: newVal.message || '',
-            }, '*');
-          } catch (_) {}
-        }
       }
     },
     unreadMessageCount(newVal, oldVal) {
       if (!this.isIFrame) return;
-      // No red dot on bubble
       IFrameHelper.sendMessage({
         event: 'handleNotificationDot',
         unreadMessageCount: 0,
       });
-      // Show popup when new messages arrive and widget is closed
       if (newVal > oldVal && !this.isWidgetOpen) {
-        // Show notification popup on parent page (custom floating popup)
-        try {
-          window.parent.postMessage({
-            event: 'cw-show-notification',
-            type: 'reply',
-            count: newVal,
-          }, '*');
-        } catch (_) {}
+        this.router.replace({ name: 'unread-messages' }).catch(() => {});
+        this.$nextTick(() => {
+          this.setIframeHeight(true);
+          IFrameHelper.sendMessage({ event: 'setUnreadMode' });
+        });
       }
     },
     isVoiceActive(val) {
@@ -295,8 +280,11 @@ export default {
         !messageCount &&
         !shouldSnoozeCampaign;
       if (this.isIFrame && isCampaignReadyToExecute) {
-        // No setUnreadMode — we use the custom popup instead (no iframe expand glitch)
-        IFrameHelper.sendMessage({ event: 'handleNotificationDot', unreadMessageCount: 0 });
+        this.router.replace({ name: 'campaigns' }).then(() => {
+          this.setIframeHeight(true);
+          IFrameHelper.sendMessage({ event: 'setUnreadMode' });
+          IFrameHelper.sendMessage({ event: 'handleNotificationDot', unreadMessageCount: 0 });
+        });
       }
     },
 
