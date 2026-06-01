@@ -124,13 +124,21 @@ export default {
     },
     unreadMessageCount(newVal, oldVal) {
       if (!this.isIFrame) return;
-      // Always send 0 so red dot never shows on bubble
+      // Send actual count so the red dot shows on bubble
       IFrameHelper.sendMessage({
         event: 'handleNotificationDot',
-        unreadMessageCount: 0,
+        unreadMessageCount: newVal,
       });
-      // Standard Chatwoot behavior: show unread popup card when widget is closed
+      // Show popup + unread card when new messages arrive and widget is closed
       if (newVal > oldVal && !this.isWidgetOpen) {
+        // Show notification popup on parent page (same as campaign)
+        try {
+          window.parent.postMessage({
+            event: 'cw-show-notification',
+            type: 'reply',
+            count: newVal,
+          }, '*');
+        } catch (_) {}
         // Navigate to unread-messages route so the card shows message preview
         this.router.replace({ name: 'unread-messages' }).catch(() => {});
         this.$nextTick(() => {
@@ -305,7 +313,7 @@ export default {
       if (this.isIFrame) {
         IFrameHelper.sendMessage({
           event: 'handleNotificationDot',
-          unreadMessageCount: 0,
+          unreadMessageCount: this.unreadMessageCount,
         });
       }
     },
