@@ -440,6 +440,10 @@ export default {
 
           if (!message.isOpen) {
             this.resetCampaign();
+            // Immediately sync when widget closes so notification fires without delay
+            if (this.conversationSize > 0) {
+              this.syncLatestMessages();
+            }
           } else {
             // When widget opens: re-pull inbox/voice config so admin toggle
             // changes take effect without a full page reload.
@@ -501,7 +505,7 @@ export default {
           // Steady fallback sync: catches any messages ActionCable missed
           this.syncLatestMessages();
         }
-      }, 8000);
+      }, 3000);
     },
 
     startReplyPolling() {
