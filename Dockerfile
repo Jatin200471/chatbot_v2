@@ -82,15 +82,17 @@ ENV GOMAXPROCS=2
 RUN node_modules/.bin/vite build --config vite.config.ts --minify esbuild
 
 # ── Inject floating End Call button into sdk.js ───────────────────────────
-# Append our IIFE to every sdk*.js file in the build output so it runs on
-# the parent page automatically — no extra code needed on customer websites.
+# ARG CACHEBUST forces this layer to always re-run (never use Docker cache).
+ARG CACHEBUST=1
 RUN echo "=== SDK files found ===" && \
     find /chatwoot-src/public -name "sdk*.js" && \
-    find /chatwoot-src/public -name "sdk*.js" | while read f; do \
-      echo "Injecting floating button into: $f"; \
-      cat /tmp/cw-floating-btn.js >> "$f"; \
-    done && \
-    echo "=== Injection done ==="
+    SDK_FILE=$(find /chatwoot-src/public -name "sdk*.js" | head -1) && \
+    if [ -z "$SDK_FILE" ]; then echo "ERROR: sdk*.js not found!" && exit 1; fi && \
+    echo "Injecting into: $SDK_FILE" && \
+    cat /tmp/cw-floating-btn.js >> "$SDK_FILE" && \
+    echo "=== Verifying injection ===" && \
+    grep -c "_cwVoiceInstalled" "$SDK_FILE" && \
+    echo "=== Injection verified OK ==="
 
 RUN echo "=== BUILD OUTPUT ===" && \
     find /chatwoot-src/public -type f | head -30 && \

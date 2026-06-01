@@ -50,6 +50,8 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            CACHEBUST=${{ github.run_number }}
           cache-from: |
             type=gha
             type=registry,ref=ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom:buildcache
