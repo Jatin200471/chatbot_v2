@@ -84,11 +84,13 @@ RUN node_modules/.bin/vite build --config vite.config.ts --minify esbuild
 # ── Inject floating End Call button into sdk.js ───────────────────────────
 # Append our IIFE to every sdk*.js file in the build output so it runs on
 # the parent page automatically — no extra code needed on customer websites.
-RUN for f in /chatwoot-src/public/packs/js/sdk*.js; do \
-      [ -f "$$f" ] || continue; \
-      echo "Injecting floating button into: $$f"; \
-      cat /tmp/cw-floating-btn.js >> "$$f"; \
-    done
+RUN echo "=== SDK files found ===" && \
+    find /chatwoot-src/public -name "sdk*.js" && \
+    find /chatwoot-src/public -name "sdk*.js" | while read f; do \
+      echo "Injecting floating button into: $f"; \
+      cat /tmp/cw-floating-btn.js >> "$f"; \
+    done && \
+    echo "=== Injection done ==="
 
 RUN echo "=== BUILD OUTPUT ===" && \
     find /chatwoot-src/public -type f | head -30 && \
