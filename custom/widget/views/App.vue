@@ -124,14 +124,14 @@ export default {
     },
     unreadMessageCount(newVal, oldVal) {
       if (!this.isIFrame) return;
-      // Send standard Chatwoot notification dot to parent SDK (shows unread bubble)
+      // Update notification dot on widget bubble
       IFrameHelper.sendMessage({
         event: 'handleNotificationDot',
         unreadMessageCount: newVal,
       });
-      // When new messages arrive and widget is closed → show unread dialog + custom popup
+      // When new messages arrive and widget is closed → show WhatsApp-style popup only
+      // (do NOT send setUnreadMode — that opens the full widget, which we don't want)
       if (newVal > oldVal && !this.isWidgetOpen) {
-        IFrameHelper.sendMessage({ event: 'setUnreadMode' });
         try {
           window.parent.postMessage({
             event: 'cw-show-notification',
