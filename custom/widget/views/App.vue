@@ -448,11 +448,20 @@ export default {
             // changes take effect without a full page reload.
             this.fetchVoiceAgentConfig();
 
+            // ── UNREAD MESSAGES DIALOG (like staging Chatwoot) ────────────
+            // When widget opens via setUnreadMode and there are unread messages,
+            // navigate to unread-messages route so the notification card shows
+            // correctly (same as default Chatwoot behavior on staging).
+            if (
+              this.unreadMessageCount > 0 &&
+              this.showUnreadMessagesDialog &&
+              this.conversationSize > 0
+            ) {
+              this.router.replace({ name: 'unread-messages' }).catch(() => {});
+            }
+            // ──────────────────────────────────────────────────────────────
+
             // ── IMMEDIATE RESOLVE CHECK ON OPEN ───────────────────────────
-            // If the agent resolved the conversation while the widget was
-            // closed, the 8-second polling hasn't run yet. Check right now
-            // so the user sees a fresh session the moment they open the widget
-            // — not up to 8 seconds later.
             if (this.conversationSize > 0) {
               this.checkAndClearResolvedConversation();
             }
