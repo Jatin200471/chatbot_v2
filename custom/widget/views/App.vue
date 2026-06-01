@@ -123,8 +123,15 @@ export default {
       }
     },
     unreadMessageCount(newVal, oldVal) {
-      // Show notification on parent page when new agent/AI messages arrive while widget is closed
-      if (newVal > oldVal && !this.isWidgetOpen && this.isIFrame) {
+      if (!this.isIFrame) return;
+      // Send standard Chatwoot notification dot to parent SDK (shows unread bubble)
+      IFrameHelper.sendMessage({
+        event: 'handleNotificationDot',
+        unreadMessageCount: newVal,
+      });
+      // When new messages arrive and widget is closed → show unread dialog + custom popup
+      if (newVal > oldVal && !this.isWidgetOpen) {
+        IFrameHelper.sendMessage({ event: 'setUnreadMode' });
         try {
           window.parent.postMessage({
             event: 'cw-show-notification',
@@ -286,6 +293,7 @@ export default {
         this.router.replace({ name: 'campaigns' }).then(() => {
           this.setIframeHeight(true);
           IFrameHelper.sendMessage({ event: 'setUnreadMode' });
+          IFrameHelper.sendMessage({ event: 'handleNotificationDot', unreadMessageCount: 1 });
         });
       }
     },
