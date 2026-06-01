@@ -124,13 +124,12 @@ export default {
     },
     unreadMessageCount(newVal, oldVal) {
       if (!this.isIFrame) return;
-      // Update notification dot on widget bubble
+      // Always clear red dot on bubble (send 0 so SDK never shows unread dot)
       IFrameHelper.sendMessage({
         event: 'handleNotificationDot',
-        unreadMessageCount: newVal,
+        unreadMessageCount: 0,
       });
-      // When new messages arrive and widget is closed → show WhatsApp-style popup only
-      // (do NOT send setUnreadMode — that opens the full widget, which we don't want)
+      // Show WhatsApp-style popup when new message arrives and widget is closed
       if (newVal > oldVal && !this.isWidgetOpen) {
         try {
           window.parent.postMessage({
