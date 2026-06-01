@@ -124,20 +124,14 @@ export default {
     },
     unreadMessageCount(newVal, oldVal) {
       if (!this.isIFrame) return;
-      // Always clear red dot on bubble (send 0 so SDK never shows unread dot)
+      // Standard Chatwoot behavior: update notification dot
       IFrameHelper.sendMessage({
         event: 'handleNotificationDot',
-        unreadMessageCount: 0,
+        unreadMessageCount: newVal,
       });
-      // Show WhatsApp-style popup when new message arrives and widget is closed
+      // Standard Chatwoot behavior: show unread popup when widget is closed
       if (newVal > oldVal && !this.isWidgetOpen) {
-        try {
-          window.parent.postMessage({
-            event: 'cw-show-notification',
-            type: 'reply',
-            count: newVal,
-          }, '*');
-        } catch (_) {}
+        IFrameHelper.sendMessage({ event: 'setUnreadMode' });
       }
     },
     isVoiceActive(val) {
