@@ -222,12 +222,16 @@ export default {
 
     registerCampaignEvents() {
       emitter.on(ON_CAMPAIGN_MESSAGE_CLICK, () => {
-        // Full fresh start — clear session, reload widget, auto-open
-        this.$store.dispatch('contacts/softExitChat');
+        // Normal flow — same as clicking bubble for first time
+        if (this.shouldShowPreChatForm) {
+          this.router.replace({ name: 'prechat-form' });
+        } else {
+          this.router.replace({ name: 'messages' });
+          emitter.emit('execute-campaign', {
+            campaignId: this.activeCampaign.id,
+          });
+        }
         this.unsetUnreadView();
-        // Tell parent to keep widget open after reload
-        try { localStorage.setItem('cw_widget_open', 'true'); } catch (_) {}
-        setTimeout(() => { window.location.reload(); }, 200);
       });
       emitter.on('execute-campaign', campaignDetails => {
         const { customAttributes, campaignId } = campaignDetails;
