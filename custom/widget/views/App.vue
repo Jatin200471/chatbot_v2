@@ -34,7 +34,6 @@ export default {
     const { prefersDarkMode } = useDarkMode();
     const router = useRouter();
     const { isInWorkingHours } = useAvailability();
-
     return { prefersDarkMode, router, isInWorkingHours };
   },
   data() {
@@ -45,9 +44,6 @@ export default {
       conversationStatusCheckInterval: null,
       replyPollInterval: null,
       replyPollTimeout: null,
-      // Set to true when a voice reconnect is pending (user navigated during call).
-      // Cleared after the first voice-active signal — used to auto-open the widget
-      // on the new page so the user immediately sees/hears the reconnected call.
       _voiceReconnectPending: false,
     };
   },
@@ -79,44 +75,28 @@ export default {
     },
   },
   watch: {
+    // ── Original Chatwoot ──────────────────────────────────────────────────
+    activeCampaign() {
+      this.setCampaignView();
+    },
     isRTL: {
       immediate: true,
       handler(value) {
         document.documentElement.dir = value ? 'rtl' : 'ltr';
       },
     },
+    // ── Custom: reply polling ──────────────────────────────────────────────
     messageCount(newVal, oldVal) {
-      // When user sends a message, start a 30s polling window to catch bot reply.
-      // This is a targeted fallback for environments where ActionCable (WebSocket)
-      // is unreliable (e.g. ngrok). Stops automatically after 30s.
       if (newVal > oldVal && this.conversationSize > 0) {
         this.startReplyPolling();
       }
     },
-
-    // ── FLOATING END CALL BUTTON ─────────────────────────────────────────────
-    // Always show floating button when call is active (widget open or closed).
-    // Hide only when call ends.
-    //
-    // WHY window.parent.postMessage directly (not IFrameHelper.sendMessage):
-    //   IFrameHelper.sendMessage wraps messages as "chatwoot-widget:{...}" string.
-    //   Our sdk-floating-btn.js listener expects a plain object { event, isActive }.
-    //   Using window.parent.postMessage directly avoids the prefix mismatch.
-    //
-    // autoOpen: true  → only on voice RECONNECT (user navigated mid-call).
-    //   This tells sdk-floating-btn.js to also call $chatwoot.toggle('open') so
-    //   the user sees the reconnected call immediately without having to click
-    //   the bubble manually. Flag is cleared after first use.
-    activeCampaign(newVal) {
-      if (!isEmptyObject(newVal)) {
-        this.setCampaignView();
-      }
-    },
+    // ── Custom: voice call floating button ────────────────────────────────
     isVoiceActive(val) {
       if (!this.isIFrame) return;
       try {
         const autoOpen = !!val && this._voiceReconnectPending;
-        if (val) this._voiceReconnectPending = false; // consume the flag
+        if (val) this._voiceReconnectPending = false;
         window.parent.postMessage({
           event: 'voice-call-active',
           isActive: !!val,
@@ -124,7 +104,6 @@ export default {
         }, '*');
       } catch (_) {}
     },
-    // ─────────────────────────────────────────────────────────────────────────
   },
   mounted() {
     const { websiteToken, locale, widgetColor } = window.chatwootWebChannel;
@@ -137,7 +116,6 @@ export default {
       this.registerListeners();
       this.sendLoadedEvent();
     } else {
-      // Non-iframe mode: always start from home (no session resume)
       this.clearConversations();
       this.fetchAvailableAgents(websiteToken);
       this.setLocale(getLocale(window.location.search));
@@ -148,16 +126,13 @@ export default {
       this.sendRNWebViewLoadedEvent();
     }
 
+    // Original Chatwoot order
     this.registerUnreadEvents();
     this.registerCampaignEvents();
 
-    // ── VOICE AGENT CONFIG: Fetch voice agent settings from inbox config ──
-    // This loads provider, API key, and agent ID from admin configuration
+    // Custom features
     this.fetchVoiceAgentConfig();
-
-    // ── AUTO-CLEAR: Check if conversation was resolved from dashboard ──
     this.startConversationStatusCheck();
-
   },
   beforeUnmount() {
     if (this.conversationStatusCheckInterval) {
@@ -175,21 +150,14 @@ export default {
     ]),
     ...mapActions('conversation', ['fetchOldConversations', 'clearConversations', 'syncLatestMessages']),
     ...mapActions('conversationAttributes', ['getAttributes']),
-    ...mapActions('campaign', [
-      'initCampaigns',
-      'executeCampaign',
-      'resetCampaign',
-    ]),
+    ...mapActions('campaign', ['initCampaigns', 'executeCampaign', 'resetCampaign']),
     ...mapActions('agent', ['fetchAvailableAgents']),
     ...mapActions('contacts', ['clearCurrentUser']),
     ...mapActions('voiceAgentConfig', ['fetchVoiceAgentConfig']),
 
     setWidgetColorVariable(widgetColor) {
       if (widgetColor) {
-        document.documentElement.style.setProperty(
-          '--widget-color',
-          widgetColor
-        );
+        document.documentElement.style.setProperty('--widget-color', widgetColor);
       }
     },
     scrollConversationToBottom() {
@@ -222,7 +190,6 @@ export default {
       const hasLocaleWithVariation = enabledLanguages.some(
         lang => lang.iso_639_1_code === localeWithVariation
       );
-
       if (hasLocaleWithVariation) {
         this.$root.$i18n.locale = localeWithVariation;
       } else if (hasLocaleWithoutVariation) {
@@ -230,36 +197,40 @@ export default {
       }
     },
 
+    // ════════════════════════════════════════════════════════════════════════
+    // NOTIFICATION — 100% Original Chatwoot code
+    // ════════════════════════════════════════════════════════════════════════
     registerUnreadEvents() {
       emitter.on(ON_AGENT_MESSAGE_RECEIVED, () => {
         const { name: routeName } = this.$route;
-        if ((this.isWidgetOpen || !this.isIFrame) && routeName === 'messages') {
-          this.$store.dispatch('conversation/setUserLastSeen');
-          return; // widget open hai toh popup mat dikhao
+        if (this.isWidgetOpen || !this.isIFrame) {
+          // Widget open hai — sirf last seen update karo, notification mat dikhao
+          if (routeName === 'messages') {
+            this.$store.dispatch('conversation/setUserLastSeen');
+          }
+          return;
         }
-        // Widget band hai — custom popup dikhao parent page pe
-        if (this.isIFrame && !this.isWidgetOpen) {
-          try {
-            window.parent.postMessage({
-              event: 'cw-show-notification',
-              type: 'reply',
-              count: this.unreadMessageCount,
-            }, '*');
-          } catch (_) {}
-        }
-        this.handleUnreadNotificationDot();
+        // Widget band hai — default Chatwoot card dikhao
+        this.setUnreadView();
       });
       emitter.on(ON_UNREAD_MESSAGE_CLICK, () => {
-        this.router.replace({ name: 'messages' });
+        this.router
+          .replace({ name: 'messages' })
+          .then(() => this.unsetUnreadView());
       });
     },
 
     registerCampaignEvents() {
       emitter.on(ON_CAMPAIGN_MESSAGE_CLICK, () => {
-        // Click on campaign card → start fresh conversation from home
-        this.router.replace({ name: 'home' });
-        IFrameHelper.sendMessage({ event: 'resetUnreadMode' });
-        this.setIframeHeight(false);
+        if (this.shouldShowPreChatForm) {
+          this.router.replace({ name: 'prechat-form' });
+        } else {
+          this.router.replace({ name: 'messages' });
+          emitter.emit('execute-campaign', {
+            campaignId: this.activeCampaign.id,
+          });
+        }
+        this.unsetUnreadView();
       });
       emitter.on('execute-campaign', campaignDetails => {
         const { customAttributes, campaignId } = campaignDetails;
@@ -270,11 +241,6 @@ export default {
       emitter.on('snooze-campaigns', () => {
         const expireBy = addHours(new Date(), 1);
         this.campaignsSnoozedTill = Number(expireBy);
-      });
-      // When user clicks "See new messages" in unread view → open full messages
-      emitter.on(ON_UNREAD_MESSAGE_CLICK, () => {
-        this.router.replace({ name: 'messages' });
-        IFrameHelper.sendMessage({ event: 'resetUnreadMode' });
       });
     },
 
@@ -290,20 +256,41 @@ export default {
         this.router.replace({ name: 'campaigns' }).then(() => {
           this.setIframeHeight(true);
           IFrameHelper.sendMessage({ event: 'setUnreadMode' });
-          IFrameHelper.sendMessage({ event: 'handleNotificationDot', unreadMessageCount: 0 });
         });
+      }
+    },
+
+    setUnreadView() {
+      const { unreadMessageCount } = this;
+      if (!this.showUnreadMessagesDialog) {
+        this.handleUnreadNotificationDot();
+      } else if (this.isIFrame && unreadMessageCount > 0 && !this.isWidgetOpen) {
+        this.router.replace({ name: 'unread-messages' }).then(() => {
+          this.setIframeHeight(true);
+          IFrameHelper.sendMessage({ event: 'setUnreadMode' });
+        });
+        this.handleUnreadNotificationDot();
+      }
+    },
+
+    unsetUnreadView() {
+      if (this.isIFrame) {
+        IFrameHelper.sendMessage({ event: 'resetUnreadMode' });
+        this.setIframeHeight(false);
+        this.handleUnreadNotificationDot();
       }
     },
 
     handleUnreadNotificationDot() {
       if (this.isIFrame) {
-        // Always 0 — no red dot on bubble
+        // No red dot on bubble — always 0
         IFrameHelper.sendMessage({
           event: 'handleNotificationDot',
           unreadMessageCount: 0,
         });
       }
     },
+    // ════════════════════════════════════════════════════════════════════════
 
     createWidgetEvents(message) {
       const { eventName } = message;
@@ -320,9 +307,7 @@ export default {
     registerListeners() {
       const { websiteToken } = window.chatwootWebChannel;
       window.addEventListener('message', e => {
-        if (!IFrameHelper.isAValidEvent(e)) {
-          return;
-        }
+        if (!IFrameHelper.isAValidEvent(e)) return;
         const message = IFrameHelper.getMessage(e);
 
         if (message.event === 'config-set') {
@@ -330,50 +315,25 @@ export default {
           this.setBubbleLabel();
           this.setAppConfig(message);
           this.configReady = true;
+          this.fetchAvailableAgents(websiteToken);
+          this.setCampaignReadData(message.campaignsSnoozedTill);
 
-          // ── REHYDRATE EXISTING SESSION ──────────────────────────────────
-          // On every iframe load (initial open, refresh, page change) we
-          // pull the existing conversation + attributes from the server.
-          // After both complete, we immediately check whether the loaded
-          // conversation is already resolved (e.g. auto-resolved while the
-          // widget was closed). If it is, softResetAndClose() fires so the
-          // customer never sees old conversation messages — they get a fresh
-          // blank session instead.
-          // ────────────────────────────────────────────────────────────────
           Promise.all([
             this.fetchOldConversations(),
             this.getAttributes(),
           ]).then(() => {
+            // Original: show unread view after loading
+            this.setUnreadView();
+            // Custom: check if resolved
             this.checkAndClearResolvedConversation();
-
-            // ── VOICE RECONNECT (background, no popup needed) ─────────────────
-            // If a voice call was active when the user navigated away, silently
-            // route to the messages view so ElevenLabsVoiceButton mounts and
-            // _checkAutoReconnect() fires automatically.
-            //
-            // WHY this works even with widget closed:
-            //   The widget iframe keeps running JavaScript in the background even
-            //   when the bubble is minimized. Navigating internally here is
-            //   invisible to the customer. When they open the widget they see
-            //   the call already reconnected and active.
-            //
-            // GUARD: only do this if a conversation exists (conversationSize > 0)
-            //   so we don't incorrectly land on messages for fresh sessions.
+            // Custom: voice reconnect
             try {
-              if (
-                localStorage.getItem('cw_voice_reconnect') &&
-                this.conversationSize > 0
-              ) {
-                // Mark that the NEXT voice-active signal should auto-open widget.
-                // This flag is consumed (cleared) once isVoiceActive watcher fires.
+              if (localStorage.getItem('cw_voice_reconnect') && this.conversationSize > 0) {
                 this._voiceReconnectPending = true;
                 this.router.replace({ name: 'messages' }).catch(() => {});
               }
             } catch (_) {}
           });
-
-          this.fetchAvailableAgents(websiteToken);
-          this.setCampaignReadData(message.campaignsSnoozedTill);
 
         } else if (message.event === 'widget-visible') {
           this.scrollConversationToBottom();
@@ -404,28 +364,16 @@ export default {
           this.$store.dispatch('contacts/setUser', message);
 
         } else if (message.event === 'set-custom-attributes') {
-          this.$store.dispatch(
-            'contacts/setCustomAttributes',
-            message.customAttributes
-          );
+          this.$store.dispatch('contacts/setCustomAttributes', message.customAttributes);
 
         } else if (message.event === 'delete-custom-attribute') {
-          this.$store.dispatch(
-            'contacts/deleteCustomAttribute',
-            message.customAttribute
-          );
+          this.$store.dispatch('contacts/deleteCustomAttribute', message.customAttribute);
 
         } else if (message.event === 'set-conversation-custom-attributes') {
-          this.$store.dispatch(
-            'conversation/setCustomAttributes',
-            message.customAttributes
-          );
+          this.$store.dispatch('conversation/setCustomAttributes', message.customAttributes);
 
         } else if (message.event === 'delete-conversation-custom-attribute') {
-          this.$store.dispatch(
-            'conversation/deleteCustomAttribute',
-            message.customAttribute
-          );
+          this.$store.dispatch('conversation/deleteCustomAttribute', message.customAttribute);
 
         } else if (message.event === 'set-locale') {
           this.setLocale(message.locale);
@@ -437,41 +385,45 @@ export default {
         } else if (message.event === 'toggle-open') {
           this.$store.dispatch('appConfig/toggleWidgetOpen', message.isOpen);
 
+          // ── Original Chatwoot toggle-open logic ──────────────────────────
+          const shouldShowMessageView =
+            ['home'].includes(this.$route.name) &&
+            message.isOpen &&
+            this.messageCount;
+          const shouldShowHomeView =
+            !message.isOpen &&
+            ['unread-messages', 'campaigns'].includes(this.$route.name);
+
+          if (shouldShowMessageView) {
+            this.router.replace({ name: 'messages' });
+          }
+          if (shouldShowHomeView) {
+            this.$store.dispatch('conversation/setUserLastSeen');
+            this.unsetUnreadView();
+            this.router.replace({ name: 'home' });
+          }
           if (!message.isOpen) {
-            // If closing from unread-messages view → open full messages instead
-            if (this.$route && this.$route.name === 'unread-messages') {
-              this.router.replace({ name: 'messages' });
-              IFrameHelper.sendMessage({ event: 'resetUnreadMode' });
-              return;
-            }
             this.resetCampaign();
-            // Immediately sync when widget closes so notification fires without delay
+            // Custom: sync on close
             if (this.conversationSize > 0) {
               this.syncLatestMessages();
             }
           } else {
-            // When widget opens: re-pull inbox/voice config so admin toggle
-            // changes take effect without a full page reload.
+            // Custom: re-fetch voice config on open
             this.fetchVoiceAgentConfig();
-
-
-            // ── IMMEDIATE RESOLVE CHECK ON OPEN ───────────────────────────
+            // Custom: resolve check on open
             if (this.conversationSize > 0) {
               this.checkAndClearResolvedConversation();
             }
-            // ──────────────────────────────────────────────────────────────
           }
+          // ─────────────────────────────────────────────────────────────────
 
         } else if (message.event === SDK_SET_BUBBLE_VISIBILITY) {
           this.setBubbleVisibility(message.hideMessageBubble);
         }
       });
 
-      // ── FLOATING END CALL BUTTON: parent → iframe ────────────────────────
-      // When the user clicks the red floating "End Call" button on the parent
-      // page, this message arrives here. We forward it via emitter so that
-      // ElevenLabsVoiceButton.endCall() fires cleanly — same path as clicking
-      // the button inside the widget itself.
+      // Custom: floating End Call button
       window.addEventListener('message', e => {
         if (e.data?.event === 'end-voice-call-from-parent') {
           emitter.emit('end-voice-call');
@@ -491,20 +443,14 @@ export default {
       }
     },
 
+    // ════════════════════════════════════════════════════════════════════════
+    // CUSTOM: Auto-resolve + Voice features
+    // ════════════════════════════════════════════════════════════════════════
     startConversationStatusCheck() {
       this.checkAndClearResolvedConversation();
-
-      // ── WHY 8 seconds ─────────────────────────────────────────────────────
-      // When an agent resolves a conversation from the dashboard, the visitor's
-      // widget should close quickly — not after a 30-second wait.
-      // 8s means the widget detects resolution within 8 seconds of the agent
-      // action, which feels near-instant without hammering the API.
-      // Guard: only runs when a conversation is in progress (conversationSize>0).
-      // ─────────────────────────────────────────────────────────────────────
       this.conversationStatusCheckInterval = setInterval(() => {
         if (this.conversationSize > 0) {
           this.checkAndClearResolvedConversation();
-          // Steady fallback sync: catches any messages ActionCable missed
           this.syncLatestMessages();
         }
       }, 3000);
@@ -515,7 +461,6 @@ export default {
       this.replyPollInterval = setInterval(() => {
         this.syncLatestMessages();
       }, 3000);
-      // Stop burst poll after 60s; steady 8s poll above keeps syncing after that
       this.replyPollTimeout = setTimeout(() => {
         this.stopReplyPolling();
       }, 60000);
@@ -533,78 +478,34 @@ export default {
     },
 
     async checkAndClearResolvedConversation() {
-      // Nothing to reset if there isn't an active conversation in this widget.
       if (this.conversationSize === 0) return;
-
       try {
         const { data } = await getConversationAPI();
-
-        // API returns an ARRAY of conversations for this contact.
-        // Bug-fix: previously we only checked payload[0] — if the API returns
-        // conversations sorted oldest-first, payload[0] could be a previously
-        // resolved conversation while the CURRENT one (payload[1]) is still open.
-        // Correct check: if ANY conversation is open/pending, the customer is
-        // still chatting — do NOT reset. Only reset when every conversation is
-        // resolved (meaning the active one was resolved from the dashboard).
         const payload = data?.payload ?? data;
         const conversations = Array.isArray(payload)
           ? payload
           : (payload ? [payload] : []);
-
         const hasActiveConversation = conversations.some(
           c => c?.status === 'open' || c?.status === 'pending'
         );
         if (hasActiveConversation) return;
-
-        // No open/pending conversations — the active one was resolved.
         if (conversations.length > 0) {
           this.softResetAndClose();
         }
       } catch (error) {
-        // 404 = conversation deleted/resolved externally — same handling.
         if (error?.response?.status === 404) {
           this.softResetAndClose();
         }
       }
     },
 
-    // ── SHARED RESET HELPER ───────────────────────────────────────────────────
-    // Called when a conversation is resolved from the dashboard (manual or
-    // auto-resolve).  Mirrors the "Exit Chat" button (HeaderActions.endChat)
-    // exactly so the customer gets a completely fresh session next time.
-    //
-    // WHY RELOAD: Without window.location.reload() the iframe stays alive in
-    // memory.  Even though Vuex is cleared, the next config-set/fetchOldConversations
-    // call re-fetches the resolved conversation from the server (auth cookie is
-    // still valid) and the old messages re-appear.  A reload wipes all in-memory
-    // state AND clears the cw_d auth cookie (same domain), so the server issues
-    // a brand-new session — truly blank slate, no old messages.
-    //
-    // VOICE GUARD: If a voice call is active or connecting, do NOT close the
-    // widget — interrupting a live call is a bad user experience.
     softResetAndClose() {
-      if (this.isVoiceActive || this.isVoiceConnecting) {
-        // Voice call is live — skip close, let call finish naturally
-        return;
-      }
-
-      // Full wipe: auth token, storage, Vuex state (same as Exit Chat).
+      if (this.isVoiceActive || this.isVoiceConnecting) return;
       this.$store.dispatch('contacts/softExitChat');
-
-      // Navigate home first so the reload lands on the clean home route,
-      // not /chat (which would show a blank messages screen with no session).
       try { this.router.replace({ name: 'home' }); } catch (_) {}
-
-      // Close the widget bubble immediately.
       if (IFrameHelper.isIFrame()) {
         IFrameHelper.sendMessage({ event: 'closeWindow' });
       }
-
-      // Reload the iframe in the background (widget is now hidden).
-      // Next time the customer opens the bubble they get a fresh session
-      // — pre-chat form or empty message input, no old conversation visible.
-      // 400 ms delay matches HeaderActions.endChat so any close animation
-      // can complete before the page refreshes.
       setTimeout(() => {
         window.location.reload();
       }, 400);
