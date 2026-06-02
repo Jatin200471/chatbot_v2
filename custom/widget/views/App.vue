@@ -108,15 +108,8 @@ export default {
     //   the user sees the reconnected call immediately without having to click
     //   the bubble manually. Flag is cleared after first use.
     activeCampaign(newVal) {
-      if (!isEmptyObject(newVal) && !this.isWidgetOpen && this.isIFrame) {
-        // Show custom popup on parent page — no iframe expansion
-        try {
-          window.parent.postMessage({
-            event: 'cw-show-notification',
-            type: 'campaign',
-            message: newVal.message || 'We have a message for you!',
-          }, '*');
-        } catch (_) {}
+      if (!isEmptyObject(newVal)) {
+        this.setCampaignView();
       }
     },
     isVoiceActive(val) {
@@ -263,14 +256,10 @@ export default {
 
     registerCampaignEvents() {
       emitter.on(ON_CAMPAIGN_MESSAGE_CLICK, () => {
-        if (this.shouldShowPreChatForm) {
-          this.router.replace({ name: 'prechat-form' });
-        } else {
-          this.router.replace({ name: 'messages' });
-          emitter.emit('execute-campaign', {
-            campaignId: this.activeCampaign.id,
-          });
-        }
+        // Click on campaign card → start fresh conversation from home
+        this.router.replace({ name: 'home' });
+        IFrameHelper.sendMessage({ event: 'resetUnreadMode' });
+        this.setIframeHeight(false);
       });
       emitter.on('execute-campaign', campaignDetails => {
         const { customAttributes, campaignId } = campaignDetails;
