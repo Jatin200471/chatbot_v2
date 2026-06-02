@@ -108,8 +108,15 @@ export default {
     //   the user sees the reconnected call immediately without having to click
     //   the bubble manually. Flag is cleared after first use.
     activeCampaign(newVal) {
-      if (!isEmptyObject(newVal)) {
-        this.setCampaignView();
+      if (!isEmptyObject(newVal) && !this.isWidgetOpen && this.isIFrame) {
+        // Show custom popup on parent page — no iframe expansion
+        try {
+          window.parent.postMessage({
+            event: 'cw-show-notification',
+            type: 'campaign',
+            message: newVal.message || 'We have a message for you!',
+          }, '*');
+        } catch (_) {}
       }
     },
     isVoiceActive(val) {
@@ -235,35 +242,23 @@ export default {
         const { name: routeName } = this.$route;
         if ((this.isWidgetOpen || !this.isIFrame) && routeName === 'messages') {
           this.$store.dispatch('conversation/setUserLastSeen');
+          return; // widget open hai toh popup mat dikhao
         }
-        this.setUnreadView();
+        // Widget band hai — custom popup dikhao parent page pe
+        if (this.isIFrame && !this.isWidgetOpen) {
+          try {
+            window.parent.postMessage({
+              event: 'cw-show-notification',
+              type: 'reply',
+              count: this.unreadMessageCount,
+            }, '*');
+          } catch (_) {}
+        }
+        this.handleUnreadNotificationDot();
       });
       emitter.on(ON_UNREAD_MESSAGE_CLICK, () => {
-        this.router
-          .replace({ name: 'messages' })
-          .then(() => this.unsetUnreadView());
+        this.router.replace({ name: 'messages' });
       });
-    },
-
-    setUnreadView() {
-      const { unreadMessageCount } = this;
-      if (!this.showUnreadMessagesDialog) {
-        this.handleUnreadNotificationDot();
-      } else if (this.isIFrame && unreadMessageCount > 0 && !this.isWidgetOpen) {
-        this.router.replace({ name: 'unread-messages' }).then(() => {
-          this.setIframeHeight(true);
-          IFrameHelper.sendMessage({ event: 'setUnreadMode' });
-        });
-        this.handleUnreadNotificationDot();
-      }
-    },
-
-    unsetUnreadView() {
-      if (this.isIFrame) {
-        IFrameHelper.sendMessage({ event: 'resetUnreadMode' });
-        this.setIframeHeight(false);
-        this.handleUnreadNotificationDot();
-      }
     },
 
     registerCampaignEvents() {
