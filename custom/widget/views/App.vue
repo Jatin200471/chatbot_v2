@@ -222,14 +222,8 @@ export default {
 
     registerCampaignEvents() {
       emitter.on(ON_CAMPAIGN_MESSAGE_CLICK, () => {
-        if (this.shouldShowPreChatForm) {
-          this.router.replace({ name: 'prechat-form' });
-        } else {
-          this.router.replace({ name: 'messages' });
-          emitter.emit('execute-campaign', {
-            campaignId: this.activeCampaign.id,
-          });
-        }
+        // Start fresh new conversation from home
+        this.router.replace({ name: 'home' });
         this.unsetUnreadView();
       });
       emitter.on('execute-campaign', campaignDetails => {
