@@ -222,9 +222,12 @@ export default {
 
     registerCampaignEvents() {
       emitter.on(ON_CAMPAIGN_MESSAGE_CLICK, () => {
-        // Start fresh new conversation from home
-        this.router.replace({ name: 'home' });
+        // Full fresh start — clear session, reload widget, auto-open
+        this.$store.dispatch('contacts/softExitChat');
         this.unsetUnreadView();
+        // Tell parent to keep widget open after reload
+        try { localStorage.setItem('cw_widget_open', 'true'); } catch (_) {}
+        setTimeout(() => { window.location.reload(); }, 200);
       });
       emitter.on('execute-campaign', campaignDetails => {
         const { customAttributes, campaignId } = campaignDetails;
