@@ -163,9 +163,8 @@ export default {
 
     // ── WebSocket handlers ───────────────────────────────────────────────
     _onWsOpen() {
-      // Start capturing mic audio and sending to ElevenLabs
-      this._startMicCapture();
-
+      // Do NOT start mic yet — wait for conversation_initiation_metadata first.
+      // ElevenLabs rejects audio sent before it finishes initializing.
       this.isConnecting = false;
       this.setConnecting(false);
       this.isCallActive = true;
@@ -179,8 +178,10 @@ export default {
       switch (msg.type) {
         case 'conversation_initiation_metadata': {
           const meta = msg.conversation_initiation_metadata_event || {};
-          this._conversationId  = meta.conversation_id;
+          this._conversationId   = meta.conversation_id;
           this._outputSampleRate = parseSampleRate(meta.agent_output_audio_format);
+          // NOW safe to start sending mic audio — ElevenLabs is ready
+          this._startMicCapture();
           break;
         }
         case 'audio': {
@@ -206,40 +207,88 @@ export default {
           break;
         }
         case 'interruption':
-          // AI was interrupted — clear buffered audio immediately
           this._audioQueue = [];
           this._nextPlayTime = this._audioCtx?.currentTime || 0;
+          break;
+        case 'error':
+          console.error('[VOICE] ElevenLabs error:', JSON.stringify(msg));
           break;
       }
     },
 
-    _onWsClose() {
-      // If call was active and WS closed unexpectedly, treat as ended
+    _onWsClose(e) {
+      console.warn('[VOICE] WS closed — code:', e?.code, 'reason:', e?.reason);
       if (this.isCallActive) this._cleanup();
     },
 
-    _onWsError() {
+    _onWsError(err) {
+      console.error('[VOICE] WS error:', err);
       this._cleanup();
       this._clearReconnectFlag();
     },
 
     // ── Mic capture → send PCM chunks to ElevenLabs ──────────────────────
-    _startMicCapture() {
+    async _startMicCapture() {
       if (!this._audioCtx || !this._micStream) return;
-      const source = this._audioCtx.createMediaStreamSource(this._micStream);
-      // Buffer size 4096 samples at native rate (48000Hz) ≈ 85ms per chunk
-      this._scriptProcessor = this._audioCtx.createScriptProcessor(4096, 1, 1);
-      this._scriptProcessor.onaudioprocess = e => {
-        if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return;
-        const raw       = e.inputBuffer.getChannelData(0);
-        // Downsample from native (48000) → 16000Hz before sending
-        const resampled = this._resampleTo16k(raw, this._nativeSampleRate);
-        const pcm       = this._float32ToPCM16(resampled);
-        const b64       = this._bufferToBase64(pcm);
-        this._ws.send(JSON.stringify({ user_audio_chunk: b64 }));
-      };
-      source.connect(this._scriptProcessor);
-      this._scriptProcessor.connect(this._audioCtx.destination);
+
+      // Inline AudioWorklet (no external file needed — blob URL trick)
+      const workletCode = `
+        class PCMCapture extends AudioWorkletProcessor {
+          constructor() {
+            super();
+            this._buf = [];
+            this._size = 4096;
+          }
+          process(inputs) {
+            const ch = inputs[0]?.[0];
+            if (ch) {
+              for (let i = 0; i < ch.length; i++) this._buf.push(ch[i]);
+              if (this._buf.length >= this._size) {
+                this.port.postMessage(this._buf.splice(0, this._size));
+              }
+            }
+            return true;
+          }
+        }
+        registerProcessor('pcm-capture', PCMCapture);
+      `;
+
+      try {
+        const blob = new Blob([workletCode], { type: 'application/javascript' });
+        const url  = URL.createObjectURL(blob);
+        await this._audioCtx.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+
+        const source   = this._audioCtx.createMediaStreamSource(this._micStream);
+        this._workletNode = new AudioWorkletNode(this._audioCtx, 'pcm-capture');
+
+        this._workletNode.port.onmessage = e => {
+          if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return;
+          const raw       = new Float32Array(e.data);
+          const resampled = this._resampleTo16k(raw, this._nativeSampleRate);
+          const pcm       = this._float32ToPCM16(resampled);
+          const b64       = this._bufferToBase64(pcm);
+          this._ws.send(JSON.stringify({ user_audio_chunk: b64 }));
+        };
+
+        source.connect(this._workletNode);
+        this._workletNode.connect(this._audioCtx.destination);
+
+      } catch (_) {
+        // Fallback to ScriptProcessorNode if AudioWorklet not supported
+        const source = this._audioCtx.createMediaStreamSource(this._micStream);
+        this._scriptProcessor = this._audioCtx.createScriptProcessor(4096, 1, 1);
+        this._scriptProcessor.onaudioprocess = e => {
+          if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return;
+          const raw       = e.inputBuffer.getChannelData(0);
+          const resampled = this._resampleTo16k(raw, this._nativeSampleRate);
+          const pcm       = this._float32ToPCM16(resampled);
+          const b64       = this._bufferToBase64(pcm);
+          this._ws.send(JSON.stringify({ user_audio_chunk: b64 }));
+        };
+        source.connect(this._scriptProcessor);
+        this._scriptProcessor.connect(this._audioCtx.destination);
+      }
     },
 
     // ── Audio playback ────────────────────────────────────────────────────
@@ -304,6 +353,10 @@ export default {
     // ── Cleanup ───────────────────────────────────────────────────────────
     _cleanup() {
       // Stop mic
+      if (this._workletNode) {
+        try { this._workletNode.disconnect(); } catch (_) {}
+        this._workletNode = null;
+      }
       if (this._scriptProcessor) {
         try { this._scriptProcessor.disconnect(); } catch (_) {}
         this._scriptProcessor = null;
