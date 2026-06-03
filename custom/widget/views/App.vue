@@ -430,6 +430,17 @@ export default {
           emitter.emit('end-voice-call');
         }
       });
+
+      // Custom: pre-chat form auto-fill from parent page cookies
+      window.addEventListener('message', e => {
+        if (e.data?.event === 'prefill-form-data') {
+          emitter.emit('prefill-form-data', {
+            name:  e.data.name  || '',
+            email: e.data.email || '',
+            phone: e.data.phone || '',
+          });
+        }
+      });
     },
 
     sendLoadedEvent() {

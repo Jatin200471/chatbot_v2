@@ -7,6 +7,7 @@ import { isEmptyObject } from 'widget/helpers/utils';
 import { getRegexp } from 'shared/helpers/Validators';
 import { useMessageFormatter } from 'shared/composables/useMessageFormatter';
 import configMixin from 'widget/mixins/configMixin';
+import { emitter } from 'shared/helpers/mitt';
 import { FormKit, createInput } from '@formkit/vue';
 import PhoneInput from 'widget/components/Form/PhoneInput.vue';
 
@@ -24,6 +25,12 @@ export default {
     },
   },
   emits: ['submitPreChat'],
+  mounted() {
+    emitter.on('prefill-form-data', this._applyPrefill);
+  },
+  beforeUnmount() {
+    emitter.off('prefill-form-data', this._applyPrefill);
+  },
   setup() {
     const phoneInput = createInput(PhoneInput, {
       props: ['hasErrorInPhoneInput'],
@@ -123,6 +130,12 @@ export default {
     },
   },
   methods: {
+    _applyPrefill({ name, email, phone }) {
+      // Only fill fields that are empty — don't overwrite what user already typed
+      if (name  && !this.formValues.fullName)      this.formValues.fullName      = name;
+      if (email && !this.formValues.emailAddress)  this.formValues.emailAddress  = email;
+      if (phone && !this.formValues.phoneNumber)   this.formValues.phoneNumber   = phone;
+    },
     labelClass(input) {
       const { state } = input.context;
       const hasErrors = state.invalid;

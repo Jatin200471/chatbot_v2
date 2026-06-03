@@ -42,6 +42,47 @@
   // During voice SPA navigation the page is NOT reloaded, so chatwoot:ready
   // does NOT fire — no conflict with feature 3 below.
 
+  // ════════════════════════════════════════════════════════════════════════
+  // FEATURE 4 — Pre-chat form auto-fill from website cookies
+  // ════════════════════════════════════════════════════════════════════════
+  //
+  // Reads user data from website cookies (set at login) and sends it to the
+  // Chatwoot iframe so the pre-chat form opens pre-filled.
+  // Customer can still edit/clear any field before submitting.
+  //
+  // ⚙️  CONFIGURE: Set your website's cookie names below.
+  //     Open DevTools → Application → Cookies → find the keys after login.
+
+  var PREFILL_COOKIE_KEYS = {
+    name:  'user_name',   // ← apne cookie ka naam yahan daalo
+    email: 'user_email',  // ← apne cookie ka naam yahan daalo
+    phone: 'user_phone',  // ← apne cookie ka naam yahan daalo (optional)
+  };
+
+  function readCookie(name) {
+    var match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
+  function sendPrefillData() {
+    var name  = readCookie(PREFILL_COOKIE_KEYS.name);
+    var email = readCookie(PREFILL_COOKIE_KEYS.email);
+    var phone = readCookie(PREFILL_COOKIE_KEYS.phone);
+
+    if (!name && !email && !phone) return; // not logged in — skip
+
+    document.querySelectorAll('iframe').forEach(function (f) {
+      try {
+        f.contentWindow.postMessage({
+          event: 'prefill-form-data',
+          name:  name  || '',
+          email: email || '',
+          phone: phone || '',
+        }, '*');
+      } catch (_) {}
+    });
+  }
+
   window.addEventListener('chatwoot:ready', function () {
 
     // ── Restore widget state from previous page ──────────────────────────
@@ -61,6 +102,8 @@
     // Primary: use Chatwoot's own open/close events (zero polling overhead).
     window.addEventListener('chatwoot:on-open', function () {
       try { localStorage.setItem(WIDGET_OPEN_KEY, 'true'); } catch (_) {}
+      // Send prefill data every time widget opens (in case form re-renders)
+      setTimeout(sendPrefillData, 300);
     });
     window.addEventListener('chatwoot:on-close', function () {
       try { localStorage.setItem(WIDGET_OPEN_KEY, 'false'); } catch (_) {}
