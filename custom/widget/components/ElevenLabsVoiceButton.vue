@@ -141,10 +141,10 @@ export default {
         // 3. Connect to ElevenLabs WebSocket
         const wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${this.resolvedAgentId}`;
         this._ws = new WebSocket(wsUrl);
-        this._ws.onopen    = () => this._onWsOpen();
-        this._ws.onmessage = e  => this._onWsMessage(e);
-        this._ws.onclose   = () => this._onWsClose();
-        this._ws.onerror   = err => this._onWsError(err);
+        this._ws.onopen    = ()    => this._onWsOpen();
+        this._ws.onmessage = e     => this._onWsMessage(e);
+        this._ws.onclose   = e     => this._onWsClose(e);
+        this._ws.onerror   = err   => this._onWsError(err);
 
       } catch (err) {
         this._cleanup();
@@ -163,12 +163,17 @@ export default {
 
     // ── WebSocket handlers ───────────────────────────────────────────────
     _onWsOpen() {
-      // Do NOT start mic yet — wait for conversation_initiation_metadata first.
-      // ElevenLabs rejects audio sent before it finishes initializing.
       this.isConnecting = false;
       this.setConnecting(false);
       this.isCallActive = true;
       this.setActive(true);
+
+      // Fallback: if conversation_initiation_metadata never arrives within
+      // 2 seconds, start mic capture anyway so ElevenLabs doesn't timeout.
+      this._metadataTimeout = setTimeout(() => {
+        console.warn('[VOICE] metadata not received — starting mic anyway');
+        this._startMicCapture();
+      }, 2000);
     },
 
     _onWsMessage(event) {
@@ -180,7 +185,9 @@ export default {
           const meta = msg.conversation_initiation_metadata_event || {};
           this._conversationId   = meta.conversation_id;
           this._outputSampleRate = parseSampleRate(meta.agent_output_audio_format);
-          // NOW safe to start sending mic audio — ElevenLabs is ready
+          console.log('[VOICE] metadata received, conv_id:', this._conversationId, 'output_rate:', this._outputSampleRate);
+          // Cancel fallback timeout and start mic now
+          clearTimeout(this._metadataTimeout);
           this._startMicCapture();
           break;
         }
@@ -352,6 +359,7 @@ export default {
 
     // ── Cleanup ───────────────────────────────────────────────────────────
     _cleanup() {
+      clearTimeout(this._metadataTimeout);
       // Stop mic
       if (this._workletNode) {
         try { this._workletNode.disconnect(); } catch (_) {}
