@@ -204,6 +204,67 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     render json: { error: e.message }, status: :internal_server_error
   end
 
+  # Poll ElevenLabs API for the latest conversation transcript and sync
+  # any new turns into the Chatwoot conversation as messages.
+  #
+  # Flow:
+  #   1. Fetch the most recent conversation for this agent from ElevenLabs
+  #   2. Compare against already-synced turn count (sent in params)
+  #   3. Post only NEW turns as voice_transcript messages
+  #   4. Return new turns so the widget can show them live
+  #
+  # GET /api/v1/widget/conversations/voice_transcript_poll?synced_count=N
+  def voice_transcript_poll
+    api_key  = @web_widget.voice_agent_api_key.to_s.strip
+    agent_id = @web_widget.elevenlabs_agent_id.to_s.strip
+    synced_count = params[:synced_count].to_i
+
+    if api_key.blank? || agent_id.blank?
+      return render json: { turns: [], conversation_id: nil }
+    end
+
+    # ── Step 1: Get latest conversation for this agent ──────────────────
+    conv_id = fetch_latest_elevenlabs_conv_id(api_key, agent_id)
+    return render json: { turns: [], conversation_id: nil } if conv_id.blank?
+
+    # ── Step 2: Get full transcript of that conversation ─────────────────
+    turns = fetch_elevenlabs_transcript(api_key, conv_id)
+    return render json: { turns: [], conversation_id: conv_id } if turns.blank?
+
+    # ── Step 3: Only process NEW turns since last poll ───────────────────
+    new_turns = turns[synced_count..]
+    return render json: { turns: [], conversation_id: conv_id } if new_turns.blank?
+
+    # ── Step 4: Save new turns to Chatwoot conversation ──────────────────
+    chatwoot_conv = conversation || build_conversation_for_voice
+    new_turns.each do |turn|
+      role    = turn['role'].to_s   # 'user' or 'agent'
+      content = turn['message'].to_s.strip
+      next if content.blank?
+
+      source   = role == 'user' ? 'user' : 'ai'
+      msg_type = role == 'user' ? :incoming : :outgoing
+
+      chatwoot_conv.messages.create!(
+        account_id:  chatwoot_conv.account_id,
+        inbox_id:    chatwoot_conv.inbox_id,
+        message_type: msg_type,
+        content:     content,
+        sender:      role == 'user' ? @contact : nil,
+        content_attributes: { voice_transcript: true, role: source }
+      )
+    end
+
+    render json: {
+      turns: new_turns,
+      conversation_id: conv_id,
+      total_count: turns.length
+    }
+  rescue StandardError => e
+    Rails.logger.error "[VOICE-TRANSCRIPT-POLL] #{e.class} #{e.message}"
+    render json: { turns: [], error: e.message }
+  end
+
   def set_custom_attributes
     conversation.update!(custom_attributes: permitted_params[:custom_attributes])
   end
@@ -233,6 +294,45 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       Rails.logger.info "[CONTACT-UPDATE] Moved contact_inbox #{@contact_inbox.id} to contact #{@contact.id}"
     end
   end
+
+  # ── ElevenLabs API helpers ───────────────────────────────────────────────
+
+  def fetch_latest_elevenlabs_conv_id(api_key, agent_id)
+    uri = URI("https://api.elevenlabs.io/v1/convai/conversations?agent_id=#{agent_id}&page_size=1")
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = true
+    http.read_timeout = 8
+    req = Net::HTTP::Get.new(uri)
+    req['xi-api-key'] = api_key
+    res = http.request(req)
+    return nil unless res.is_a?(Net::HTTPSuccess)
+
+    body = JSON.parse(res.body)
+    conversations = body['conversations'] || []
+    conversations.first&.dig('conversation_id')
+  rescue StandardError => e
+    Rails.logger.error "[VOICE-POLL] fetch_latest_conv_id failed: #{e.message}"
+    nil
+  end
+
+  def fetch_elevenlabs_transcript(api_key, conv_id)
+    uri = URI("https://api.elevenlabs.io/v1/convai/conversations/#{conv_id}")
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = true
+    http.read_timeout = 8
+    req = Net::HTTP::Get.new(uri)
+    req['xi-api-key'] = api_key
+    res = http.request(req)
+    return [] unless res.is_a?(Net::HTTPSuccess)
+
+    body = JSON.parse(res.body)
+    body['transcript'] || []
+  rescue StandardError => e
+    Rails.logger.error "[VOICE-POLL] fetch_transcript failed: #{e.message}"
+    []
+  end
+
+  # ────────────────────────────────────────────────────────────────────────
 
   def build_conversation_for_voice
     Conversation.create!(

@@ -170,6 +170,9 @@ export default {
       widgetElement: null,
       transcriptHandler: null,
       micStream: null,
+      // Transcript polling
+      _pollInterval: null,
+      _syncedTurnCount: 0,
     };
   },
   computed: {
@@ -429,6 +432,9 @@ export default {
         this.setConnecting(false);
         this.isCallActive = true;
         this.setActive(true);
+        // Start polling transcript from ElevenLabs API
+        // Small delay so ElevenLabs creates the conversation on their end first
+        setTimeout(() => this._startTranscriptPolling(), 4000);
       } catch (error) {
         this.stopAllMediaTracks();
         this._clearReconnectFlag();
@@ -466,6 +472,9 @@ export default {
         this.clickWidgetButton({ preferEnd: true });
       }
 
+      // Stop transcript polling
+      this._stopTranscriptPolling();
+
       // ── CRITICAL: must be called BEFORE removeWidget() so the element is
       //    still in the DOM when we sweep for <audio>/<video> nodes.
       this.stopAllMediaTracks(); // internally calls killAllVoiceSessions()
@@ -492,6 +501,44 @@ export default {
       this.setActive(false);
       this.setConnecting(false);
     },
+
+    // ── Transcript polling ───────────────────────────────────────────────
+    _startTranscriptPolling() {
+      this._syncedTurnCount = 0;
+      this._stopTranscriptPolling();
+      // Poll every 3 seconds while call is active
+      this._pollInterval = setInterval(() => {
+        this._pollTranscript();
+      }, 3000);
+    },
+
+    _stopTranscriptPolling() {
+      if (this._pollInterval) {
+        clearInterval(this._pollInterval);
+        this._pollInterval = null;
+      }
+    },
+
+    async _pollTranscript() {
+      if (!this.isCallActive) return;
+      try {
+        const res = await API.get(
+          buildConvUrl(`/api/v1/widget/conversations/voice_transcript_poll?synced_count=${this._syncedTurnCount}`)
+        );
+        const { turns, total_count } = res.data || {};
+        if (turns && turns.length > 0) {
+          this._syncedTurnCount += turns.length;
+          // Sync latest messages so widget chat updates live
+          try { await this.$store.dispatch('conversation/syncLatestMessages'); } catch (_) {}
+        }
+        if (total_count != null) {
+          this._syncedTurnCount = total_count;
+        }
+      } catch (_) {
+        // Silent fail — polling will retry on next tick
+      }
+    },
+    // ────────────────────────────────────────────────────────────────────
 
     async _postTranscript(source, content) {
       const text = (content || '').toString().trim();
