@@ -681,6 +681,6 @@ elevenlabs-convai[data-chatwoot] {
   overflow: hidden !important;
   pointer-events: none !important;
   opacity: 0 !important;
-  visibility: hidden !important;
+  /* visibility:hidden removed — browser may suppress WebRTC audio on hidden elements */
 }
 </style>
