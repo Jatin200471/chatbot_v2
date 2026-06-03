@@ -173,6 +173,7 @@ export default {
       // Transcript polling
       _pollInterval: null,
       _syncedTurnCount: 0,
+      _lastConvId: null,
     };
   },
   computed: {
@@ -406,13 +407,21 @@ export default {
       this.isConnecting = true;
       this.setConnecting(true);
 
-      // Unlock AudioContext on user gesture — browsers require this before
-      // any audio can play inside an iframe (autoplay policy).
+      // Unlock ALL suspended AudioContexts on user gesture.
+      // ElevenLabs web component creates its AudioContext at mount time
+      // (before any user gesture) so it starts suspended. We must resume it.
       try {
+        // 1. Play a silent audio — simplest cross-browser unlock
+        const silentAudio = new Audio();
+        silentAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+        silentAudio.volume = 0.001;
+        await silentAudio.play().catch(() => {});
+
+        // 2. Resume any suspended AudioContext instances
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (AudioCtx) {
           const tmpCtx = new AudioCtx();
-          await tmpCtx.resume();
+          if (tmpCtx.state === 'suspended') await tmpCtx.resume();
           tmpCtx.close();
         }
       } catch (_) {}
@@ -431,12 +440,21 @@ export default {
         await loadConvaiScript();
         this.ensureWidgetMounted();
 
-        // Best-effort: click the embed's "Start call" button.
-        const ok = this.clickWidgetButton({ preferEnd: false });
-        if (!ok) {
-          // The embed sometimes mounts asynchronously; retry once after a
-          // short delay so the shadow DOM has time to render its buttons.
-          setTimeout(() => this.clickWidgetButton({ preferEnd: false }), 250);
+        // Try public API methods first, then fall back to shadow DOM click.
+        const el = this.widgetElement;
+        let started = false;
+        if (el) {
+          for (const method of ['startSession', 'startCall', 'start', 'connect', 'open']) {
+            if (typeof el[method] === 'function') {
+              try { el[method](); started = true; break; } catch (_) {}
+            }
+          }
+        }
+        if (!started) {
+          const ok = this.clickWidgetButton({ preferEnd: false });
+          if (!ok) {
+            setTimeout(() => this.clickWidgetButton({ preferEnd: false }), 250);
+          }
         }
 
         this.isConnecting = false;
@@ -516,6 +534,7 @@ export default {
     // ── Transcript polling ───────────────────────────────────────────────
     _startTranscriptPolling() {
       this._syncedTurnCount = 0;
+      this._lastConvId = null;
       this._stopTranscriptPolling();
       // Poll every 3 seconds while call is active
       this._pollInterval = setInterval(() => {
@@ -534,9 +553,14 @@ export default {
       if (!this.isCallActive) return;
       try {
         const res = await API.get(
-          buildConvUrl(`/api/v1/widget/conversations/voice_transcript_poll?synced_count=${this._syncedTurnCount}`)
+          buildConvUrl(`/api/v1/widget/conversations/voice_transcript_poll?synced_count=${this._syncedTurnCount}&last_conv_id=${this._lastConvId || ''}`)
         );
-        const { turns, total_count } = res.data || {};
+        const { turns, total_count, conversation_id } = res.data || {};
+        // If new conversation detected, reset count
+        if (conversation_id && conversation_id !== this._lastConvId) {
+          this._lastConvId = conversation_id;
+          this._syncedTurnCount = 0;
+        }
         // Update synced count FIRST to prevent duplicate processing
         if (total_count != null) {
           this._syncedTurnCount = total_count;

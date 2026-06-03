@@ -232,8 +232,12 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     return render json: { turns: [], conversation_id: conv_id } if turns.blank?
 
     # ── Step 3: Only process NEW turns since last poll ───────────────────
+    # If conversation changed (new call started), reset synced count
+    last_conv_id = params[:last_conv_id].to_s
+    synced_count = 0 if last_conv_id != conv_id
+
     new_turns = turns[synced_count..]
-    return render json: { turns: [], conversation_id: conv_id } if new_turns.blank?
+    return render json: { turns: [], conversation_id: conv_id, total_count: turns.length } if new_turns.blank?
 
     # ── Step 4: Save new turns to Chatwoot conversation ──────────────────
     chatwoot_conv = conversation || build_conversation_for_voice
