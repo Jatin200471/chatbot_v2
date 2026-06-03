@@ -128,12 +128,14 @@ export default {
       try {
         // 1. Request microphone (user gesture → unlocks AudioContext)
         this._micStream = await navigator.mediaDevices.getUserMedia({
-          audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
         });
 
-        // 2. Create AudioContext for capture + playback (inside user gesture chain)
-        this._audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        // 2. Create AudioContext at browser's NATIVE rate (48000Hz usually).
+        // We resample mic audio to 16000Hz before sending to ElevenLabs.
+        this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         if (this._audioCtx.state === 'suspended') await this._audioCtx.resume();
+        this._nativeSampleRate = this._audioCtx.sampleRate; // e.g. 48000
         this._nextPlayTime = this._audioCtx.currentTime;
 
         // 3. Connect to ElevenLabs WebSocket
@@ -225,12 +227,15 @@ export default {
     _startMicCapture() {
       if (!this._audioCtx || !this._micStream) return;
       const source = this._audioCtx.createMediaStreamSource(this._micStream);
-      // ScriptProcessorNode: buffer 2048 samples @ 16kHz ≈ 128ms chunks
-      this._scriptProcessor = this._audioCtx.createScriptProcessor(2048, 1, 1);
+      // Buffer size 4096 samples at native rate (48000Hz) ≈ 85ms per chunk
+      this._scriptProcessor = this._audioCtx.createScriptProcessor(4096, 1, 1);
       this._scriptProcessor.onaudioprocess = e => {
         if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return;
-        const pcm   = this._float32ToPCM16(e.inputBuffer.getChannelData(0));
-        const b64   = this._bufferToBase64(pcm);
+        const raw       = e.inputBuffer.getChannelData(0);
+        // Downsample from native (48000) → 16000Hz before sending
+        const resampled = this._resampleTo16k(raw, this._nativeSampleRate);
+        const pcm       = this._float32ToPCM16(resampled);
+        const b64       = this._bufferToBase64(pcm);
         this._ws.send(JSON.stringify({ user_audio_chunk: b64 }));
       };
       source.connect(this._scriptProcessor);
@@ -354,6 +359,24 @@ export default {
     },
 
     // ── Audio helpers ────────────────────────────────────────────────────
+
+    // Downsample float32 audio from srcRate → 16000Hz using linear interpolation
+    _resampleTo16k(float32, srcRate) {
+      if (srcRate === 16000) return float32;
+      const ratio      = srcRate / 16000;
+      const outLength  = Math.floor(float32.length / ratio);
+      const output     = new Float32Array(outLength);
+      for (let i = 0; i < outLength; i++) {
+        const pos   = i * ratio;
+        const index = Math.floor(pos);
+        const frac  = pos - index;
+        const a     = float32[index]     || 0;
+        const b     = float32[index + 1] || 0;
+        output[i]   = a + frac * (b - a); // linear interpolation
+      }
+      return output;
+    },
+
     _float32ToPCM16(float32) {
       const buf  = new ArrayBuffer(float32.length * 2);
       const view = new DataView(buf);
