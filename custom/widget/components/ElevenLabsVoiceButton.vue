@@ -406,6 +406,17 @@ export default {
       this.isConnecting = true;
       this.setConnecting(true);
 
+      // Unlock AudioContext on user gesture — browsers require this before
+      // any audio can play inside an iframe (autoplay policy).
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          const tmpCtx = new AudioCtx();
+          await tmpCtx.resume();
+          tmpCtx.close();
+        }
+      } catch (_) {}
+
       // Persist reconnect flag BEFORE the async work so that even if the
       // user navigates away during the connecting phase it is captured.
       this._saveReconnectFlag();
@@ -526,13 +537,15 @@ export default {
           buildConvUrl(`/api/v1/widget/conversations/voice_transcript_poll?synced_count=${this._syncedTurnCount}`)
         );
         const { turns, total_count } = res.data || {};
-        if (turns && turns.length > 0) {
-          this._syncedTurnCount += turns.length;
-          // Sync latest messages so widget chat updates live
-          try { await this.$store.dispatch('conversation/syncLatestMessages'); } catch (_) {}
-        }
+        // Update synced count FIRST to prevent duplicate processing
         if (total_count != null) {
           this._syncedTurnCount = total_count;
+        } else if (turns && turns.length > 0) {
+          this._syncedTurnCount += turns.length;
+        }
+        if (turns && turns.length > 0) {
+          // Sync latest messages so widget chat updates live
+          try { await this.$store.dispatch('conversation/syncLatestMessages'); } catch (_) {}
         }
       } catch (_) {
         // Silent fail — polling will retry on next tick

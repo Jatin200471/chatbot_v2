@@ -83,6 +83,28 @@
     });
   }
 
+  // ── Fix iframe audio autoplay permission ────────────────────────────────
+  // Browsers block audio autoplay inside iframes unless explicitly allowed.
+  // We patch the iframe's allow attribute as soon as it appears in the DOM.
+  function fixIframeAudioPermission() {
+    var iframes = document.querySelectorAll('iframe');
+    iframes.forEach(function(f) {
+      var allow = f.getAttribute('allow') || '';
+      var needs = ['microphone', 'autoplay', 'camera'];
+      var missing = needs.filter(function(p) { return !allow.includes(p); });
+      if (missing.length > 0) {
+        f.setAttribute('allow', (allow + '; ' + missing.join('; ')).trim());
+      }
+    });
+  }
+
+  // Run immediately and observe for new iframes
+  fixIframeAudioPermission();
+  var _iframeObserver = new MutationObserver(function() {
+    fixIframeAudioPermission();
+  });
+  _iframeObserver.observe(document.body, { childList: true, subtree: true });
+
   window.addEventListener('chatwoot:ready', function () {
 
     // ── Restore widget state from previous page ──────────────────────────
