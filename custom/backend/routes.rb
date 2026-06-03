@@ -414,7 +414,6 @@ Rails.application.routes.draw do
             get  :inbox_config
             get  :voice_signed_url
             post :voice_transcript
-            get  :voice_transcript_poll
           end
         end
         resource :contact, only: [:show, :update] do

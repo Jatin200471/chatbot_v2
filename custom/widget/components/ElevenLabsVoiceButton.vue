@@ -5,155 +5,36 @@ import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
 import { emitter } from 'shared/helpers/mitt';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ElevenLabs Conversational AI integration.
+// ElevenLabs Conversational AI — Direct WebSocket Implementation
 //
-// Why <elevenlabs-convai> instead of `@elevenlabs/client`:
-//   The npm `@elevenlabs/client` (loaded via esm.sh) bundles LiveKit JS SDK 2.x
-//   which negotiates with `protocol=17`. ElevenLabs' production LiveKit server
-//   is still on protocol 16 → the WebRTC peer connection times out with
-//   `NegotiationError: negotiation timed out` even though the signal channel
-//   opens. The `<elevenlabs-convai>` CDN bundle ships its own older LiveKit
-//   build that speaks protocol 16, so audio actually works.
+// Why direct WebSocket instead of <elevenlabs-convai> web component:
+//   The web component does not expose shadow DOM or any public API to
+//   programmatically start/stop calls. Clicking internal buttons via shadow
+//   DOM is fragile and broke when ElevenLabs updated their widget. Direct
+//   WebSocket gives us full control over audio capture, playback, and
+//   transcript events without any third-party DOM dependency.
 //
-// We mount the web component OFF-SCREEN and trigger / end calls by clicking
-// the buttons inside its shadow DOM. The third-party floating "Need help?"
-// bubble is hidden by aggressive CSS scoped to the host. The visitor only
-// ever sees OUR call button.
-//
-// Transcript: ElevenLabs Convai Widget posts CustomEvents on its host element
-// for each user / agent turn. We listen for those and POST them to Chatwoot's
-// /voice_transcript endpoint so the chat history shows the spoken exchange.
+// Protocol (ElevenLabs Convai WS API):
+//   SEND:  { user_audio_chunk: "<base64 PCM16 16kHz>" }
+//          { type: "pong", pong_event: { event_id } }
+//   RECV:  conversation_initiation_metadata → has conversation_id + output format
+//          audio                            → base64 PCM to play
+//          agent_response                   → AI text turn (complete)
+//          user_transcript                  → User speech text (complete)
+//          ping                             → reply with pong
+//          interruption                     → clear audio queue
 // ─────────────────────────────────────────────────────────────────────────────
-
-const CONVAI_EMBED_URL = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Global WebRTC + media-stream tracking.
-//
-// WHY: The previous endCall() removed the <elevenlabs-convai> element and stopped
-// the mic stream we explicitly requested. But the convai library still kept the
-// AI talking, because:
-//   1. Its RTCPeerConnection is owned by JS closures inside the convai bundle —
-//      our element removal doesn't reach them. The peer keeps decoding inbound
-//      audio.
-//   2. Audio playback is done with an <audio> element appended to document.body
-//      (NOT inside the shadow root we were searching).
-//   3. The convai library calls getUserMedia internally; that stream is separate
-//      from the one we grab in startCall() and stays open.
-//
-// FIX: Patch RTCPeerConnection and getUserMedia globally — once, at module load
-// — to keep a registry of every peer / stream created in this iframe. endCall()
-// closes the lot. The hooks are idempotent: installing twice is a no-op.
-// ─────────────────────────────────────────────────────────────────────────────
-const _peers = new Set();
-const _streams = new Set();
-let _hooksInstalled = false;
-
-const installGlobalHooks = () => {
-  if (_hooksInstalled) return;
-  _hooksInstalled = true;
-
-  // Hook RTCPeerConnection so every peer the convai bundle creates is tracked.
-  if (typeof window !== 'undefined' && window.RTCPeerConnection) {
-    const OriginalPC = window.RTCPeerConnection;
-    const PatchedPC = function (...args) {
-      const pc = new OriginalPC(...args);
-      _peers.add(pc);
-      pc.addEventListener('connectionstatechange', () => {
-        if (['closed', 'failed', 'disconnected'].includes(pc.connectionState)) {
-          _peers.delete(pc);
-        }
-      });
-      return pc;
-    };
-    PatchedPC.prototype = OriginalPC.prototype;
-    window.RTCPeerConnection = PatchedPC;
-  }
-
-  // Hook getUserMedia so every mic / audio stream is tracked too.
-  if (
-    typeof navigator !== 'undefined' &&
-    navigator.mediaDevices &&
-    typeof navigator.mediaDevices.getUserMedia === 'function'
-  ) {
-    const originalGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-    navigator.mediaDevices.getUserMedia = async function (constraints) {
-      const stream = await originalGUM(constraints);
-      _streams.add(stream);
-      // Auto-evict the stream from the registry once all tracks are dead.
-      stream.getTracks().forEach(t =>
-        t.addEventListener('ended', () => {
-          if (stream.getTracks().every(x => x.readyState === 'ended')) {
-            _streams.delete(stream);
-          }
-        })
-      );
-      return stream;
-    };
-  }
-};
-
-// Kill every tracked peer + stream + any <audio>/<video> playing voice audio.
-// Called from endCall() and as the last-resort cleanup when the component is
-// unmounted mid-call.
-const killAllVoiceSessions = () => {
-  _peers.forEach(pc => {
-    try { pc.getSenders?.().forEach(s => { try { s.track?.stop(); } catch (_) {} }); } catch (_) {}
-    try { pc.getReceivers?.().forEach(r => { try { r.track?.stop(); } catch (_) {} }); } catch (_) {}
-    try { pc.close(); } catch (_) {}
-  });
-  _peers.clear();
-
-  _streams.forEach(stream => {
-    try { stream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} }); } catch (_) {}
-  });
-  _streams.clear();
-
-  // Sweep the entire document for media elements (the convai embed appends an
-  // <audio> to document.body for playback, NOT inside its shadow root).
-  if (typeof document !== 'undefined') {
-    document.querySelectorAll('audio, video').forEach(p => {
-      try { p.pause(); } catch (_) {}
-      try { p.muted = true; } catch (_) {}
-      try {
-        if (p.srcObject) {
-          p.srcObject.getTracks?.().forEach(t => { try { t.stop(); } catch (_) {} });
-          p.srcObject = null;
-        }
-      } catch (_) {}
-      try { p.removeAttribute('src'); p.load?.(); } catch (_) {}
-    });
-  }
-};
-
-let convaiScriptPromise = null;
-const loadConvaiScript = () => {
-  // Install hooks BEFORE the convai script runs so we capture every peer +
-  // stream it creates. Safe to call repeatedly — installGlobalHooks() bails
-  // out on subsequent calls.
-  installGlobalHooks();
-
-  if (convaiScriptPromise) return convaiScriptPromise;
-  if (document.querySelector('script[src*="@elevenlabs/convai-widget-embed"]')) {
-    convaiScriptPromise = Promise.resolve();
-    return convaiScriptPromise;
-  }
-  convaiScriptPromise = new Promise(resolve => {
-    const s = document.createElement('script');
-    s.src = CONVAI_EMBED_URL;
-    s.async = true;
-    s.type = 'text/javascript';
-    s.onload = resolve;
-    s.onerror = resolve; // resolve anyway; button click will surface failure
-    document.head.appendChild(s);
-  });
-  return convaiScriptPromise;
-};
 
 const buildConvUrl = path => {
   if (!WEBSITE_TOKEN) return path;
   const sep = path.includes('?') ? '&' : '?';
   return `${path}${sep}website_token=${WEBSITE_TOKEN}`;
+};
+
+// Parse sample rate from ElevenLabs format string e.g. "pcm_16000" → 16000
+const parseSampleRate = str => {
+  const match = (str || '').match(/(\d+)$/);
+  return match ? parseInt(match[1], 10) : 16000;
 };
 
 export default {
@@ -167,13 +48,17 @@ export default {
     return {
       isConnecting: false,
       isCallActive: false,
-      widgetElement: null,
-      transcriptHandler: null,
-      micStream: null,
-      // Transcript polling
-      _pollInterval: null,
-      _syncedTurnCount: 0,
-      _lastConvId: null,
+
+      // WebSocket + audio internals
+      _ws:               null,
+      _audioCtx:         null,
+      _micStream:        null,
+      _scriptProcessor:  null,
+      _audioQueue:       [],
+      _isPlayingAudio:   false,
+      _outputSampleRate: 16000,
+      _conversationId:   null,
+      _nextPlayTime:     0,
     };
   },
   computed: {
@@ -196,184 +81,258 @@ export default {
       return this.hasElevenLabsVoiceEnabled && !!this.resolvedAgentId;
     },
     buttonClasses() {
-      const sizeClasses = {
-        small:  'min-h-7 min-w-7',
-        medium: 'min-h-9 min-w-9',
-        large:  'min-h-10 min-w-10',
-      };
+      const sizeClasses = { small: 'min-h-7 min-w-7', medium: 'min-h-9 min-w-9', large: 'min-h-10 min-w-10' };
       return [
         'elevenlabs-voice-btn flex items-center justify-center rounded-full transition-all duration-200 cursor-pointer border-0 p-1.5',
         sizeClasses[this.size] || sizeClasses.medium,
         this.isConnecting ? 'elevenlabs-connecting' : '',
-        this.isCallActive ? 'elevenlabs-active' : '',
+        this.isCallActive  ? 'elevenlabs-active'    : '',
       ];
     },
     iconSize() {
-      const sizes = { small: 16, medium: 18, large: 22 };
-      return sizes[this.size] || sizes.medium;
+      return { small: 16, medium: 18, large: 22 }[this.size] || 18;
     },
     tooltipText() {
-      if (this.isCallActive) return this.$t('VOICE_AGENT.END_CALL');
-      if (this.isConnecting) return this.$t('VOICE_AGENT.CONNECTING');
+      if (this.isCallActive)  return this.$t('VOICE_AGENT.END_CALL');
+      if (this.isConnecting)  return this.$t('VOICE_AGENT.CONNECTING');
       return this.$t('VOICE_AGENT.START_CALL');
     },
   },
-  watch: {
-    resolvedAgentId() { this.ensureWidgetMounted(); },
-    hasElevenLabsVoiceEnabled(enabled) {
-      if (!enabled) {
-        if (this.isCallActive) this.endCall();
-        this.removeWidget();
-      } else {
-        loadConvaiScript().then(() => this.ensureWidgetMounted());
-      }
-    },
-  },
   mounted() {
-    // Listen for end-call signal from the floating parent-page button.
-    // When the user clicks the red "End Call" button while the widget is closed,
-    // App.vue receives the postMessage and emits this event to us here.
     emitter.on('end-voice-call', this.endCall);
-
-    if (this.hasElevenLabsVoiceEnabled) {
-      loadConvaiScript().then(() => {
-        this.ensureWidgetMounted();
-        // If a call was active when the user navigated away, auto-reconnect.
-        this._checkAutoReconnect();
-      });
-    }
+    // Auto-reconnect if a call was active before page navigation
+    if (this.hasElevenLabsVoiceEnabled) this._checkAutoReconnect();
   },
   beforeUnmount() {
-    // Remove the end-voice-call listener before full teardown.
     emitter.off('end-voice-call', this.endCall);
-
-    // Full teardown on unmount — handles page navigation mid-call.
-    // Must kill sessions BEFORE removeWidget() while elements still exist.
-    this.stopAllMediaTracks(); // internally calls killAllVoiceSessions()
-    this.removeWidget();
-    this._cleanupSession();
-    // Note: we do NOT clear the localStorage reconnect flag here because
-    // beforeUnmount fires on page navigation — we WANT to reconnect on the
-    // next page. The flag is only cleared when the user explicitly ends the
-    // call or it times out.
+    this._cleanup();
   },
   methods: {
     ...mapActions('elevenlabsVoice', ['setActive', 'setConnecting']),
 
-    ensureWidgetMounted() {
-      if (!this.hasElevenLabsVoiceEnabled) {
-        this.removeWidget();
-        return;
-      }
-      const agentId = this.resolvedAgentId;
-      if (!agentId) return;
-
-      const host = this.$refs.widgetHost;
-      if (!host) return;
-
-      if (this.widgetElement) {
-        this.widgetElement.setAttribute('agent-id', agentId);
-        return;
-      }
-
-      const el = document.createElement('elevenlabs-convai');
-      el.setAttribute('agent-id', agentId);
-      el.setAttribute('data-chatwoot', 'true');
-      host.appendChild(el);
-      this.widgetElement = el;
-
-      // Listen for transcript turns. The convai web component fires custom
-      // events with `{ source: 'user'|'ai', message }` once per completed
-      // turn. We forward each chunk to /voice_transcript so it lands in
-      // the Chatwoot conversation history.
-      this.transcriptHandler = ev => {
-        const d = ev?.detail || {};
-        const raw = d.source || d.role || '';
-        const source = raw === 'user' ? 'user'
-                     : (raw === 'ai' || raw === 'assistant' || raw === 'agent') ? 'ai'
-                     : null;
-        if (!source) return;
-        const content = d.message || d.text || d.content;
-        this._postTranscript(source, content);
-      };
-      ['convai-message', 'message', 'transcript'].forEach(name =>
-        el.addEventListener(name, this.transcriptHandler)
-      );
-    },
-
-    clickWidgetButton({ preferEnd = false } = {}) {
-      const el = this.widgetElement;
-      if (!el?.shadowRoot) return false;
-      const buttons = Array.from(el.shadowRoot.querySelectorAll('button'));
-      if (!buttons.length) return false;
-      const matchEnd = btn => {
-        const text = (btn.textContent || '').toLowerCase();
-        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-        const title = (btn.getAttribute('title') || '').toLowerCase();
-        const combined = `${text} ${label} ${title}`;
-        return /(end|hang|stop|close|disconnect)/.test(combined);
-      };
-      const matchStart = btn => {
-        const text = (btn.textContent || '').toLowerCase();
-        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-        const title = (btn.getAttribute('title') || '').toLowerCase();
-        const combined = `${text} ${label} ${title}`;
-        return /(start|call|begin|talk)/.test(combined);
-      };
-      // For END: never fall back to a random button — clicking the wrong one
-      // (e.g. buttons[0] = Start) would RESTART the call we just tried to end.
-      // Return false so endCall() falls through to forcibly removing the element.
-      if (preferEnd) {
-        const target = buttons.find(matchEnd);
-        if (!target) return false;
-        target.click();
-        return true;
-      }
-      // For START: fall back to first button only if nothing matches — older
-      // bundles render an unlabeled icon button as the only entry point.
-      const target = buttons.find(matchStart) || buttons[0];
-      target.click();
-      return true;
-    },
-
-    stopAllMediaTracks() {
-      // 1. Stop our own mic stream from startCall() — covers the case where the
-      //    visitor never let the convai bundle hit getUserMedia (e.g. the call
-      //    never connected past our preflight check).
-      if (this.micStream) {
-        try {
-          this.micStream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
-        } catch (_) {}
-        this.micStream = null;
-      }
-
-      // 2. The real cleanup — close every RTCPeerConnection and stop every
-      //    getUserMedia stream that the convai bundle created (tracked via the
-      //    module-level hooks), and mute any <audio>/<video> playback elements
-      //    anywhere in the document. Without this the AI's voice keeps
-      //    streaming through an <audio> the embed appended to document.body.
-      killAllVoiceSessions();
-    },
-
+    // ── Public button handler ────────────────────────────────────────────
     handleClick() {
       if (this.isConnecting) return;
-      if (this.isCallActive) {
-        this.endCall();
-      } else {
-        this.startCall();
+      this.isCallActive ? this.endCall() : this.startCall();
+    },
+
+    // ── Start call ───────────────────────────────────────────────────────
+    async startCall() {
+      if (this.isConnecting || this.isCallActive) return;
+      if (!this.resolvedAgentId || !this.hasElevenLabsVoiceEnabled) return;
+
+      this.isConnecting = true;
+      this.setConnecting(true);
+      this._saveReconnectFlag();
+
+      try {
+        // 1. Request microphone (user gesture → unlocks AudioContext)
+        this._micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        });
+
+        // 2. Create AudioContext for capture + playback (inside user gesture chain)
+        this._audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        if (this._audioCtx.state === 'suspended') await this._audioCtx.resume();
+        this._nextPlayTime = this._audioCtx.currentTime;
+
+        // 3. Connect to ElevenLabs WebSocket
+        const wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${this.resolvedAgentId}`;
+        this._ws = new WebSocket(wsUrl);
+        this._ws.onopen    = () => this._onWsOpen();
+        this._ws.onmessage = e  => this._onWsMessage(e);
+        this._ws.onclose   = () => this._onWsClose();
+        this._ws.onerror   = err => this._onWsError(err);
+
+      } catch (err) {
+        this._cleanup();
+        this._clearReconnectFlag();
+        if (err?.name === 'NotAllowedError' || err?.name === 'NotFoundError') {
+          alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS'));
+        }
       }
     },
 
-    // ── Voice call reconnect across page navigation ──────────────────────────
-    // When a page navigation happens mid-call the iframe is destroyed (and so
-    // is the WebRTC session). We save a flag in localStorage when a call starts
-    // and restore it on the next page load so the user hears a seamless
-    // reconnect rather than a silent drop.
+    // ── End call ─────────────────────────────────────────────────────────
+    endCall() {
+      this._clearReconnectFlag();
+      this._cleanup();
+    },
+
+    // ── WebSocket handlers ───────────────────────────────────────────────
+    _onWsOpen() {
+      // Start capturing mic audio and sending to ElevenLabs
+      this._startMicCapture();
+
+      this.isConnecting = false;
+      this.setConnecting(false);
+      this.isCallActive = true;
+      this.setActive(true);
+    },
+
+    _onWsMessage(event) {
+      let msg;
+      try { msg = JSON.parse(event.data); } catch (_) { return; }
+
+      switch (msg.type) {
+        case 'conversation_initiation_metadata': {
+          const meta = msg.conversation_initiation_metadata_event || {};
+          this._conversationId  = meta.conversation_id;
+          this._outputSampleRate = parseSampleRate(meta.agent_output_audio_format);
+          break;
+        }
+        case 'audio': {
+          const b64 = msg.audio_event?.audio_base_64;
+          if (b64) this._enqueueAudio(b64);
+          break;
+        }
+        case 'agent_response': {
+          const text = msg.agent_response_event?.agent_response;
+          if (text) this._postTranscript('ai', text);
+          break;
+        }
+        case 'user_transcript': {
+          const text = msg.user_transcription_event?.user_transcript;
+          if (text) this._postTranscript('user', text);
+          break;
+        }
+        case 'ping': {
+          const eventId = msg.ping_event?.event_id;
+          if (this._ws?.readyState === WebSocket.OPEN) {
+            this._ws.send(JSON.stringify({ type: 'pong', pong_event: { event_id: eventId } }));
+          }
+          break;
+        }
+        case 'interruption':
+          // AI was interrupted — clear buffered audio immediately
+          this._audioQueue = [];
+          this._nextPlayTime = this._audioCtx?.currentTime || 0;
+          break;
+      }
+    },
+
+    _onWsClose() {
+      // If call was active and WS closed unexpectedly, treat as ended
+      if (this.isCallActive) this._cleanup();
+    },
+
+    _onWsError() {
+      this._cleanup();
+      this._clearReconnectFlag();
+    },
+
+    // ── Mic capture → send PCM chunks to ElevenLabs ──────────────────────
+    _startMicCapture() {
+      if (!this._audioCtx || !this._micStream) return;
+      const source = this._audioCtx.createMediaStreamSource(this._micStream);
+      // ScriptProcessorNode: buffer 2048 samples @ 16kHz ≈ 128ms chunks
+      this._scriptProcessor = this._audioCtx.createScriptProcessor(2048, 1, 1);
+      this._scriptProcessor.onaudioprocess = e => {
+        if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return;
+        const pcm   = this._float32ToPCM16(e.inputBuffer.getChannelData(0));
+        const b64   = this._bufferToBase64(pcm);
+        this._ws.send(JSON.stringify({ user_audio_chunk: b64 }));
+      };
+      source.connect(this._scriptProcessor);
+      this._scriptProcessor.connect(this._audioCtx.destination);
+    },
+
+    // ── Audio playback ────────────────────────────────────────────────────
+    _enqueueAudio(base64) {
+      this._audioQueue.push(base64);
+      if (!this._isPlayingAudio) this._drainAudioQueue();
+    },
+
+    async _drainAudioQueue() {
+      this._isPlayingAudio = true;
+      while (this._audioQueue.length > 0) {
+        const b64 = this._audioQueue.shift();
+        await this._scheduleAudioChunk(b64);
+      }
+      this._isPlayingAudio = false;
+    },
+
+    _scheduleAudioChunk(base64) {
+      return new Promise(resolve => {
+        if (!this._audioCtx) { resolve(); return; }
+        try {
+          // Decode base64 → Int16 PCM → Float32
+          const raw   = atob(base64);
+          const bytes = new Uint8Array(raw.length);
+          for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+          const pcm16   = new Int16Array(bytes.buffer);
+          const float32 = new Float32Array(pcm16.length);
+          for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768;
+
+          const sampleRate = this._outputSampleRate || 16000;
+          const buf    = this._audioCtx.createBuffer(1, float32.length, sampleRate);
+          buf.getChannelData(0).set(float32);
+
+          const src = this._audioCtx.createBufferSource();
+          src.buffer = buf;
+          src.connect(this._audioCtx.destination);
+
+          // Schedule seamlessly after the previous chunk
+          const startAt = Math.max(this._nextPlayTime, this._audioCtx.currentTime);
+          src.start(startAt);
+          this._nextPlayTime = startAt + buf.duration;
+          src.onended = resolve;
+        } catch (_) { resolve(); }
+      });
+    },
+
+    // ── Transcript → Chatwoot ────────────────────────────────────────────
+    async _postTranscript(source, content) {
+      const text = (content || '').toString().trim();
+      if (!text) return;
+      try {
+        await API.post(
+          buildConvUrl('/api/v1/widget/conversations/voice_transcript'),
+          { source, content: text }
+        );
+        try { await this.$store.dispatch('conversation/syncLatestMessages'); } catch (_) {}
+      } catch (e) {
+        console.warn('[VOICE] transcript post failed:', e?.message);
+      }
+    },
+
+    // ── Cleanup ───────────────────────────────────────────────────────────
+    _cleanup() {
+      // Stop mic
+      if (this._scriptProcessor) {
+        try { this._scriptProcessor.disconnect(); } catch (_) {}
+        this._scriptProcessor = null;
+      }
+      if (this._micStream) {
+        try { this._micStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+        this._micStream = null;
+      }
+      // Close audio context
+      if (this._audioCtx) {
+        try { this._audioCtx.close(); } catch (_) {}
+        this._audioCtx = null;
+      }
+      // Close WebSocket
+      if (this._ws) {
+        try { this._ws.close(); } catch (_) {}
+        this._ws = null;
+      }
+      // Reset state
+      this._audioQueue       = [];
+      this._isPlayingAudio   = false;
+      this._nextPlayTime     = 0;
+      this._conversationId   = null;
+      this.isCallActive      = false;
+      this.isConnecting      = false;
+      this.setActive(false);
+      this.setConnecting(false);
+    },
+
+    // ── Page navigation reconnect ────────────────────────────────────────
     _saveReconnectFlag() {
       try {
         localStorage.setItem('cw_voice_reconnect', JSON.stringify({
-          agentId: this.resolvedAgentId,
-          startedAt: Date.now(),
+          agentId: this.resolvedAgentId, startedAt: Date.now(),
         }));
       } catch (_) {}
     },
@@ -385,211 +344,30 @@ export default {
         const raw = localStorage.getItem('cw_voice_reconnect');
         if (!raw) return;
         const { agentId, startedAt } = JSON.parse(raw);
-        // Only reconnect within a 2-minute window and for the same agent.
         const withinWindow = Date.now() - startedAt < 2 * 60 * 1000;
         if (agentId === this.resolvedAgentId && withinWindow) {
-          // Delay slightly so the widget fully mounts before we request mic.
-          // 600ms is enough for the Vue component tree to render completely.
           setTimeout(() => this.startCall(), 600);
         } else {
           this._clearReconnectFlag();
         }
-      } catch (_) {
-        this._clearReconnectFlag();
+      } catch (_) { this._clearReconnectFlag(); }
+    },
+
+    // ── Audio helpers ────────────────────────────────────────────────────
+    _float32ToPCM16(float32) {
+      const buf  = new ArrayBuffer(float32.length * 2);
+      const view = new DataView(buf);
+      for (let i = 0; i < float32.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32[i]));
+        view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
       }
+      return buf;
     },
-    // ─────────────────────────────────────────────────────────────────────────
-
-    async startCall() {
-      if (this.isConnecting || this.isCallActive) return;
-      if (!this.resolvedAgentId || !this.hasElevenLabsVoiceEnabled) return;
-
-      this.isConnecting = true;
-      this.setConnecting(true);
-
-      // Unlock ALL suspended AudioContexts on user gesture.
-      // ElevenLabs web component creates its AudioContext at mount time
-      // (before any user gesture) so it starts suspended. We must resume it.
-      try {
-        // 1. Play a silent audio — simplest cross-browser unlock
-        const silentAudio = new Audio();
-        silentAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-        silentAudio.volume = 0.001;
-        await silentAudio.play().catch(() => {});
-
-        // 2. Resume any suspended AudioContext instances
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (AudioCtx) {
-          const tmpCtx = new AudioCtx();
-          if (tmpCtx.state === 'suspended') await tmpCtx.resume();
-          tmpCtx.close();
-        }
-      } catch (_) {}
-
-      // Persist reconnect flag BEFORE the async work so that even if the
-      // user navigates away during the connecting phase it is captured.
-      this._saveReconnectFlag();
-
-      try {
-        if (navigator.mediaDevices?.getUserMedia) {
-          // Keep a reference so we can stop these tracks on endCall — otherwise
-          // the mic LED stays on and audio keeps streaming even after we tear
-          // down the embed.
-          this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        }
-        await loadConvaiScript();
-        this.ensureWidgetMounted();
-
-        // Try public API methods first, then fall back to shadow DOM click.
-        const el = this.widgetElement;
-        let started = false;
-        if (el) {
-          for (const method of ['startSession', 'startCall', 'start', 'connect', 'open']) {
-            if (typeof el[method] === 'function') {
-              try { el[method](); started = true; break; } catch (_) {}
-            }
-          }
-        }
-        if (!started) {
-          const ok = this.clickWidgetButton({ preferEnd: false });
-          if (!ok) {
-            setTimeout(() => this.clickWidgetButton({ preferEnd: false }), 250);
-          }
-        }
-
-        this.isConnecting = false;
-        this.setConnecting(false);
-        this.isCallActive = true;
-        this.setActive(true);
-        // Start polling transcript from ElevenLabs API
-        // Small delay so ElevenLabs creates the conversation on their end first
-        setTimeout(() => this._startTranscriptPolling(), 4000);
-      } catch (error) {
-        this.stopAllMediaTracks();
-        this._clearReconnectFlag();
-        this._cleanupSession();
-        if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') {
-          alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS'));
-        }
-      }
-    },
-
-    endCall() {
-      // User explicitly ended the call — clear the reconnect flag so it does
-      // NOT restart automatically on the next page load.
-      this._clearReconnectFlag();
-
-      // Kill order:
-      //   1. Call any public end method exposed on the element.
-      //   2. Try to click the END button inside shadow DOM.
-      //   3. killAllVoiceSessions() — closes every RTCPeerConnection, stops
-      //      every getUserMedia stream, pauses every <audio>/<video> in the
-      //      document. THIS is what actually silences the AI voice; without
-      //      it the peer keeps decoding inbound audio even after element removal.
-      //   4. Remove the custom element — its disconnectedCallback closes the WS.
-      const el = this.widgetElement;
-      if (el) {
-        try {
-          ['endSession', 'endCall', 'disconnect', 'stop', 'close'].forEach(
-            name => {
-              if (typeof el[name] === 'function') {
-                try { el[name](); } catch (_) {}
-              }
-            }
-          );
-        } catch (_) {}
-        this.clickWidgetButton({ preferEnd: true });
-      }
-
-      // Stop transcript polling
-      this._stopTranscriptPolling();
-
-      // ── CRITICAL: must be called BEFORE removeWidget() so the element is
-      //    still in the DOM when we sweep for <audio>/<video> nodes.
-      this.stopAllMediaTracks(); // internally calls killAllVoiceSessions()
-      this.removeWidget();
-      this._cleanupSession();
-    },
-
-    removeWidget() {
-      if (this.widgetElement) {
-        if (this.transcriptHandler) {
-          ['convai-message', 'message', 'transcript'].forEach(name =>
-            this.widgetElement.removeEventListener(name, this.transcriptHandler)
-          );
-        }
-        this.widgetElement.remove();
-        this.widgetElement = null;
-      }
-      this.transcriptHandler = null;
-    },
-
-    _cleanupSession() {
-      this.isCallActive = false;
-      this.isConnecting = false;
-      this.setActive(false);
-      this.setConnecting(false);
-    },
-
-    // ── Transcript polling ───────────────────────────────────────────────
-    _startTranscriptPolling() {
-      this._syncedTurnCount = 0;
-      this._lastConvId = null;
-      this._stopTranscriptPolling();
-      // Poll every 3 seconds while call is active
-      this._pollInterval = setInterval(() => {
-        this._pollTranscript();
-      }, 3000);
-    },
-
-    _stopTranscriptPolling() {
-      if (this._pollInterval) {
-        clearInterval(this._pollInterval);
-        this._pollInterval = null;
-      }
-    },
-
-    async _pollTranscript() {
-      if (!this.isCallActive) return;
-      try {
-        const res = await API.get(
-          buildConvUrl(`/api/v1/widget/conversations/voice_transcript_poll?synced_count=${this._syncedTurnCount}&last_conv_id=${this._lastConvId || ''}`)
-        );
-        const { turns, total_count, conversation_id } = res.data || {};
-        // If new conversation detected, reset count
-        if (conversation_id && conversation_id !== this._lastConvId) {
-          this._lastConvId = conversation_id;
-          this._syncedTurnCount = 0;
-        }
-        // Update synced count FIRST to prevent duplicate processing
-        if (total_count != null) {
-          this._syncedTurnCount = total_count;
-        } else if (turns && turns.length > 0) {
-          this._syncedTurnCount += turns.length;
-        }
-        if (turns && turns.length > 0) {
-          // Sync latest messages so widget chat updates live
-          try { await this.$store.dispatch('conversation/syncLatestMessages'); } catch (_) {}
-        }
-      } catch (_) {
-        // Silent fail — polling will retry on next tick
-      }
-    },
-    // ────────────────────────────────────────────────────────────────────
-
-    async _postTranscript(source, content) {
-      const text = (content || '').toString().trim();
-      if (!text) return;
-      try {
-        await API.post(
-          buildConvUrl('/api/v1/widget/conversations/voice_transcript'),
-          { source, content: text }
-        );
-        try { await this.$store.dispatch('conversation/syncLatestMessages'); } catch (_) {}
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('[VOICE-AGENT] transcript post failed:', e?.message || e);
-      }
+    _bufferToBase64(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let bin = '';
+      for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin);
     },
   },
 };
@@ -606,64 +384,36 @@ export default {
       @click="handleClick"
     >
       <!-- Connecting → spinner -->
-      <svg
-        v-if="isConnecting"
-        :width="iconSize"
-        :height="iconSize"
-        viewBox="0 0 24 24"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        class="animate-spin"
-      >
+      <svg v-if="isConnecting" :width="iconSize" :height="iconSize" viewBox="0 0 24 24"
+           fill="none" xmlns="http://www.w3.org/2000/svg" class="animate-spin">
         <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5"
                 stroke-linecap="round" stroke-dasharray="31.4 31.4" fill="none" />
       </svg>
 
       <!-- Active → hang-up icon -->
-      <svg
-        v-else-if="isCallActive"
-        :width="iconSize"
-        :height="iconSize"
-        viewBox="0 0 24 24"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        class="call-icon"
-      >
-        <path
-          d="M3.5 14.5c5.5-5 11.5-5 17 0 .8.7.9 2-0 2.7l-2.1 1.6c-.5.4-1.2.4-1.7 0l-2-1.7a1.5 1.5 0 0 1-.5-1.1V14a9.8 9.8 0 0 0-4.4 0v0c0 .4-.2.8-.5 1.1l-2 1.6c-.5.4-1.2.4-1.7 0L3.5 15c-.5-.6-.4-1.7 0-2.5Z"
-          fill="currentColor"
-          transform="rotate(135 12 12)" />
+      <svg v-else-if="isCallActive" :width="iconSize" :height="iconSize" viewBox="0 0 24 24"
+           fill="none" xmlns="http://www.w3.org/2000/svg" class="call-icon">
+        <path d="M3.5 14.5c5.5-5 11.5-5 17 0 .8.7.9 2-0 2.7l-2.1 1.6c-.5.4-1.2.4-1.7 0l-2-1.7
+                 a1.5 1.5 0 0 1-.5-1.1V14a9.8 9.8 0 0 0-4.4 0v0c0 .4-.2.8-.5 1.1l-2 1.6c-.5.4-1.2.4-1.7 0
+                 L3.5 15c-.5-.6-.4-1.7 0-2.5Z"
+              fill="currentColor" transform="rotate(135 12 12)" />
       </svg>
 
-      <!-- Idle → phone / call icon -->
-      <svg
-        v-else
-        :width="iconSize"
-        :height="iconSize"
-        viewBox="0 0 24 24"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        class="call-icon"
-      >
-        <path
-          d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92Z"
-          fill="currentColor" />
+      <!-- Idle → phone icon -->
+      <svg v-else :width="iconSize" :height="iconSize" viewBox="0 0 24 24"
+           fill="none" xmlns="http://www.w3.org/2000/svg" class="call-icon">
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07
+                 a19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3
+                 a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91
+                 a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72
+                 A2 2 0 0 1 22 16.92Z" fill="currentColor" />
       </svg>
     </button>
-
-    <!-- Off-screen host for the <elevenlabs-convai> embed. The embed sometimes
-         re-portals its bubble UI to document.body anyway, which is why we
-         ALSO inject a stylesheet that hides anything matching its host
-         selector (see <style> below). -->
-    <div ref="widgetHost" class="elevenlabs-hidden-host" aria-hidden="true" />
   </div>
 </template>
 
 <style scoped>
-.elevenlabs-container {
-  position: relative;
-  display: inline-flex;
-}
+.elevenlabs-container { position: relative; display: inline-flex; }
 
 .elevenlabs-voice-btn {
   background: transparent;
@@ -673,51 +423,21 @@ export default {
   background: rgba(31, 147, 255, 0.1);
   transform: scale(1.05);
 }
-.elevenlabs-voice-btn:active:not(:disabled) {
-  transform: scale(0.95);
-}
+.elevenlabs-voice-btn:active:not(:disabled) { transform: scale(0.95); }
 
-.call-icon { transition: transform 0.2s ease, filter 0.2s ease; }
-.elevenlabs-connecting { opacity: 0.75; cursor: wait; color: var(--widget-color, #1f93ff); }
+.call-icon { transition: transform 0.2s ease; }
+.elevenlabs-connecting { opacity: 0.75; cursor: wait; }
 
 .elevenlabs-active {
   background: #ef4444 !important;
   color: #ffffff !important;
-  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18);
+  box-shadow: 0 0 0 4px rgba(239,68,68,.18);
   animation: pulse-active 1.6s ease-in-out infinite;
 }
 .elevenlabs-active:hover { background: #dc2626 !important; }
 
 @keyframes pulse-active {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
-  50%      { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.08); }
-}
-
-.elevenlabs-hidden-host {
-  position: fixed;
-  left: -10000px;
-  top: -10000px;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  pointer-events: none;
-}
-</style>
-
-<!-- Global override: kill any floating UI the convai embed renders outside
-     our host. The embed sometimes appends nodes directly to document.body
-     (a "Need help? / Start a call" bubble) even when its host element is
-     off-screen. The selector targets only OUR instance via the data attr. -->
-<style>
-elevenlabs-convai[data-chatwoot] {
-  position: fixed !important;
-  left: -10000px !important;
-  top: -10000px !important;
-  width: 1px !important;
-  height: 1px !important;
-  overflow: hidden !important;
-  pointer-events: none !important;
-  opacity: 0 !important;
-  /* visibility:hidden removed — browser may suppress WebRTC audio on hidden elements */
+  0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.45); }
+  50%     { box-shadow: 0 0 0 8px rgba(239,68,68,.08); }
 }
 </style>
