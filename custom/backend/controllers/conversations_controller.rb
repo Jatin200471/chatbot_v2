@@ -210,12 +210,16 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       return render json: { id: last_msg.id, conversation_id: conv.id, duplicate: true }
     end
 
+    # AI messages ka sender — inbox ka assigned agent ya pehla admin
+    # Isse widget mein "Bot" ki jagah agent ka naam dikhega
+    ai_sender = voice_agent_sender(conv)
+
     msg = conv.messages.create!(
       account_id: conv.account_id,
       inbox_id:   conv.inbox_id,
       message_type: msg_type,
       content:    content,
-      sender:     source == 'user' ? @contact : nil,
+      sender:     source == 'user' ? @contact : ai_sender,
       content_attributes: { voice_transcript: true, role: source }
     )
 
@@ -262,6 +266,8 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
 
     # ── Step 4: Save new turns to Chatwoot conversation ──────────────────
     chatwoot_conv = conversation || build_conversation_for_voice
+    ai_sender     = voice_agent_sender(chatwoot_conv)
+
     new_turns.each do |turn|
       role    = turn['role'].to_s   # 'user' or 'agent'
       content = turn['message'].to_s.strip
@@ -275,7 +281,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
         inbox_id:    chatwoot_conv.inbox_id,
         message_type: msg_type,
         content:     content,
-        sender:      role == 'user' ? @contact : nil,
+        sender:      role == 'user' ? @contact : ai_sender,
         content_attributes: { voice_transcript: true, role: source }
       )
     end
@@ -358,6 +364,28 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   end
 
   # ────────────────────────────────────────────────────────────────────────
+
+  # AI voice transcript messages ka sender dhundta hai.
+  # Priority order:
+  #   1. Conversation ka assigned agent (agar koi assign hai)
+  #   2. Inbox ka pehla member/agent
+  #   3. Account ka pehla admin
+  # Isse widget mein "Bot" ki jagah real agent ka naam dikhega.
+  def voice_agent_sender(conv)
+    # 1. Assigned agent
+    return conv.assignee if conv.assignee.present?
+
+    # 2. Inbox members mein se pehla agent
+    inbox_agent = conv.inbox.inbox_members.first&.user
+    return inbox_agent if inbox_agent.present?
+
+    # 3. Account ka pehla administrator
+    conv.account.account_users
+        .where(role: :administrator)
+        .first&.user
+  rescue StandardError
+    nil
+  end
 
   def build_conversation_for_voice
     Conversation.create!(

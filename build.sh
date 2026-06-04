@@ -1,42 +1,31 @@
-{
-  "agent_id": "agent_6601kc1fqeecfc88s7d52jde0syq"
-}#!/bin/bash
+#!/bin/bash
 
-# Build script for Chatwoot with configurable ElevenLabs agent ID
-# Usage: ./build.sh [agent_id] [voice_id] [agent_name]
+# Build script for Chatwoot Custom
+# Usage: ./build.sh [image_tag]
+#
+# NOTE: ElevenLabs Agent ID and API Key are configured from the Chatwoot
+# dashboard (Inbox → Configuration → Voice Agent) — NOT at build time.
+# This keeps secrets out of the Docker image entirely.
 
 set -e
 
-# Default values
-AGENT_ID="${1:-agent_6601kc1fqeecfc88s7d52jde0syq}"
-VOICE_ID="${2:-}"
-AGENT_NAME="${3:-AI Assistant}"
-IMAGE_TAG="${4:-latest}"
+IMAGE_TAG="${1:-latest}"
 
-echo "🔨 Building Chatwoot with ElevenLabs Voice Integration"
+echo "🔨 Building Chatwoot Custom"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Agent ID:     $AGENT_ID"
-echo "Voice ID:     ${VOICE_ID:-(default)}"
-echo "Agent Name:   $AGENT_NAME"
-echo "Image Tag:    $IMAGE_TAG"
+echo "Image Tag: $IMAGE_TAG"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Build Docker image
-# DOCKER_BUILDKIT=1 is required for --mount=type=cache in Dockerfile.
-# It also gives better build output and parallel layer execution.
 DOCKER_BUILDKIT=1 docker build \
-  --build-arg VITE_ELEVENLABS_AGENT_ID="$AGENT_ID" \
-  --build-arg VITE_ELEVENLABS_VOICE_ID="$VOICE_ID" \
-  --build-arg VITE_ELEVENLABS_AGENT_NAME="$AGENT_NAME" \
   -t chatwoot-custom:$IMAGE_TAG \
   -f Dockerfile \
   .
 
 echo "✅ Build complete!"
 echo ""
-echo "Run container with:"
+echo "Run locally:"
 echo "  docker compose up -d"
 echo ""
-echo "Or push to registry:"
-echo "  docker tag chatwoot-custom:$IMAGE_TAG <registry>/chatwoot-custom:$IMAGE_TAG"
-echo "  docker push <registry>/chatwoot-custom:$IMAGE_TAG"
+echo "Push to registry (AWS ECR):"
+echo "  docker tag chatwoot-custom:$IMAGE_TAG <your-ecr-url>/chatwoot-custom:$IMAGE_TAG"
+echo "  docker push <your-ecr-url>/chatwoot-custom:$IMAGE_TAG"
