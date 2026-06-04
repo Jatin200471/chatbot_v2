@@ -48,11 +48,13 @@ module SecurityHeadersConcern
         'Content-Security-Policy',
         [
           "default-src 'self'",
-          "script-src 'self'",
-          "style-src 'self' 'unsafe-inline'",   # Vite inlines critical CSS
-          "img-src 'self' data: https:",         # avatars may be external
-          "connect-src 'self' wss:",             # XHR + WebSocket to same host
-          "frame-ancestors *",                   # widget MUST be embeddable
+          # ElevenLabs @11labs/client SDK loaded via esm.sh CDN at runtime
+          "script-src 'self' https://esm.sh https://cdn.jsdelivr.net https://unpkg.com",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' data: https:",
+          # wss: for ElevenLabs voice WebSocket + esm.sh for SDK fetch
+          "connect-src 'self' wss: https://esm.sh https://cdn.jsdelivr.net https://unpkg.com",
+          "frame-ancestors *",
           "base-uri 'self'",
           "form-action 'self'",
         ].join('; ')

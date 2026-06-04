@@ -204,6 +204,12 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     conv = conversation || build_conversation_for_voice
     msg_type = source == 'user' ? :incoming : :outgoing
 
+    # Duplicate guard — agar same content last message mein hai toh skip karo
+    last_msg = conv.messages.where(message_type: msg_type).last
+    if last_msg&.content == content
+      return render json: { id: last_msg.id, conversation_id: conv.id, duplicate: true }
+    end
+
     msg = conv.messages.create!(
       account_id: conv.account_id,
       inbox_id:   conv.inbox_id,

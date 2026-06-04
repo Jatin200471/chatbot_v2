@@ -17,28 +17,34 @@ const buildConvUrl = path => {
 //   • Works across page navigations (stored on window)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SDK_URL = 'https://cdn.jsdelivr.net/npm/@11labs/client/dist/index.umd.js';
-const WINDOW_SESSION_KEY = '_cwVoiceSession'; // survive page navigation
+const WINDOW_SESSION_KEY = '_cwVoiceSession';
+const WINDOW_CONV_CLASS  = '_cwConversationClass';
 
 let _sdkLoadPromise = null;
 
-function loadSDK() {
+async function loadSDK() {
   if (_sdkLoadPromise) return _sdkLoadPromise;
-  _sdkLoadPromise = new Promise(resolve => {
-    // Already loaded?
-    if (window.ElevenLabsClient?.Conversation) { resolve(true); return; }
-    const script = document.createElement('script');
-    script.src     = SDK_URL;
-    script.async   = true;
-    script.onload  = () => resolve(!!window.ElevenLabsClient?.Conversation);
-    script.onerror = () => { _sdkLoadPromise = null; resolve(false); };
-    document.head.appendChild(script);
-  });
+  _sdkLoadPromise = (async () => {
+    if (window[WINDOW_CONV_CLASS]) return true;
+    try {
+      // esm.sh converts any npm package to ESM — works without UMD build
+      const mod = await import('https://esm.sh/@11labs/client');
+      if (mod?.Conversation) {
+        window[WINDOW_CONV_CLASS] = mod.Conversation;
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('[VOICE] SDK load failed:', e?.message);
+      _sdkLoadPromise = null;
+      return false;
+    }
+  })();
   return _sdkLoadPromise;
 }
 
 function getConversationClass() {
-  return window.ElevenLabsClient?.Conversation;
+  return window[WINDOW_CONV_CLASS];
 }
 
 export default {
