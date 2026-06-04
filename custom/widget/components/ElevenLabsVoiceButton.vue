@@ -212,9 +212,17 @@ export default {
           break;
         }
         case 'ping': {
-          const eventId = msg.ping_event?.event_id;
+          console.log('[VOICE] ping received:', JSON.stringify(msg));
+          // event_id can live at ping_event.event_id OR directly at msg.event_id
+          const eventId = msg.ping_event?.event_id ?? msg.event_id;
+          if (eventId === undefined || eventId === null) {
+            console.warn('[VOICE] ping has no event_id — skipping pong to avoid 1008');
+            break;
+          }
           if (this._ws?.readyState === WebSocket.OPEN) {
-            this._ws.send(JSON.stringify({ type: 'pong', pong_event: { event_id: eventId } }));
+            const pong = JSON.stringify({ type: 'pong', pong_event: { event_id: eventId } });
+            console.log('[VOICE] sending pong:', pong);
+            this._ws.send(pong);
           }
           break;
         }
