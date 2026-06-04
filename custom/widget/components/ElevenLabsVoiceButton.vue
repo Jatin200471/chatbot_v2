@@ -2,6 +2,7 @@
 import { mapGetters, mapActions } from 'vuex';
 import configMixin from '../mixins/configMixin';
 import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
+import { emitter } from 'shared/helpers/mitt';
 
 const buildConvUrl = path => {
   if (!WEBSITE_TOKEN) return path;
@@ -19,6 +20,15 @@ const buildConvUrl = path => {
 
 const WINDOW_SESSION_KEY = '_cwVoiceSession';
 const WINDOW_CONV_CLASS  = '_cwConversationClass';
+
+// Debug logger — console mein sirf tab dikhega jab debug mode ON ho
+// ON:  localStorage.setItem('cw_voice_debug', 'true')
+// OFF: localStorage.removeItem('cw_voice_debug')
+const vLog = (...args) => {
+  try {
+    if (localStorage.getItem('cw_voice_debug') === 'true') console.log('[VOICE]', ...args);
+  } catch (_) {}
+};
 
 let _sdkLoadPromise = null;
 
@@ -97,21 +107,19 @@ export default {
     // Preload SDK so call starts instantly on first click
     if (this.hasElevenLabsVoiceEnabled) loadSDK();
 
-    // ── Resume after page navigation ──────────────────────────────────────
-    // If user navigated pages while call was active, the session is stored on
-    // window. Re-attach it so the button shows the correct state.
+    // ── Resume after page navigation ────────────────────────────────────
     if (window[WINDOW_SESSION_KEY]) {
       this.isCallActive = true;
       this.setActive(true);
     }
+
+    // ── Floating End Call button (sdk-floating-btn.js) ───────────────────
+    // Parent page button → sends event → end call
+    emitter.on('end-voice-call', this.endCall);
   },
   beforeUnmount() {
-    // Do NOT end the call on unmount — user might just be navigating pages.
-    // Session stays alive on window[WINDOW_SESSION_KEY].
-    // Only clean up local state flags.
-    if (!this.isCallActive) {
-      this._cleanupSession();
-    }
+    emitter.off('end-voice-call', this.endCall);
+    if (!this.isCallActive) this._cleanupSession();
   },
   methods: {
     ...mapActions('elevenlabsVoice', ['setActive', 'setConnecting']),
@@ -149,13 +157,12 @@ export default {
 
           // ── Live transcript ── fires for every AI + user turn ────────────
           onMessage: ({ message, source }) => {
-            // source: 'ai' | 'user'
-            console.log(`[VOICE] live transcript [${source}]:`, message);
+            vLog(`transcript [${source}]:`, message);
             this._saveTranscript(source, message);
           },
 
           onConnect: () => {
-            console.log('[VOICE] Connected ✅');
+            vLog('Connected ✅');
             this.isConnecting = false;
             this.setConnecting(false);
             this.isCallActive = true;
@@ -163,7 +170,7 @@ export default {
           },
 
           onDisconnect: () => {
-            console.log('[VOICE] Disconnected');
+            vLog('Disconnected');
             this._cleanupSession();
             this.isCallActive = false;
             this.isConnecting = false;
@@ -171,14 +178,8 @@ export default {
             this.setConnecting(false);
           },
 
-          onError: err => {
-            console.error('[VOICE] SDK error:', err);
-          },
-
-          onModeChange: ({ mode }) => {
-            // mode: 'listening' | 'speaking'
-            console.log('[VOICE] mode:', mode);
-          },
+          onError: err  => vLog('error:', err),
+          onModeChange: ({ mode }) => vLog('mode:', mode),
         });
 
         // 4. Store session on window — survives Vue component unmount/remount
