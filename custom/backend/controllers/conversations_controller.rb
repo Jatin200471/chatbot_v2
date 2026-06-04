@@ -128,8 +128,10 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
           name: @inbox.name,
           selected_feature_flags: @web_widget.selected_feature_flags || [],
           voice_agent_provider: @web_widget.voice_agent_provider || 'elevenlabs',
-          voice_agent_config_data: @web_widget.voice_agent_config_data || {},
-          elevenlabs_agent_id: @web_widget.elevenlabs_agent_id || ''
+          voice_agent_config_data: @web_widget.voice_agent_config_data || {}
+          # elevenlabs_agent_id intentionally NOT sent — kept server-side only.
+          # Widget uses /voice_signed_url endpoint to get a short-lived signed
+          # WebSocket URL so the agent_id is never exposed to the browser.
         }
       }
     }

@@ -64,21 +64,15 @@ export default {
   computed: {
     ...mapGetters({
       isVoiceAgentEnabled: 'voiceAgentConfig/isVoiceAgentEnabled',
-      voiceAgentAgentId:   'voiceAgentConfig/getAgentId',
       voiceAgentProvider:  'voiceAgentConfig/getVoiceAgentProvider',
     }),
     hasElevenLabsVoiceEnabled() {
-      return (
-        this.isVoiceAgentEnabled &&
-        this.voiceAgentProvider === 'elevenlabs' &&
-        !!this.voiceAgentAgentId
-      );
-    },
-    resolvedAgentId() {
-      return this.voiceAgentAgentId || '';
+      // Agent ID check removed — ID is server-side only now.
+      // Button shows if the feature flag is enabled and provider is elevenlabs.
+      return this.isVoiceAgentEnabled && this.voiceAgentProvider === 'elevenlabs';
     },
     shouldShowButton() {
-      return this.hasElevenLabsVoiceEnabled && !!this.resolvedAgentId;
+      return this.hasElevenLabsVoiceEnabled;
     },
     buttonClasses() {
       const sizeClasses = { small: 'min-h-7 min-w-7', medium: 'min-h-9 min-w-9', large: 'min-h-10 min-w-10' };
@@ -119,27 +113,35 @@ export default {
     // ── Start call ───────────────────────────────────────────────────────
     async startCall() {
       if (this.isConnecting || this.isCallActive) return;
-      if (!this.resolvedAgentId || !this.hasElevenLabsVoiceEnabled) return;
+      if (!this.hasElevenLabsVoiceEnabled) return;
 
       this.isConnecting = true;
       this.setConnecting(true);
       this._saveReconnectFlag();
 
       try {
-        // 1. Request microphone (user gesture → unlocks AudioContext)
+        // 1. Fetch a short-lived signed WebSocket URL from our backend.
+        //    The backend calls ElevenLabs with the secret API key and returns
+        //    a temporary signed URL — the agent_id is NEVER sent to the browser.
+        const { data: signedData } = await API.get(
+          buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
+        );
+        const wsUrl = signedData?.signed_url;
+        if (!wsUrl) throw new Error('Could not get signed voice URL from server');
+
+        // 2. Request microphone (user gesture → unlocks AudioContext)
         this._micStream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
         });
 
-        // 2. Create AudioContext at browser's NATIVE rate (48000Hz usually).
+        // 3. Create AudioContext at browser's NATIVE rate (48000Hz usually).
         // We resample mic audio to 16000Hz before sending to ElevenLabs.
         this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         if (this._audioCtx.state === 'suspended') await this._audioCtx.resume();
         this._nativeSampleRate = this._audioCtx.sampleRate; // e.g. 48000
         this._nextPlayTime = this._audioCtx.currentTime;
 
-        // 3. Connect to ElevenLabs WebSocket
-        const wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${this.resolvedAgentId}`;
+        // 4. Connect to ElevenLabs via signed URL — no agent_id in browser
         this._ws = new WebSocket(wsUrl);
         this._ws.onopen    = ()    => this._onWsOpen();
         this._ws.onmessage = e     => this._onWsMessage(e);
@@ -397,8 +399,9 @@ export default {
     // ── Page navigation reconnect ────────────────────────────────────────
     _saveReconnectFlag() {
       try {
+        // Store only timestamp — no agent_id (server-side only now)
         localStorage.setItem('cw_voice_reconnect', JSON.stringify({
-          agentId: this.resolvedAgentId, startedAt: Date.now(),
+          startedAt: Date.now(),
         }));
       } catch (_) {}
     },
@@ -409,9 +412,9 @@ export default {
       try {
         const raw = localStorage.getItem('cw_voice_reconnect');
         if (!raw) return;
-        const { agentId, startedAt } = JSON.parse(raw);
+        const { startedAt } = JSON.parse(raw);
         const withinWindow = Date.now() - startedAt < 2 * 60 * 1000;
-        if (agentId === this.resolvedAgentId && withinWindow) {
+        if (withinWindow) {
           setTimeout(() => this.startCall(), 600);
         } else {
           this._clearReconnectFlag();

@@ -7,7 +7,7 @@ const state = {
   voiceAgentEnabled: false,
   voiceAgentProvider: 'elevenlabs',
   voiceAgentConfigData: {},
-  elevenlabsAgentId: '',
+  // elevenlabsAgentId intentionally removed — never stored on frontend.
   isLoading: false,
   error: null,
 };
@@ -18,18 +18,8 @@ const getters = {
   getVoiceAgentConfig: state => state.voiceAgentConfigData,
   getIsLoading: state => state.isLoading,
   getError: state => state.error,
-  getAgentId: state => {
-    if (state.voiceAgentConfigData && state.voiceAgentConfigData.agent_id) {
-      return state.voiceAgentConfigData.agent_id;
-    }
-    if (state.elevenlabsAgentId) {
-      return state.elevenlabsAgentId;
-    }
-    if (typeof window !== 'undefined' && window.chatwootConfig) {
-      return window.chatwootConfig.elevenLabsAgentId || null;
-    }
-    return null;
-  },
+  // getAgentId removed — agent ID is server-side only.
+  // Widget uses voice_signed_url endpoint instead.
   getVoiceId: state => {
     if (state.voiceAgentConfigData && state.voiceAgentConfigData.voice_id) {
       return state.voiceAgentConfigData.voice_id;
@@ -71,7 +61,7 @@ const actions = {
         );
         commit('setVoiceAgentProvider', inbox.voice_agent_provider || 'elevenlabs');
         commit('setVoiceAgentConfigData', inbox.voice_agent_config_data || {});
-        commit('setElevenlabsAgentId', inbox.elevenlabs_agent_id || '');
+        // elevenlabs_agent_id NOT committed — kept server-side only.
       }
     } catch (error) {
       console.error('[VOICE-AGENT] Error fetching config:', error);
@@ -101,9 +91,6 @@ const mutations = {
   },
   setVoiceAgentConfigData(state, configData) {
     state.voiceAgentConfigData = configData;
-  },
-  setElevenlabsAgentId(state, agentId) {
-    state.elevenlabsAgentId = agentId;
   },
   setError(state, error) {
     state.error = error;

@@ -29,12 +29,9 @@ const state = {
   enableEmojiPicker: true,
   enableEndConversation: true,
   // ElevenLabs Voice Agent settings
+  // agentId intentionally NOT stored here — server-side only.
   enableElevenLabs: true,
   elevenLabsConfig: {
-    apiKey: '',
-    // Agent ID MUST be set via VITE_ELEVENLABS_AGENT_ID env var (build-time config)
-    // Get your agent ID from: https://elevenlabs.io/
-    agentId: import.meta.env.VITE_ELEVENLABS_AGENT_ID || 'REPLACE_WITH_YOUR_AGENT_ID',
     voiceId: import.meta.env.VITE_ELEVENLABS_VOICE_ID || '',
     agentName: import.meta.env.VITE_ELEVENLABS_AGENT_NAME || 'AI Assistant',
   },
@@ -58,14 +55,8 @@ export const getters = {
   getShouldShowFilePicker: $state => $state.enableFileUpload,
   getShouldShowEmojiPicker: $state => $state.enableEmojiPicker,
   getCanUserEndConversation: $state => $state.enableEndConversation,
-  // ElevenLabs getters
-  getElevenLabsEnabled: $state => {
-    return (
-      $state.enableElevenLabs &&
-      $state.elevenLabsConfig &&
-      $state.elevenLabsConfig.agentId
-    );
-  },
+  // ElevenLabs getters — agentId check removed (server-side only now)
+  getElevenLabsEnabled: $state => $state.enableElevenLabs,
   getElevenLabsConfig: $state => $state.elevenLabsConfig,
 };
 
@@ -87,7 +78,7 @@ export const actions = {
       enableEmojiPicker = true,
       enableEndConversation = true,
       enableElevenLabsVoice = true,
-      elevenLabsAgentId = '',
+      // elevenLabsAgentId intentionally removed — server-side only now.
     }
   ) {
     commit(SET_WIDGET_APP_CONFIG, {
@@ -105,7 +96,6 @@ export const actions = {
       enableEmojiPicker,
       enableEndConversation,
       enableElevenLabsVoice,
-      elevenLabsAgentId,
     });
   },
   toggleWidgetOpen({ commit }, isWidgetOpen) {
@@ -148,12 +138,7 @@ export const mutations = {
     if (data.enableElevenLabsVoice !== undefined) {
       $state.enableElevenLabs = data.enableElevenLabsVoice;
     }
-    if (data.elevenLabsAgentId) {
-      $state.elevenLabsConfig = {
-        ...$state.elevenLabsConfig,
-        agentId: data.elevenLabsAgentId,
-      };
-    }
+    // elevenLabsAgentId removed — agent ID is server-side only now.
   },
   [TOGGLE_WIDGET_OPEN]($state, isWidgetOpen) {
     $state.isWidgetOpen = isWidgetOpen;

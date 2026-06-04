@@ -26,9 +26,6 @@ export default {
     hasElevenLabsVoiceEnabled() {
       return this.channelConfig.enabledFeatures.includes('elevenlabs_voice');
     },
-    elevenLabsAgentId() {
-      return window.chatwootWebChannel.elevenLabsAgentId || '';
-    },
     preChatFormEnabled() {
       return window.chatwootWebChannel.preChatFormEnabled;
     },
