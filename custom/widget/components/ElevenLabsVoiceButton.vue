@@ -153,6 +153,8 @@ export default {
         this._clearReconnectFlag();
         if (err?.name === 'NotAllowedError' || err?.name === 'NotFoundError') {
           alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS'));
+        } else {
+          console.error('[VOICE] startCall failed:', err?.message || err);
         }
       }
     },

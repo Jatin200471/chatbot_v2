@@ -146,27 +146,40 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     api_key = @web_widget.voice_agent_api_key.to_s.strip
     agent_id = @web_widget.elevenlabs_agent_id.to_s.strip
 
+    # Agent ID must always be configured
     if agent_id.blank?
       return render json: { error: 'No agent_id configured on this inbox' }, status: :unprocessable_entity
     end
-    if api_key.blank?
-      return render json: { error: 'No API key configured on this inbox' }, status: :unprocessable_entity
-    end
 
-    uri = URI("https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=#{agent_id}")
-    http = Net::HTTP.new(uri.host, uri.port)
-    http.use_ssl = true
-    http.read_timeout = 10
-    req = Net::HTTP::Get.new(uri)
-    req['xi-api-key'] = api_key
-    res = http.request(req)
+    # TWO MODES — agent_id never goes to the browser in either case:
+    #
+    # 1. PRIVATE agent (API key configured):
+    #    → Call ElevenLabs to get a short-lived signed WebSocket URL.
+    #    → Browser connects to the signed URL (no agent_id visible).
+    #
+    # 2. PUBLIC agent (no API key):
+    #    → Return the standard WebSocket URL directly from backend.
+    #    → Agent_id still flows through backend only, not stored in frontend.
+    if api_key.present?
+      # Private agent — fetch signed URL from ElevenLabs
+      uri = URI("https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=#{agent_id}")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      http.read_timeout = 10
+      req = Net::HTTP::Get.new(uri)
+      req['xi-api-key'] = api_key
+      res = http.request(req)
 
-    if res.is_a?(Net::HTTPSuccess)
-      body = JSON.parse(res.body)
-      render json: { signed_url: body['signed_url'] }
+      if res.is_a?(Net::HTTPSuccess)
+        body = JSON.parse(res.body)
+        render json: { signed_url: body['signed_url'] }
+      else
+        Rails.logger.error "[VOICE-AGENT] ElevenLabs signed-url request failed: #{res.code} #{res.body}"
+        render json: { error: "ElevenLabs API responded #{res.code}" }, status: :bad_gateway
+      end
     else
-      Rails.logger.error "[VOICE-AGENT] ElevenLabs signed-url request failed: #{res.code} #{res.body}"
-      render json: { error: "ElevenLabs API responded #{res.code}" }, status: :bad_gateway
+      # Public agent — return direct WebSocket URL (agent_id comes from backend, not frontend)
+      render json: { signed_url: "wss://api.elevenlabs.io/v1/convai/conversation?agent_id=#{agent_id}" }
     end
   rescue StandardError => e
     Rails.logger.error "[VOICE-AGENT] signed-url exception: #{e.class} #{e.message}"
