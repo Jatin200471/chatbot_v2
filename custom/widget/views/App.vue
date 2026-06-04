@@ -516,6 +516,9 @@ export default {
       this.$store.dispatch('contacts/softExitChat');
       try { this.router.replace({ name: 'home' }); } catch (_) {}
       if (IFrameHelper.isIFrame()) {
+        // exitChat tells the parent SDK to clear its auth cookie so the
+        // reloaded iframe starts a completely fresh session.
+        IFrameHelper.sendMessage({ event: 'exitChat' });
         IFrameHelper.sendMessage({ event: 'closeWindow' });
       }
       setTimeout(() => {
