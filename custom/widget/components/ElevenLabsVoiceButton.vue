@@ -171,13 +171,14 @@ export default {
       this.setConnecting(false);
       this.isCallActive = true;
       this.setActive(true);
+      console.log('[VOICE] WebSocket opened successfully');
 
       // Fallback: if conversation_initiation_metadata never arrives within
-      // 2 seconds, start mic capture anyway so ElevenLabs doesn't timeout.
+      // 3 seconds, start mic capture anyway so ElevenLabs doesn't timeout.
       this._metadataTimeout = setTimeout(() => {
         console.warn('[VOICE] metadata not received — starting mic anyway');
         this._startMicCapture();
-      }, 2000);
+      }, 3000);
     },
 
     _onWsMessage(event) {
@@ -240,7 +241,11 @@ export default {
 
     // ── Mic capture → send PCM chunks to ElevenLabs ──────────────────────
     async _startMicCapture() {
-      if (!this._audioCtx || !this._micStream) return;
+      if (!this._audioCtx || !this._micStream) {
+        console.error('[VOICE] _startMicCapture called but audioCtx or micStream is missing!');
+        return;
+      }
+      console.log('[VOICE] Starting mic capture...');
 
       // Inline AudioWorklet (no external file needed — blob URL trick)
       const workletCode = `
@@ -284,8 +289,10 @@ export default {
 
         source.connect(this._workletNode);
         this._workletNode.connect(this._audioCtx.destination);
+        console.log('[VOICE] Mic capture started via AudioWorklet ✅');
 
-      } catch (_) {
+      } catch (workletErr) {
+        console.warn('[VOICE] AudioWorklet failed, falling back to ScriptProcessor:', workletErr?.message);
         // Fallback to ScriptProcessorNode if AudioWorklet not supported
         const source = this._audioCtx.createMediaStreamSource(this._micStream);
         this._scriptProcessor = this._audioCtx.createScriptProcessor(4096, 1, 1);
@@ -299,6 +306,7 @@ export default {
         };
         source.connect(this._scriptProcessor);
         this._scriptProcessor.connect(this._audioCtx.destination);
+        console.log('[VOICE] Mic capture started via ScriptProcessor ✅');
       }
     },
 
@@ -350,14 +358,16 @@ export default {
     async _postTranscript(source, content) {
       const text = (content || '').toString().trim();
       if (!text) return;
+      console.log(`[VOICE] transcript [${source}]:`, text);
       try {
         await API.post(
           buildConvUrl('/api/v1/widget/conversations/voice_transcript'),
           { source, content: text }
         );
+        console.log('[VOICE] transcript saved ✅');
         try { await this.$store.dispatch('conversation/syncLatestMessages'); } catch (_) {}
       } catch (e) {
-        console.warn('[VOICE] transcript post failed:', e?.message);
+        console.warn('[VOICE] transcript post failed:', e?.response?.status, e?.message);
       }
     },
 

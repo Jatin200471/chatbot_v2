@@ -175,7 +175,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
         render json: { signed_url: body['signed_url'] }
       else
         Rails.logger.error "[VOICE-AGENT] ElevenLabs signed-url request failed: #{res.code} #{res.body}"
-        render json: { error: "ElevenLabs API responded #{res.code}" }, status: :bad_gateway
+        render json: { error: "ElevenLabs API error: #{res.code} — check Agent ID and API Key in inbox settings" }, status: :unprocessable_entity
       end
     else
       # Public agent — return direct WebSocket URL (agent_id comes from backend, not frontend)
