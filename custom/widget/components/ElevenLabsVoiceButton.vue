@@ -176,6 +176,9 @@ export default {
             this.isConnecting = false;
             this.setActive(false);
             this.setConnecting(false);
+            // Tell backend that voice call ended so it can finalize
+            // last_activity_at for the auto-resolve timer.
+            this._notifyVoiceCallEnded();
           },
 
           onError: err  => vLog('error:', err),
@@ -213,6 +216,22 @@ export default {
 
     _cleanupSession() {
       window[WINDOW_SESSION_KEY] = null;
+    },
+
+    // ── Notify backend that voice call ended ──────────────────────────────
+    // Backend resets last_activity_at to pre-call time so the auto-resolve
+    // inactivity timer is based on when the call started, not when it ended.
+    async _notifyVoiceCallEnded() {
+      try {
+        await API.post(
+          buildConvUrl('/api/v1/widget/conversations/voice_call_ended'),
+          {}
+        );
+        vLog('Voice call ended — backend notified');
+      } catch (e) {
+        // Non-critical — auto-resolve still works via last_activity_at preservation
+        vLog('voice_call_ended notify failed (non-critical):', e?.message);
+      }
     },
 
     // ── Save transcript turn to Chatwoot conversation ─────────────────────

@@ -216,7 +216,13 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     # Preserve last_activity_at so voice transcript messages don't reset
     # the auto-resolve inactivity timer. Voice calls create many messages in a
     # short burst; without this the timer would reset on every turn.
-    prev_activity_at = conv.last_activity_at
+    #
+    # IMPORTANT: use `|| conv.created_at` so fresh voice-only conversations
+    # (last_activity_at is nil before first transcript) also get preserved.
+    # Without this fallback, `if prev_activity_at` would be falsy and the
+    # restore would be skipped → every transcript sets last_activity_at to NOW
+    # → auto-resolve timer never expires.
+    prev_activity_at = conv.last_activity_at || conv.created_at
 
     msg = conv.messages.create!(
       account_id: conv.account_id,
@@ -227,8 +233,8 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       content_attributes: { voice_transcript: true, role: source }
     )
 
-    # Restore activity timestamp after message create callbacks updated it
-    conv.update_columns(last_activity_at: prev_activity_at) if prev_activity_at
+    # Restore activity timestamp — always, regardless of nil
+    conv.update_columns(last_activity_at: prev_activity_at)
 
     render json: { id: msg.id, conversation_id: conv.id }
   rescue StandardError => e
@@ -275,9 +281,10 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     chatwoot_conv = conversation || build_conversation_for_voice
     ai_sender     = voice_agent_sender(chatwoot_conv)
 
-    # Preserve activity timestamp — same reason as voice_transcript action:
-    # bulk transcript sync should not reset the auto-resolve inactivity timer.
-    prev_activity_at = chatwoot_conv.last_activity_at
+    # Preserve activity timestamp — same reason as voice_transcript action.
+    # Fallback to created_at so fresh voice-only conversations (nil last_activity_at)
+    # also get the timer preserved correctly.
+    prev_activity_at = chatwoot_conv.last_activity_at || chatwoot_conv.created_at
 
     new_turns.each do |turn|
       role    = turn['role'].to_s   # 'user' or 'agent'
@@ -297,7 +304,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       )
     end
 
-    chatwoot_conv.update_columns(last_activity_at: prev_activity_at) if prev_activity_at
+    chatwoot_conv.update_columns(last_activity_at: prev_activity_at)
 
     render json: {
       turns: new_turns,
@@ -307,6 +314,33 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   rescue StandardError => e
     Rails.logger.error "[VOICE-TRANSCRIPT-POLL] #{e.class} #{e.message}"
     render json: { turns: [], error: e.message }
+  end
+
+  # Called by the widget when a voice call ends (ElevenLabsVoiceButton onDisconnect).
+  # Resets last_activity_at to the pre-call value so the auto-resolve inactivity
+  # timer is based on actual human activity, not the call transcript timestamps.
+  #
+  # POST /api/v1/widget/conversations/voice_call_ended
+  def voice_call_ended
+    conv = conversation
+    return head :ok if conv.nil?
+
+    # Find the last NON-voice-transcript message's created_at.
+    # If no such message exists (pure voice conversation), fall back to
+    # the conversation's created_at so auto-resolve still applies.
+    last_text_msg = conv.messages
+                        .where("content_attributes->>'voice_transcript' IS NULL OR content_attributes->>'voice_transcript' != 'true'")
+                        .order(created_at: :asc)
+                        .last
+    activity_anchor = last_text_msg&.created_at || conv.created_at
+
+    conv.update_columns(last_activity_at: activity_anchor)
+    Rails.logger.info "[VOICE-AGENT] voice_call_ended: conv #{conv.id} last_activity_at reset to #{activity_anchor}"
+
+    head :ok
+  rescue StandardError => e
+    Rails.logger.error "[VOICE-AGENT] voice_call_ended failed: #{e.message}"
+    head :ok # non-critical — don't break the widget
   end
 
   def set_custom_attributes
