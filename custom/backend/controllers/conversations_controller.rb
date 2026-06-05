@@ -204,15 +204,19 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     conv = conversation || build_conversation_for_voice
     msg_type = source == 'user' ? :incoming : :outgoing
 
-    # Duplicate guard — agar same content last message mein hai toh skip karo
+    # Duplicate guard — skip if the last message of the same type has identical content
     last_msg = conv.messages.where(message_type: msg_type).last
     if last_msg&.content == content
       return render json: { id: last_msg.id, conversation_id: conv.id, duplicate: true }
     end
 
-    # AI messages ka sender — inbox ka assigned agent ya pehla admin
-    # Isse widget mein "Bot" ki jagah agent ka naam dikhega
+    # AI messages ka sender — assigned agent > inbox member > account admin
     ai_sender = voice_agent_sender(conv)
+
+    # Preserve last_activity_at so voice transcript messages don't reset
+    # the auto-resolve inactivity timer. Voice calls create many messages in a
+    # short burst; without this the timer would reset on every turn.
+    prev_activity_at = conv.last_activity_at
 
     msg = conv.messages.create!(
       account_id: conv.account_id,
@@ -222,6 +226,9 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       sender:     source == 'user' ? @contact : ai_sender,
       content_attributes: { voice_transcript: true, role: source }
     )
+
+    # Restore activity timestamp after message create callbacks updated it
+    conv.update_columns(last_activity_at: prev_activity_at) if prev_activity_at
 
     render json: { id: msg.id, conversation_id: conv.id }
   rescue StandardError => e
@@ -268,6 +275,10 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     chatwoot_conv = conversation || build_conversation_for_voice
     ai_sender     = voice_agent_sender(chatwoot_conv)
 
+    # Preserve activity timestamp — same reason as voice_transcript action:
+    # bulk transcript sync should not reset the auto-resolve inactivity timer.
+    prev_activity_at = chatwoot_conv.last_activity_at
+
     new_turns.each do |turn|
       role    = turn['role'].to_s   # 'user' or 'agent'
       content = turn['message'].to_s.strip
@@ -285,6 +296,8 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
         content_attributes: { voice_transcript: true, role: source }
       )
     end
+
+    chatwoot_conv.update_columns(last_activity_at: prev_activity_at) if prev_activity_at
 
     render json: {
       turns: new_turns,
@@ -368,22 +381,27 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   # AI voice transcript messages ka sender dhundta hai.
   # Priority order:
   #   1. Conversation ka assigned agent (agar koi assign hai)
-  #   2. Inbox ka pehla member/agent
-  #   3. Account ka pehla admin
+  #   2. Inbox ka pehla member/agent (inbox_members order ke hisaab se)
+  #   3. Account ka pehla administrator
   # Isse widget mein "Bot" ki jagah real agent ka naam dikhega.
+  # Returns nil only if the account has no users at all (degenerate case).
   def voice_agent_sender(conv)
     # 1. Assigned agent
     return conv.assignee if conv.assignee.present?
 
-    # 2. Inbox members mein se pehla agent
-    inbox_agent = conv.inbox.inbox_members.first&.user
+    # 2. First inbox member (respects the inbox's agent list order)
+    inbox_agent = conv.inbox.inbox_members.order(:id).first&.user
     return inbox_agent if inbox_agent.present?
 
-    # 3. Account ka pehla administrator
-    conv.account.account_users
-        .where(role: :administrator)
-        .first&.user
-  rescue StandardError
+    # 3. First administrator in the account
+    admin = conv.account.account_users
+                .where(role: :administrator)
+                .order(:id)
+                .first&.user
+    Rails.logger.warn "[VOICE-AGENT] No assigned/inbox agent found for conv #{conv.id}; using admin #{admin&.id}" if admin
+    admin
+  rescue StandardError => e
+    Rails.logger.error "[VOICE-AGENT] voice_agent_sender failed: #{e.message}"
     nil
   end
 

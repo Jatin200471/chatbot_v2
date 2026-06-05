@@ -1,5 +1,6 @@
 <script>
-import { mapGetters } from 'vuex';
+import { mapGetters, mapActions } from 'vuex';
+import { useRouter } from 'vue-router';
 
 import ChatAttachmentButton from 'widget/components/ChatAttachment.vue';
 import ChatSendButton from 'widget/components/ChatSendButton.vue';
@@ -21,6 +22,10 @@ export default {
     ResizableTextArea,
   },
   mixins: [configMixin],
+  setup() {
+    const router = useRouter();
+    return { router };
+  },
   props: {
     onSendMessage: {
       type: Function,
@@ -45,6 +50,7 @@ export default {
       isWidgetOpen: 'appConfig/getIsWidgetOpen',
       shouldShowFilePicker: 'appConfig/getShouldShowFilePicker',
       shouldShowEmojiPicker: 'appConfig/getShouldShowEmojiPicker',
+      conversationEnded: 'appConfig/getConversationEnded',
     }),
     showAttachment() {
       return (
@@ -118,12 +124,39 @@ export default {
     focusInput() {
       this.$refs.chatInput.focus();
     },
+
+    async handleRestart() {
+      this.$store.dispatch('appConfig/setConversationEnded', false);
+      this.$store.dispatch('conversation/clearConversations');
+      this.$store.dispatch('conversationAttributes/clearConversationAttributes');
+      this.$store.dispatch('contacts/loadSavedUserData');
+      this.router.replace({ name: 'prechat-form' });
+    },
   },
 };
 </script>
 
 <template>
+  <!-- Conversation ended — show last messages above, restart button here -->
   <div
+    v-if="conversationEnded"
+    class="flex flex-col items-center gap-2 px-4 py-3 border border-n-weak rounded-[7px] bg-n-background"
+  >
+    <p class="text-sm text-n-slate-11 text-center">
+      {{ $t('CONVERSATION_RESOLVED.TITLE') }}
+    </p>
+    <button
+      class="px-4 py-2 rounded-md text-sm font-medium text-white transition-opacity hover:opacity-90"
+      :style="{ backgroundColor: widgetColor }"
+      @click="handleRestart"
+    >
+      {{ $t('CONVERSATION_RESOLVED.RESTART_BUTTON') }}
+    </button>
+  </div>
+
+  <!-- Normal input -->
+  <div
+    v-else
     class="items-center flex ltr:pl-3 rtl:pr-3 ltr:pr-2 rtl:pl-2 rounded-[7px] transition-all duration-200 bg-n-background !shadow-[0_0_0_1px,0_0_2px_3px]"
     :class="{
       '!shadow-n-brand dark:!shadow-n-brand': isFocused,

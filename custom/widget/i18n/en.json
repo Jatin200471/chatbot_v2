@@ -155,5 +155,9 @@
     "END_CALL": "End Call",
     "CONNECTING": "Connecting...",
     "MICROPHONE_ACCESS": "Microphone access required. Please allow microphone permission."
+  },
+  "CONVERSATION_RESOLVED": {
+    "TITLE": "This conversation has ended.",
+    "RESTART_BUTTON": "Start New Chat"
   }
 }

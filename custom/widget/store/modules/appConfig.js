@@ -35,6 +35,9 @@ const state = {
     voiceId: import.meta.env.VITE_ELEVENLABS_VOICE_ID || '',
     agentName: import.meta.env.VITE_ELEVENLABS_AGENT_NAME || 'AI Assistant',
   },
+  // Set to true when the active conversation is resolved/ended.
+  // ChatInputWrap replaces the text input with a restart button.
+  conversationEnded: false,
 };
 
 export const getters = {
@@ -58,6 +61,7 @@ export const getters = {
   // ElevenLabs getters — agentId check removed (server-side only now)
   getElevenLabsEnabled: $state => $state.enableElevenLabs,
   getElevenLabsConfig: $state => $state.elevenLabsConfig,
+  getConversationEnded: $state => $state.conversationEnded,
 };
 
 export const actions = {
@@ -116,6 +120,9 @@ export const actions = {
   setRouteTransitionState: async ({ commit }, status) => {
     commit(SET_ROUTE_UPDATE_STATE, status);
   },
+  setConversationEnded({ commit }, value) {
+    commit('SET_CONVERSATION_ENDED', !!value);
+  },
 };
 
 export const mutations = {
@@ -157,6 +164,9 @@ export const mutations = {
   },
   [SET_ROUTE_UPDATE_STATE]($state, status) {
     $state.isUpdatingRoute = status;
+  },
+  SET_CONVERSATION_ENDED($state, value) {
+    $state.conversationEnded = value;
   },
 };
 

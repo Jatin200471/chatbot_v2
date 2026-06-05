@@ -61,6 +61,8 @@ export default {
       unreadMessageCount: 'conversation/getUnreadMessageCount',
       isWidgetStyleFlat: 'appConfig/isWidgetStyleFlat',
       showUnreadMessagesDialog: 'appConfig/getShowUnreadMessagesDialog',
+      conversationEnded: 'appConfig/getConversationEnded',
+      currentUser: 'contacts/getCurrentUser',
     }),
     isIFrame() {
       return IFrameHelper.isIFrame();
@@ -147,6 +149,7 @@ export default {
       'setWidgetColor',
       'setBubbleVisibility',
       'setColorScheme',
+      'setConversationEnded',
     ]),
     ...mapActions('conversation', ['fetchOldConversations', 'clearConversations', 'syncLatestMessages']),
     ...mapActions('conversationAttributes', ['getAttributes']),
@@ -233,11 +236,14 @@ export default {
         }
         this.unsetUnreadView();
       });
-      emitter.on('execute-campaign', campaignDetails => {
+      emitter.on('execute-campaign', async campaignDetails => {
         const { customAttributes, campaignId } = campaignDetails;
         const { websiteToken } = window.chatwootWebChannel;
-        this.executeCampaign({ campaignId, websiteToken, customAttributes });
+        await this.executeCampaign({ campaignId, websiteToken, customAttributes });
         this.router.replace({ name: 'messages' });
+        // Backend creates the campaign conversation asynchronously; give it a moment
+        // then fetch so the widget and dashboard both see the new conversation.
+        setTimeout(() => this.fetchOldConversations(), 1500);
       });
       emitter.on('snooze-campaigns', () => {
         const expireBy = addHours(new Date(), 1);
@@ -461,7 +467,7 @@ export default {
     startConversationStatusCheck() {
       this.checkAndClearResolvedConversation();
       this.conversationStatusCheckInterval = setInterval(() => {
-        if (this.conversationSize > 0) {
+        if (this.conversationSize > 0 && !this.conversationEnded) {
           this.checkAndClearResolvedConversation();
           this.syncLatestMessages();
         }
@@ -491,6 +497,7 @@ export default {
 
     async checkAndClearResolvedConversation() {
       if (this.conversationSize === 0) return;
+      if (this.conversationEnded) return; // already handled — stop polling
       try {
         const { data } = await getConversationAPI();
         const payload = data?.payload ?? data;
@@ -502,22 +509,45 @@ export default {
         );
         if (hasActiveConversation) return;
         if (conversations.length > 0) {
-          this.softResetAndClose();
+          this.handleResolvedConversation();
         }
       } catch (error) {
         if (error?.response?.status === 404) {
-          this.softResetAndClose();
+          this.hardResetAndClose();
         }
       }
     },
 
-    softResetAndClose() {
+    // Called when the backend marks the conversation as resolved.
+    // Keeps all messages visible so the user can read the conversation history,
+    // then replaces the chat input with a "Start New Chat" restart button.
+    handleResolvedConversation() {
+      if (this.isVoiceActive || this.isVoiceConnecting) return;
+      if (this.conversationEnded) return;
+
+      // Persist current user data so the pre-chat form can be pre-filled on restart.
+      try {
+        const user = this.currentUser;
+        if (user?.name || user?.email || user?.phone_number) {
+          localStorage.setItem('chatwoot_user_data', JSON.stringify({
+            name: user.name || '',
+            email: user.email || '',
+            phone_number: user.phone_number || '',
+          }));
+        }
+      } catch (_) {}
+
+      this.setConversationEnded(true);
+      // Ensure the user can see the last messages before restarting.
+      try { this.router.replace({ name: 'messages' }); } catch (_) {}
+    },
+
+    // Hard reset — only for cases where the conversation no longer exists (404).
+    hardResetAndClose() {
       if (this.isVoiceActive || this.isVoiceConnecting) return;
       this.$store.dispatch('contacts/softExitChat');
       try { this.router.replace({ name: 'home' }); } catch (_) {}
       if (IFrameHelper.isIFrame()) {
-        // exitChat tells the parent SDK to clear its auth cookie so the
-        // reloaded iframe starts a completely fresh session.
         IFrameHelper.sendMessage({ event: 'exitChat' });
         IFrameHelper.sendMessage({ event: 'closeWindow' });
       }
