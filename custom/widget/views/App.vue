@@ -145,6 +145,13 @@ export default {
     this.fetchVoiceAgentConfig();
     this.startConversationStatusCheck();
 
+    // Clear stale cw_voice_active flag on fresh widget load.
+    // If the page was reloaded during a voice call, the iframe is destroyed
+    // and the call is dead — reset the flag so the floating button hides
+    // and SPA navigation intercept is disabled for the new (silent) session.
+    // The ElevenLabsVoiceButton will set it back to '1' when a new call starts.
+    try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
+
     // Pre-load saved user data (name/email/phone) from localStorage so the
     // pre-chat form is pre-filled after exit-chat reload or auto-resolve restart.
     this.loadSavedUserData();

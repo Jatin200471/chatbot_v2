@@ -311,9 +311,19 @@
   });
 
   // ── FALLBACK: localStorage polling ───────────────────────────────────────
-  // If postMessage is blocked (SDK iframe nesting, browser security, CSP),
   // App.vue writes 'cw_voice_active' to localStorage as a reliable bridge.
-  // Poll every 800ms — fast enough to catch call start/end without CPU waste.
+  //
+  // IMMEDIATE check on page load — don't wait for first interval tick.
+  // This ensures the End Call button and SPA intercept are active instantly
+  // when user navigates to a new page during an ongoing voice call.
+  (function checkVoiceNow() {
+    try {
+      var lsActive = localStorage.getItem('cw_voice_active') === '1';
+      if (lsActive) applyVoiceState(true, false);
+    } catch (_) {}
+  })();
+
+  // Then poll every 300ms to catch changes quickly.
   setInterval(function () {
     try {
       var lsActive = localStorage.getItem('cw_voice_active') === '1';
@@ -321,7 +331,7 @@
         applyVoiceState(lsActive, false);
       }
     } catch (_) {}
-  }, 800);
+  }, 300);
 
   // ── Warn user before navigating away during active voice call ────────────
   // Catches programmatic navigations (location.href, form submit, etc.) that
