@@ -106,9 +106,8 @@ export default {
           try { await toggleStatus(); } catch (_) {}
         }
 
-        // STEP 2: Save user data to localStorage BEFORE clearing session.
-        // On next widget open the pre-chat form will be pre-filled with
-        // the saved name / email / phone.
+        // STEP 2: Save user data + set restart mode BEFORE clearing session.
+        // On next widget open: pre-chat form pre-filled, no message box.
         try {
           const user = this.currentUser;
           if (user?.name || user?.email || user?.phone_number) {
@@ -118,6 +117,7 @@ export default {
               phone_number: user.phone_number || '',
             }));
           }
+          localStorage.setItem('cw_restart_mode', '1');
         } catch (_) {}
 
         // STEP 3: Clear session data (auth token, storage, Vuex state).

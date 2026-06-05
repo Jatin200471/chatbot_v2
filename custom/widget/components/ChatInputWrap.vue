@@ -126,9 +126,9 @@ export default {
     },
 
     async handleRestart() {
-      // Load saved name/email/phone into Vuex FIRST so Form.vue can read
-      // currentUser in its mounted() hook and pre-fill the fields.
-      await this.$store.dispatch('contacts/loadSavedUserData');
+      // Mark restart mode — Form.vue reads this in data() to hide message box
+      // and pre-fill name/email/phone from chatwoot_user_data.
+      try { localStorage.setItem('cw_restart_mode', '1'); } catch (_) {}
       this.$store.dispatch('appConfig/setConversationEnded', false);
       this.$store.dispatch('conversation/clearConversations');
       this.$store.dispatch('conversationAttributes/clearConversationAttributes');

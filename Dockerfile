@@ -36,7 +36,7 @@ COPY custom/widget/sdk-floating-btn.js /tmp/cw-floating-btn.js
 COPY custom/widget/components/ChatInputWrap.vue app/javascript/widget/components/ChatInputWrap.vue
 COPY custom/widget/components/ElevenLabsVoiceButton.vue app/javascript/widget/components/ElevenLabsVoiceButton.vue
 COPY custom/widget/components/HeaderActions.vue app/javascript/widget/components/HeaderActions.vue
-COPY custom/widget/components/Form.vue app/javascript/widget/components/Form/Form.vue
+COPY custom/widget/components/Form.vue app/javascript/widget/components/PreChat/Form.vue
 COPY custom/widget/components/Branding.vue app/javascript/shared/components/Branding.vue
 COPY custom/widget/store/index.js app/javascript/widget/store/index.js
 COPY custom/widget/store/modules/appConfig.js app/javascript/widget/store/modules/appConfig.js

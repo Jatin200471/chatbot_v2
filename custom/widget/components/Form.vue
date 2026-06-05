@@ -43,12 +43,10 @@ export default {
     return { formatMessage, phoneInput };
   },
   data() {
-    // Read saved user data from localStorage here in data() — NOT in mounted().
-    // FormKit reads v-model only once during initialization; setting formValues
-    // later in mounted() does not update FormKit's internal input state.
-    // By pre-populating formValues before FormKit renders we guarantee the
-    // fields show the saved values on first paint.
+    // Read saved user data + restart flag from localStorage before FormKit renders.
+    // FormKit only reads v-model at initialization — setting later has no effect.
     let savedValues = {};
+    let isRestartMode = false;
     try {
       const raw = localStorage.getItem('chatwoot_user_data');
       if (raw) {
@@ -61,12 +59,15 @@ export default {
           };
         }
       }
+      // Restart mode = hide message box, use default message on submit
+      isRestartMode = localStorage.getItem('cw_restart_mode') === '1';
     } catch (_) {}
 
     return {
       locale: this.$root.$i18n.locale,
       hasErrorInPhoneInput: false,
       message: '',
+      isRestartMode,
       formValues: savedValues,
       labels: {
         emailAddress: 'EMAIL_ADDRESS',
@@ -250,20 +251,24 @@ export default {
       return {};
     },
     onSubmit() {
-      // FormKit stores all field values in formValues keyed by the field `name`.
-      // The textarea is named "message" in the FormKit template.
       const emailAddress = this.formValues.emailAddress || '';
-      const fullName = this.formValues.fullName || '';
-      const phoneNumber = this.formValues.phoneNumber || '';
-      // FormKit writes the textarea value under the key matching its `name` attr.
-      const message = (this.formValues.message || '').trim();
+      const fullName     = this.formValues.fullName     || '';
+      const phoneNumber  = this.formValues.phoneNumber  || '';
 
-      // Guard: FormKit already validates required fields before calling @submit,
-      // but we add a runtime check as a safety net.
+      // In restart mode the message box is hidden; use a silent default so the
+      // conversation is created correctly without requiring user input.
+      let message = (this.formValues.message || '').trim();
+      if (this.isRestartMode && !message) {
+        message = 'Hello';
+      }
+
       if (!message) {
         console.error('[Form.onSubmit] Message is empty after trim');
         return;
       }
+
+      // Clear restart mode flag so next fresh session shows the message box.
+      try { localStorage.removeItem('cw_restart_mode'); } catch (_) {}
 
       // ── Persist to localStorage so greetings/exit-chat always reflect
       //    the CURRENT session's name, not a previous session's name.
@@ -375,7 +380,7 @@ export default {
       :has-error-in-phone-input="hasErrorInPhoneInput"
     />
     <FormKit
-      v-if="!hasActiveCampaign"
+      v-if="!hasActiveCampaign && !isRestartMode"
       name="message"
       type="textarea"
       :label-class="context => `text-sm font-medium ${labelClass(context)}`"
