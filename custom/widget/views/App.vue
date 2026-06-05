@@ -135,6 +135,10 @@ export default {
     // Custom features
     this.fetchVoiceAgentConfig();
     this.startConversationStatusCheck();
+
+    // Pre-load saved user data (name/email/phone) from localStorage so the
+    // pre-chat form is pre-filled after exit-chat reload or auto-resolve restart.
+    this.loadSavedUserData();
   },
   beforeUnmount() {
     if (this.conversationStatusCheckInterval) {
@@ -155,7 +159,7 @@ export default {
     ...mapActions('conversationAttributes', ['getAttributes']),
     ...mapActions('campaign', ['initCampaigns', 'executeCampaign', 'resetCampaign']),
     ...mapActions('agent', ['fetchAvailableAgents']),
-    ...mapActions('contacts', ['clearCurrentUser']),
+    ...mapActions('contacts', ['clearCurrentUser', 'loadSavedUserData']),
     ...mapActions('voiceAgentConfig', ['fetchVoiceAgentConfig']),
 
     setWidgetColorVariable(widgetColor) {

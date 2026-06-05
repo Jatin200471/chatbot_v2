@@ -95,7 +95,7 @@ export default {
       this.showConfirmExitChat = false;
 
       try {
-        // STEP 1: Resolve the conversation server-side.
+        // STEP 1: Resolve the conversation server-side (before clearing auth).
         if (
           [
             CONVERSATION_STATUS.OPEN,
@@ -106,9 +106,9 @@ export default {
           try { await toggleStatus(); } catch (_) {}
         }
 
-        // STEP 2: Save user data to localStorage BEFORE clearing anything.
-        // This allows the pre-chat form to be pre-filled when the user
-        // starts a new conversation (same behaviour as auto-resolve restart).
+        // STEP 2: Save user data to localStorage BEFORE clearing session.
+        // On next widget open the pre-chat form will be pre-filled with
+        // the saved name / email / phone.
         try {
           const user = this.currentUser;
           if (user?.name || user?.email || user?.phone_number) {
@@ -120,16 +120,21 @@ export default {
           }
         } catch (_) {}
 
-        // STEP 3: Show resolved state — same UX as auto-resolve.
-        // Messages stay visible, input is replaced by "Start New Chat" button.
-        // Clicking that button routes to the pre-chat form pre-filled with
-        // the saved name / email / phone from Step 2.
-        this.$store.dispatch('appConfig/setConversationEnded', true);
-        try { this.router.replace({ name: 'messages' }); } catch (_) {}
+        // STEP 3: Clear session data (auth token, storage, Vuex state).
+        this.$store.dispatch('contacts/softExitChat');
+
+        // STEP 4: Close the widget immediately.
+        this.sendCloseMessage();
+
+        // STEP 5: Navigate to home before reload so URL hash resets to #/
+        try { this.router.replace({ name: 'home' }); } catch (_) {}
+
+        // STEP 6: Reload — next bubble click opens a clean fresh session.
+        setTimeout(() => { window.location.reload(); }, 400);
 
       } catch (_) {
-        // Safety net
         try { this.sendCloseMessage(); } catch (__) {}
+        try { window.location.reload(); } catch (___) {}
       } finally {
         this.isEndingChat = false;
       }

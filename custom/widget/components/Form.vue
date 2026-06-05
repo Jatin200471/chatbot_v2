@@ -28,19 +28,13 @@ export default {
   mounted() {
     emitter.on('prefill-form-data', this._applyPrefill);
 
-    // Pre-fill from saved user data when restarting after auto-resolve.
-    // loadSavedUserData (contacts store) reads chatwoot_user_data from
-    // localStorage and commits to currentUser before routing here, so the
-    // data is already available when this component mounts.
-    // On a completely fresh session currentUser is empty → no pre-fill.
-    const user = this.currentUser;
-    if (user?.name || user?.email || user?.phone_number) {
-      this._applyPrefill({
-        name:  user.name         || '',
-        email: user.email        || '',
-        phone: user.phone_number || '',
-      });
-    }
+    // Pre-fill from saved user data on every mount.
+    // Reading directly from localStorage is more reliable than reading from
+    // Vuex currentUser because it works regardless of whether loadSavedUserData
+    // was dispatched before navigation (timing issues with Vuex commits).
+    // chatwoot_user_data is written by Form.vue onSubmit() and preserved
+    // across sessions (clearSessionStorage explicitly skips this key).
+    this._prefillFromLocalStorage();
   },
   beforeUnmount() {
     emitter.off('prefill-form-data', this._applyPrefill);
@@ -144,6 +138,23 @@ export default {
     },
   },
   methods: {
+    _prefillFromLocalStorage() {
+      try {
+        const raw = localStorage.getItem('chatwoot_user_data');
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (saved.name || saved.email || saved.phone_number) {
+          this._applyPrefill({
+            name:  saved.name         || '',
+            email: saved.email        || '',
+            phone: saved.phone_number || '',
+          });
+        }
+      } catch (_) {
+        // Corrupted localStorage — ignore silently
+      }
+    },
+
     _applyPrefill({ name, email, phone }) {
       // Only fill fields that are empty — don't overwrite what user already typed
       if (name  && !this.formValues.fullName)      this.formValues.fullName      = name;
