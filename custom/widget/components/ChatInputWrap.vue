@@ -126,10 +126,12 @@ export default {
     },
 
     async handleRestart() {
+      // Load saved name/email/phone into Vuex FIRST so Form.vue can read
+      // currentUser in its mounted() hook and pre-fill the fields.
+      await this.$store.dispatch('contacts/loadSavedUserData');
       this.$store.dispatch('appConfig/setConversationEnded', false);
       this.$store.dispatch('conversation/clearConversations');
       this.$store.dispatch('conversationAttributes/clearConversationAttributes');
-      this.$store.dispatch('contacts/loadSavedUserData');
       this.router.replace({ name: 'prechat-form' });
     },
   },

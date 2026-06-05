@@ -37,6 +37,7 @@ export default {
       conversationAttributes: 'conversationAttributes/getConversationParams',
       canUserEndConversation: 'appConfig/getCanUserEndConversation',
       widgetColor: 'appConfig/getWidgetColor',
+      currentUser: 'contacts/getCurrentUser',
     }),
     conversationStatus() {
       return this.conversationAttributes.status;
@@ -94,7 +95,7 @@ export default {
       this.showConfirmExitChat = false;
 
       try {
-        // STEP 1: Resolve the conversation server-side (before clearing auth).
+        // STEP 1: Resolve the conversation server-side.
         if (
           [
             CONVERSATION_STATUS.OPEN,
@@ -105,28 +106,30 @@ export default {
           try { await toggleStatus(); } catch (_) {}
         }
 
-        // STEP 2: Clear session data (auth token, storage, Vuex state).
-        this.$store.dispatch('contacts/softExitChat');
+        // STEP 2: Save user data to localStorage BEFORE clearing anything.
+        // This allows the pre-chat form to be pre-filled when the user
+        // starts a new conversation (same behaviour as auto-resolve restart).
+        try {
+          const user = this.currentUser;
+          if (user?.name || user?.email || user?.phone_number) {
+            localStorage.setItem('chatwoot_user_data', JSON.stringify({
+              name:         user.name         || '',
+              email:        user.email        || '',
+              phone_number: user.phone_number || '',
+            }));
+          }
+        } catch (_) {}
 
-        // STEP 3: Close the widget immediately so the user sees it disappear.
-        this.sendCloseMessage();
-
-        // STEP 4: Navigate to home FIRST so the URL hash resets to #/
-        //   before reload. Without this, reload restores #/chat (messages
-        //   route) which shows a blank screen because the session is cleared.
-        try { this.router.replace({ name: 'home' }); } catch (_) {}
-
-        // STEP 5: Reload the iframe in the background (widget is now hidden).
-        //   - Resets the ActionCable WebSocket — no stale pubsub token 404s.
-        //   - Next bubble click opens a clean fresh session at home route.
-        setTimeout(() => {
-          window.location.reload();
-        }, 400);
+        // STEP 3: Show resolved state — same UX as auto-resolve.
+        // Messages stay visible, input is replaced by "Start New Chat" button.
+        // Clicking that button routes to the pre-chat form pre-filled with
+        // the saved name / email / phone from Step 2.
+        this.$store.dispatch('appConfig/setConversationEnded', true);
+        try { this.router.replace({ name: 'messages' }); } catch (_) {}
 
       } catch (_) {
-        // Safety net — always close so the user is never stuck.
+        // Safety net
         try { this.sendCloseMessage(); } catch (__) {}
-        try { window.location.reload(); } catch (___) {}
       } finally {
         this.isEndingChat = false;
       }
@@ -155,10 +158,10 @@ export default {
 
       <div v-if="showConfirmExitChat" class="confirm-popover">
         <p class="confirm-text">
-          End and close this chat?
+          End this conversation?
           <span class="confirm-sub">
             Conversation will be resolved.<br/>
-            Next open will start fresh.
+            You can start a new chat anytime.
           </span>
         </p>
         <div class="confirm-actions">

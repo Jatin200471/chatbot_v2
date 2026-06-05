@@ -27,6 +27,20 @@ export default {
   emits: ['submitPreChat'],
   mounted() {
     emitter.on('prefill-form-data', this._applyPrefill);
+
+    // Pre-fill from saved user data when restarting after auto-resolve.
+    // loadSavedUserData (contacts store) reads chatwoot_user_data from
+    // localStorage and commits to currentUser before routing here, so the
+    // data is already available when this component mounts.
+    // On a completely fresh session currentUser is empty → no pre-fill.
+    const user = this.currentUser;
+    if (user?.name || user?.email || user?.phone_number) {
+      this._applyPrefill({
+        name:  user.name         || '',
+        email: user.email        || '',
+        phone: user.phone_number || '',
+      });
+    }
   },
   beforeUnmount() {
     emitter.off('prefill-form-data', this._applyPrefill);
