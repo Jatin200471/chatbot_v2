@@ -27,14 +27,9 @@ export default {
   emits: ['submitPreChat'],
   mounted() {
     emitter.on('prefill-form-data', this._applyPrefill);
-
-    // Pre-fill from saved user data on every mount.
-    // Reading directly from localStorage is more reliable than reading from
-    // Vuex currentUser because it works regardless of whether loadSavedUserData
-    // was dispatched before navigation (timing issues with Vuex commits).
-    // chatwoot_user_data is written by Form.vue onSubmit() and preserved
-    // across sessions (clearSessionStorage explicitly skips this key).
-    this._prefillFromLocalStorage();
+    // Note: localStorage pre-fill is done in data() so FormKit gets the
+    // values on first render. _applyPrefill here is only for the parent-page
+    // cookie prefill event (sdk-floating-btn.js → prefill-form-data).
   },
   beforeUnmount() {
     emitter.off('prefill-form-data', this._applyPrefill);
@@ -48,12 +43,31 @@ export default {
     return { formatMessage, phoneInput };
   },
   data() {
+    // Read saved user data from localStorage here in data() — NOT in mounted().
+    // FormKit reads v-model only once during initialization; setting formValues
+    // later in mounted() does not update FormKit's internal input state.
+    // By pre-populating formValues before FormKit renders we guarantee the
+    // fields show the saved values on first paint.
+    let savedValues = {};
+    try {
+      const raw = localStorage.getItem('chatwoot_user_data');
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved.name || saved.email || saved.phone_number) {
+          savedValues = {
+            fullName:     saved.name         || '',
+            emailAddress: saved.email        || '',
+            phoneNumber:  saved.phone_number || '',
+          };
+        }
+      }
+    } catch (_) {}
+
     return {
       locale: this.$root.$i18n.locale,
       hasErrorInPhoneInput: false,
       message: '',
-      // Always start blank — never pre-fill from previous session
-      formValues: {},
+      formValues: savedValues,
       labels: {
         emailAddress: 'EMAIL_ADDRESS',
         fullName: 'FULL_NAME',
@@ -138,23 +152,6 @@ export default {
     },
   },
   methods: {
-    _prefillFromLocalStorage() {
-      try {
-        const raw = localStorage.getItem('chatwoot_user_data');
-        if (!raw) return;
-        const saved = JSON.parse(raw);
-        if (saved.name || saved.email || saved.phone_number) {
-          this._applyPrefill({
-            name:  saved.name         || '',
-            email: saved.email        || '',
-            phone: saved.phone_number || '',
-          });
-        }
-      } catch (_) {
-        // Corrupted localStorage — ignore silently
-      }
-    },
-
     _applyPrefill({ name, email, phone }) {
       // Only fill fields that are empty — don't overwrite what user already typed
       if (name  && !this.formValues.fullName)      this.formValues.fullName      = name;
