@@ -99,11 +99,20 @@ export default {
       try {
         const autoOpen = !!val && this._voiceReconnectPending;
         if (val) this._voiceReconnectPending = false;
-        window.parent.postMessage({
-          event: 'voice-call-active',
-          isActive: !!val,
-          autoOpen,
-        }, '*');
+        const msg = { event: 'voice-call-active', isActive: !!val, autoOpen };
+
+        // 1. localStorage bridge — most reliable, works even if postMessage
+        //    is blocked by SDK iframe nesting or CSP restrictions.
+        try { localStorage.setItem('cw_voice_active', val ? '1' : '0'); } catch (_) {}
+
+        // 2. window.top — bypasses intermediate SDK iframe if any
+        try { window.top.postMessage(msg, '*'); } catch (_) {}
+
+        // 3. window.parent — direct parent (same as window.top when no nesting)
+        try { window.parent.postMessage(msg, '*'); } catch (_) {}
+
+        // 4. IFrameHelper — sends as "chatwoot-widget:{...}" string (SDK channel)
+        IFrameHelper.sendMessage(msg);
       } catch (_) {}
     },
   },

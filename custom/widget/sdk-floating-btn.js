@@ -280,35 +280,56 @@
   // postMessage listener — bridges Features 2, 3 & 4
   // ════════════════════════════════════════════════════════════════════════
 
+  function applyVoiceState(isActive, autoOpen) {
+    window._cwVoiceActive = !!isActive;
+    if (isActive) {
+      showBtn();
+      if (autoOpen) autoOpenWidget();
+    } else {
+      hideBtn();
+    }
+  }
+
   window.addEventListener('message', function (e) {
     var data = e.data;
 
-    // Plain object format (direct window.parent.postMessage from App.vue)
+    // Plain object format (direct window.parent / window.top postMessage)
     if (data && typeof data === 'object' && data.event === 'voice-call-active') {
-      window._cwVoiceActive = !!data.isActive;
-      if (data.isActive) {
-        showBtn();
-        if (data.autoOpen) autoOpenWidget(); // reconnect scenario
-      } else {
-        hideBtn();
-      }
+      applyVoiceState(data.isActive, data.autoOpen);
       return;
     }
 
-    // Prefixed string format "chatwoot-widget:{...}" (IFrameHelper fallback)
+    // Prefixed string format "chatwoot-widget:{...}" (IFrameHelper channel)
     if (typeof data === 'string' && data.indexOf('chatwoot-widget:') === 0) {
       try {
         var parsed = JSON.parse(data.slice('chatwoot-widget:'.length));
         if (parsed && parsed.event === 'voice-call-active') {
-          window._cwVoiceActive = !!parsed.isActive;
-          if (parsed.isActive) {
-            showBtn();
-            if (parsed.autoOpen) autoOpenWidget();
-          } else {
-            hideBtn();
-          }
+          applyVoiceState(parsed.isActive, parsed.autoOpen);
         }
       } catch (_) {}
+    }
+  });
+
+  // ── FALLBACK: localStorage polling ───────────────────────────────────────
+  // If postMessage is blocked (SDK iframe nesting, browser security, CSP),
+  // App.vue writes 'cw_voice_active' to localStorage as a reliable bridge.
+  // Poll every 800ms — fast enough to catch call start/end without CPU waste.
+  setInterval(function () {
+    try {
+      var lsActive = localStorage.getItem('cw_voice_active') === '1';
+      if (lsActive !== window._cwVoiceActive) {
+        applyVoiceState(lsActive, false);
+      }
+    } catch (_) {}
+  }, 800);
+
+  // ── Warn user before navigating away during active voice call ────────────
+  // Catches programmatic navigations (location.href, form submit, etc.) that
+  // our click intercept cannot handle.
+  window.addEventListener('beforeunload', function (e) {
+    if (window._cwVoiceActive) {
+      e.preventDefault();
+      e.returnValue = 'A voice call is active. Leaving will end your call.';
     }
   });
 

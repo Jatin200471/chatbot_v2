@@ -216,6 +216,8 @@ export default {
 
     _cleanupSession() {
       window[WINDOW_SESSION_KEY] = null;
+      // Clear localStorage bridge so parent page hides the floating button
+      try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
     },
 
     // ── Notify backend that voice call ended ──────────────────────────────
