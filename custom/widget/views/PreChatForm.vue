@@ -54,6 +54,23 @@ export default {
       contactCustomAttributes,
       conversationCustomAttributes,
     }) {
+      // Always save user data to localStorage here — guaranteed save point.
+      // This runs after FormKit validates and extracts the field values,
+      // so we always have clean data here regardless of edge cases in Form.vue.
+      try {
+        const userData = {
+          name:         fullName     || '',
+          email:        emailAddress || '',
+          phone_number: phoneNumber  || '',
+        };
+        localStorage.setItem('chatwoot_user_data', JSON.stringify(userData));
+        // eslint-disable-next-line no-console
+        console.log('[PreChatForm] chatwoot_user_data saved:', userData);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[PreChatForm] localStorage save failed:', e);
+      }
+
       if (activeCampaignId) {
         emitter.emit('execute-campaign', {
           campaignId: activeCampaignId,
