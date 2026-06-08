@@ -81,13 +81,30 @@ function _broadcast(type, payload) {
   }
 }
 
+// SDK source — pinned to @elevenlabs/client (the new official package name,
+// replacing the deprecated @11labs/client). Pinning to a major version avoids
+// surprise breakages from esm.sh always serving "latest".
+const ELEVENLABS_SDK_URL = 'https://esm.sh/@elevenlabs/client@^0.5.0';
+
 async function _loadSdk() {
   if (_conversationCtor) return _conversationCtor;
-  vLog('Loading ElevenLabs SDK…');
-  const mod = await import('https://esm.sh/@11labs/client');
-  _conversationCtor = mod.Conversation;
-  vLog('SDK loaded ✓');
-  return _conversationCtor;
+  console.log('[VOICE] Loading ElevenLabs SDK from', ELEVENLABS_SDK_URL);
+  try {
+    const mod = await import(/* @vite-ignore */ ELEVENLABS_SDK_URL);
+    _conversationCtor = mod.Conversation;
+    if (!_conversationCtor) {
+      throw new Error('SDK loaded but Conversation class not found in module');
+    }
+    console.log('[VOICE] SDK loaded ✓');
+    return _conversationCtor;
+  } catch (e) {
+    // Fallback to old package name if the new one fails to load
+    console.warn('[VOICE] Primary SDK load failed, trying fallback:', e?.message);
+    const mod = await import(/* @vite-ignore */ 'https://esm.sh/@11labs/client');
+    _conversationCtor = mod.Conversation;
+    console.log('[VOICE] Fallback SDK loaded ✓');
+    return _conversationCtor;
+  }
 }
 
 async function _startConversation(signedUrl, overrides = null) {
@@ -137,13 +154,16 @@ async function _startConversation(signedUrl, overrides = null) {
 
       onMessage: ({ message, source }) => {
         const text = (message || '').toString().trim();
+        // Always log so we can verify transcripts arrive from ElevenLabs.
+        // If you NEVER see this log during a call, the SDK is not getting
+        // any transcript messages → audio path is broken upstream.
+        console.log(`[VOICE] 🎙️ transcript [${source}]:`, text);
         if (!text) return;
-        vLog(`transcript [${source}]:`, text);
         _broadcast('TRANSCRIPT', { source, message: text });
       },
 
-      onDisconnect: () => {
-        vLog('Disconnected');
+      onDisconnect: (details) => {
+        console.log('[VOICE] Disconnected', details || '');
         _conversation = null;
         _isConnecting = false;
         _broadcast('CALL_STATE', { isActive: false, isConnecting: false });
@@ -152,11 +172,21 @@ async function _startConversation(signedUrl, overrides = null) {
 
       onError: (err) => {
         const msg = err?.message || String(err);
-        console.error('[VOICE] Session error:', msg);
+        console.error('[VOICE] ❌ Session error:', msg, err);
         _conversation = null;
         _isConnecting = false;
         _broadcast('CALL_STATE', { isActive: false, isConnecting: false });
         _broadcast('CALL_ERROR', { error: msg });
+      },
+
+      // Optional: status callback (some SDK versions expose this)
+      onStatusChange: (status) => {
+        console.log('[VOICE] status →', status);
+      },
+
+      // Optional: mode change (listening / speaking)
+      onModeChange: (mode) => {
+        console.log('[VOICE] mode →', mode);
       },
     });
 
@@ -302,10 +332,15 @@ export default {
         case 'TRANSCRIPT': {
           const text = (payload.message || '').toString().trim();
           if (!text) break;
+          // Always log POST attempt + result so the user can verify the
+          // transcript pipeline end-to-end in the console.
+          console.log(`[VOICE] 💾 saving transcript → ${payload.source}: "${text.slice(0, 60)}"`);
           API.post(
             buildConvUrl('/api/v1/widget/conversations/voice_transcript'),
             { source: payload.source, content: text }
-          ).catch(e => vLog('transcript save failed:', e?.response?.status, e?.message));
+          )
+            .then(r => console.log('[VOICE] 💾 saved OK', r?.data))
+            .catch(e => console.error('[VOICE] 💾 save FAILED:', e?.response?.status, e?.message, e?.response?.data));
           break;
         }
 
