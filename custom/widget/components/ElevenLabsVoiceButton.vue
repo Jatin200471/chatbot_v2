@@ -230,6 +230,20 @@ export default {
       this.setConnecting(true);
 
       try {
+        // REQUEST MICROPHONE PERMISSION FIRST (required before worker can access audio)
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          // Stop the stream — we just needed permission. ElevenLabs SDK will request it again.
+          stream.getTracks().forEach(track => track.stop());
+          vLog('Microphone permission granted');
+        } catch (micError) {
+          console.error('[VOICE] Microphone permission denied:', micError?.message);
+          this.isConnecting = false;
+          this.setConnecting(false);
+          alert('Microphone permission required for voice calls. Please enable it in your browser settings.');
+          return;
+        }
+
         // Get signed URL from backend
         const { data } = await API.get(
           buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
