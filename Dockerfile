@@ -50,7 +50,7 @@ COPY custom/widget/views/Home.vue app/javascript/widget/views/Home.vue
 COPY custom/widget/views/App.vue app/javascript/widget/App.vue
 COPY custom/widget/views/PreChatForm.vue app/javascript/widget/views/PreChatForm.vue
 COPY custom/widget/helpers/axios.js app/javascript/widget/helpers/axios.js
-COPY custom/widget/api/contacts.js app/javascript/widget/api/contacts.jssdk-floating-btn
+COPY custom/widget/api/contacts.js app/javascript/widget/api/contacts.js
 COPY custom/widget/api/conversation.js app/javascript/widget/api/conversation.js
 COPY custom/widget/api/endpoint.js app/javascript/widget/api/endPoints.js
 COPY custom/widget/api/inboxConfig.js app/javascript/widget/api/inboxConfig.js

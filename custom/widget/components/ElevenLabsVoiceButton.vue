@@ -75,14 +75,17 @@ let _callRestoredFromSession = false; // Track if we already tried restoring
 function getSharedWorker() {
   if (!_sharedWorker) {
     try {
-      // Modern browsers support SharedWorker for persistent background connections
-      _sharedWorker = new SharedWorker(
-        new URL('../workers/voice-shared-worker.js', import.meta.url),
-        { name: 'chatwoot-voice' }
-      );
+      // In production (Docker/CDN), worker is served from /workers/
+      // In development, it's in relative path
+      const isProduction = typeof WEBSITE_TOKEN !== 'undefined' && !window.location.hostname.includes('localhost');
+      const workerPath = isProduction 
+        ? '/workers/voice-shared-worker.js'
+        : new URL('../workers/voice-shared-worker.js', import.meta.url);
+      
+      _sharedWorker = new SharedWorker(workerPath, { name: 'chatwoot-voice' });
       _sharedWorker.port.onmessage = handleWorkerMessage;
       _sharedWorker.port.start();
-      vLog('SharedWorker connected');
+      vLog('SharedWorker connected from:', workerPath);
     } catch (e) {
       console.warn('[VOICE] SharedWorker not supported, falling back to page-local storage:', e?.message);
       return null;
