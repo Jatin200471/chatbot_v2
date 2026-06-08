@@ -90,7 +90,7 @@ async function _loadSdk() {
   return _conversationCtor;
 }
 
-async function _startConversation(signedUrl) {
+async function _startConversation(signedUrl, overrides = null) {
   if (_conversation) {
     vLog('Conversation already active — syncing state');
     _broadcast('CALL_STATE', { isActive: true, isConnecting: false });
@@ -107,8 +107,17 @@ async function _startConversation(signedUrl) {
   try {
     const Conversation = await _loadSdk();
 
+    const sessionConfig = { signedUrl };
+    if (overrides) {
+      // ElevenLabs SDK accepts agent.prompt + firstMessage overrides at
+      // session-start time. We use this to inject the previous transcript
+      // so the new agent session continues the same conversation.
+      sessionConfig.overrides = overrides;
+      vLog('Starting with conversation context override');
+    }
+
     _conversation = await Conversation.startSession({
-      signedUrl,
+      ...sessionConfig,
 
       onConnect: () => {
         vLog('Connected ✅');
@@ -249,15 +258,9 @@ export default {
       this.setActive(true);
       try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
 
-      setTimeout(() => {
-        _startConversation(sessionCall.signedUrl).then(conv => {
-          if (!conv) {
-            // Resume failed — clean up
-            clearSessionCall();
-            try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
-          }
-        });
-      }, 200);
+      // Resume with conversation context: fetch history then start session
+      // with prompt override so the agent picks up where it left off.
+      this._resumeWithContext(sessionCall.signedUrl);
     }
 
     emitter.on('end-voice-call', this.endCall);
@@ -320,6 +323,85 @@ export default {
     handleClick() {
       if (this.isConnecting) return;
       this.isCallActive ? this.endCall() : this.startCall();
+    },
+
+    // ── Resume helper ─────────────────────────────────────────────────────
+    // After a hard refresh, fetch the visitor's previous voice transcript
+    // and inject it as a prompt override so the new ElevenLabs session
+    // continues conversationally instead of greeting from scratch.
+    //
+    // Strategy:
+    //   1. Try to build a context override from /voice_history.
+    //   2. Try to reconnect with the saved signedUrl (might be single-use).
+    //   3. On failure, fetch a FRESH signedUrl and retry with same overrides.
+    async _resumeWithContext(savedSignedUrl) {
+      let overrides = null;
+
+      try {
+        const { data } = await API.get(
+          buildConvUrl('/api/v1/widget/conversations/voice_history?limit=20')
+        );
+        if (data?.has_history && Array.isArray(data.lines) && data.lines.length > 0) {
+          const transcript = data.lines
+            .map(l => `${l.role === 'user' ? 'User' : 'You (agent)'}: ${l.content}`)
+            .join('\n');
+
+          overrides = {
+            agent: {
+              prompt: {
+                prompt:
+                  '[Connection-Recovery Mode]\n' +
+                  'You were just on a voice call with this visitor and the ' +
+                  'connection was lost due to a page reload. Below is the ' +
+                  'transcript of what was discussed BEFORE the drop. Pick ' +
+                  'up the conversation naturally from where it ended — ' +
+                  'briefly acknowledge the reconnect in one short sentence, ' +
+                  'then continue. Do NOT re-introduce yourself or repeat ' +
+                  'questions already answered.\n\n' +
+                  '── Previous transcript ──\n' +
+                  transcript +
+                  '\n── End of transcript ──',
+              },
+              firstMessage:
+                "Welcome back — looks like we got cut off. Let's continue where we left off.",
+            },
+          };
+          vLog(`Resume with ${data.lines.length} prior turns`);
+        } else {
+          vLog('No prior history found — resuming as fresh session');
+        }
+      } catch (e) {
+        vLog('voice_history fetch failed (resuming without context):', e?.message);
+      }
+
+      // Attempt 1 — reuse the saved signed URL (may work if still valid).
+      let conv = await _startConversation(savedSignedUrl, overrides);
+
+      // Attempt 2 — saved URL is stale / single-use; mint a fresh one.
+      if (!conv) {
+        vLog('Saved signedUrl failed — fetching a fresh one for resume');
+        try {
+          const { data } = await API.get(
+            buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
+          );
+          if (data?.signed_url) {
+            saveCallToSession(data.signed_url);
+            conv = await _startConversation(data.signed_url, overrides);
+          }
+        } catch (e) {
+          vLog('Fresh signedUrl fetch failed:', e?.message);
+        }
+      }
+
+      if (!conv) {
+        // Both attempts failed — give up and reset UI.
+        clearSessionCall();
+        try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
+        this.isCallActive = false;
+        this.isConnecting = false;
+        this.setActive(false);
+        this.setConnecting(false);
+      }
     },
 
     async startCall() {
