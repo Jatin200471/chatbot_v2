@@ -415,6 +415,7 @@ Rails.application.routes.draw do
             get  :voice_signed_url
             post :voice_transcript
             post :voice_call_ended
+            get  :voice_history
           end
         end
         resource :contact, only: [:show, :update] do

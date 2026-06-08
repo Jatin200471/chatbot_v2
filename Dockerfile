@@ -105,6 +105,10 @@ FROM chatwoot/chatwoot:latest
 COPY --from=node-builder /chatwoot-src/public /app/public
 
 # Copy floating button source so we can inject AFTER overwriting base image files
+# This file implements:
+#   • SPA-aware navigation during active voice calls (keeps iframe alive)
+#   • Floating "End Call" button on the parent page
+#   • Pre-chat form auto-fill from website cookies
 COPY custom/widget/sdk-floating-btn.js /tmp/cw-floating-btn.js
 
 # ── Inject into sdk.js AFTER COPY (Stage 2) ──────────────────────────────────

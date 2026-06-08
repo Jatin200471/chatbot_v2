@@ -1,93 +1,107 @@
+/**
+ * Vuex module: elevenlabsVoice
+ *
+ * Tracks UI-level voice call state (active, connecting, muted, duration,
+ * transcript). The actual WebSocket + WebRTC stream is owned by the
+ * @11labs/client SDK running on the main thread (inside the widget iframe).
+ * This module only holds reactive state for the Vue components to display.
+ */
+
 const state = {
-  isActive: false,
-  isConnecting: false,
-  isMuted: false,
-  callDuration: 0,
-  agentName: 'ElevenLabs AI Assistant',
-  transcript: [],
+  isActive:         false,
+  isConnecting:     false,
+  isMuted:          false,
+  callDuration:     0,       // seconds elapsed since call started
+  agentName:        'ElevenLabs AI Assistant',
+  transcript:       [],
   durationInterval: null,
-  error: null,
-  conversationId: null,
+  error:            null,
+  conversationId:   null,
 };
 
 const getters = {
-  getIsActive: $state => $state.isActive,
-  getIsConnecting: $state => $state.isConnecting,
-  getIsMuted: $state => $state.isMuted,
-  getCallDuration: $state => $state.callDuration,
-  getAgentName: $state => $state.agentName,
-  getTranscript: $state => $state.transcript,
-  getError: $state => $state.error,
-  getConversationId: $state => $state.conversationId,
+  getIsActive:        $s => $s.isActive,
+  getIsConnecting:    $s => $s.isConnecting,
+  getIsMuted:         $s => $s.isMuted,
+  getCallDuration:    $s => $s.callDuration,
+  getAgentName:       $s => $s.agentName,
+  getTranscript:      $s => $s.transcript,
+  getError:           $s => $s.error,
+  getConversationId:  $s => $s.conversationId,
 };
 
 const mutations = {
-  SET_ACTIVE($state, value) {
-    $state.isActive = value;
+  SET_ACTIVE($s, value)           { $s.isActive      = value; },
+  SET_CONNECTING($s, value)       { $s.isConnecting  = value; },
+  SET_MUTED($s, value)            { $s.isMuted       = value; },
+  SET_CALL_DURATION($s, value)    { $s.callDuration  = value; },
+  INCREMENT_DURATION($s)          { $s.callDuration += 1;     },
+  SET_AGENT_NAME($s, value)       { $s.agentName     = value; },
+  SET_ERROR($s, error)            { $s.error         = error; },
+  SET_CONVERSATION_ID($s, id)     { $s.conversationId = id;   },
+
+  SET_DURATION_INTERVAL($s, interval) {
+    $s.durationInterval = interval;
   },
-  SET_CONNECTING($state, value) {
-    $state.isConnecting = value;
+
+  ADD_TRANSCRIPT($s, { role, text }) {
+    $s.transcript.push({ role, text, timestamp: Date.now() });
   },
-  SET_MUTED($state, value) {
-    $state.isMuted = value;
+
+  CLEAR_TRANSCRIPT($s) {
+    $s.transcript = [];
   },
-  SET_CALL_DURATION($state, value) {
-    $state.callDuration = value;
-  },
-  INCREMENT_DURATION($state) {
-    $state.callDuration += 1;
-  },
-  SET_AGENT_NAME($state, value) {
-    $state.agentName = value;
-  },
-  ADD_TRANSCRIPT($state, { role, text }) {
-    $state.transcript.push({ role, text, timestamp: Date.now() });
-  },
-  CLEAR_TRANSCRIPT($state) {
-    $state.transcript = [];
-  },
-  SET_DURATION_INTERVAL($state, interval) {
-    $state.durationInterval = interval;
-  },
-  SET_ERROR($state, error) {
-    $state.error = error;
-  },
-  SET_CONVERSATION_ID($state, id) {
-    $state.conversationId = id;
-  },
-  RESET_STATE($state) {
-    $state.isActive = false;
-    $state.isConnecting = false;
-    $state.isMuted = false;
-    $state.callDuration = 0;
-    $state.transcript = [];
-    $state.error = null;
-    $state.conversationId = null;
-    if ($state.durationInterval) {
-      clearInterval($state.durationInterval);
-      $state.durationInterval = null;
+
+  RESET_STATE($s) {
+    if ($s.durationInterval) {
+      clearInterval($s.durationInterval);
+      $s.durationInterval = null;
     }
+    $s.isActive        = false;
+    $s.isConnecting    = false;
+    $s.isMuted         = false;
+    $s.callDuration    = 0;
+    $s.transcript      = [];
+    $s.error           = null;
+    $s.conversationId  = null;
   },
 };
 
 const actions = {
+  // Called by ElevenLabsVoiceButton when the SDK broadcasts CALL_STATE
   setActive({ commit }, value) {
     commit('SET_ACTIVE', value);
+    if (value) {
+      // Start duration timer when call goes active
+      const interval = setInterval(() => {
+        commit('INCREMENT_DURATION');
+      }, 1000);
+      commit('SET_DURATION_INTERVAL', interval);
+    } else {
+      // Stop timer when call ends
+      commit('RESET_STATE');
+    }
   },
+
   setConnecting({ commit }, value) {
     commit('SET_CONNECTING', value);
   },
+
   setError({ commit }, error) {
     commit('SET_ERROR', error);
   },
-  async endCall({ commit, state: $state }) {
-    if ($state.durationInterval) {
-      clearInterval($state.durationInterval);
-    }
-    commit('RESET_STATE');
+
+  addTranscript({ commit }, { role, text }) {
+    commit('ADD_TRANSCRIPT', { role, text });
   },
-  toggleMute({ commit, state: $state }) {
-    commit('SET_MUTED', !$state.isMuted);
+
+  toggleMute({ commit, state: $s }) {
+    commit('SET_MUTED', !$s.isMuted);
+  },
+
+  // Full reset — call this on explicit endCall or error
+  endCall({ commit }) {
+    commit('RESET_STATE');
   },
 };
 

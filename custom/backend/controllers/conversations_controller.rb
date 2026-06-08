@@ -343,6 +343,49 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     head :ok # non-critical — don't break the widget
   end
 
+  # Return the last N voice-transcript turns for THIS visitor's most recent
+  # voice-bearing conversation. Used by the widget after a hard refresh so the
+  # new ElevenLabs session can be started with the previous conversation
+  # injected as a prompt override — the agent appears to "remember" what was
+  # being discussed instead of greeting the user from scratch.
+  #
+  # GET /api/v1/widget/conversations/voice_history?limit=20
+  #
+  # Response: { lines: [{role, content, at}, ...], conversation_id, has_history }
+  def voice_history
+    limit = params[:limit].to_i
+    limit = 20 if limit <= 0 || limit > 50
+
+    conv = conversation
+    return render json: { lines: [], conversation_id: nil, has_history: false } if conv.nil?
+
+    # Pull last N messages tagged as voice transcripts (chronological order).
+    # SELECT only the columns we need to keep the response small.
+    rows = conv.messages
+               .where("content_attributes->>'voice_transcript' = 'true'")
+               .order(created_at: :desc)
+               .limit(limit)
+               .pluck(:content, :message_type, :created_at)
+               .reverse
+
+    lines = rows.map do |content, msg_type, at|
+      {
+        role:    msg_type.to_s == 'incoming' ? 'user' : 'agent',
+        content: content.to_s,
+        at:      at.iso8601
+      }
+    end
+
+    render json: {
+      lines: lines,
+      conversation_id: conv.id,
+      has_history: lines.any?
+    }
+  rescue StandardError => e
+    Rails.logger.error "[VOICE-AGENT] voice_history failed: #{e.class} #{e.message}"
+    render json: { lines: [], conversation_id: nil, has_history: false, error: e.message }
+  end
+
   def set_custom_attributes
     conversation.update!(custom_attributes: permitted_params[:custom_attributes])
   end

@@ -122,7 +122,9 @@ export default {
       this.$store.dispatch('conversation/toggleUserTyping', { typingStatus });
     },
     focusInput() {
-      this.$refs.chatInput.focus();
+      // Guard: ref is undefined when conversationEnded branch is rendered
+      // (the v-if hides the ResizableTextArea).
+      this.$refs.chatInput?.focus?.();
     },
 
     async handleRestart() {
