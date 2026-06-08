@@ -112,8 +112,18 @@ async function _startConversation(signedUrl, overrides = null) {
       // ElevenLabs SDK accepts agent.prompt + firstMessage overrides at
       // session-start time. We use this to inject the previous transcript
       // so the new agent session continues the same conversation.
+      //
+      // IMPORTANT: This will be SILENTLY IGNORED unless the corresponding
+      // toggles are enabled in the ElevenLabs dashboard under:
+      //   Agent → Security → Overrides → System prompt + First message
       sessionConfig.overrides = overrides;
-      vLog('Starting with conversation context override');
+      // Always log this one (not behind debug flag) so the user can verify
+      // the override payload was actually sent if the agent ignores it.
+      console.log('[VOICE] ► Sending override to ElevenLabs', {
+        promptChars: overrides.agent?.prompt?.prompt?.length || 0,
+        firstMessage: overrides.agent?.firstMessage,
+        note: 'If agent ignores this, enable overrides in ElevenLabs dashboard → Agent → Security',
+      });
     }
 
     _conversation = await Conversation.startSession({
@@ -341,32 +351,61 @@ export default {
         const { data } = await API.get(
           buildConvUrl('/api/v1/widget/conversations/voice_history?limit=20')
         );
+        // Always log this so we can see whether the backend actually
+        // returned transcript turns (separate problem from override-ignored).
+        console.log('[VOICE] ◄ voice_history response', {
+          has_history: data?.has_history,
+          lines: data?.lines?.length || 0,
+          conversation_id: data?.conversation_id,
+        });
         if (data?.has_history && Array.isArray(data.lines) && data.lines.length > 0) {
+          // Build a short summary of what was discussed (last 5 turns max).
+          // We keep this short so the firstMessage stays natural-sounding.
+          const recent = data.lines.slice(-5);
+          const lastUserTurn = [...recent].reverse().find(l => l.role === 'user');
+          const lastUserText = lastUserTurn?.content?.slice(0, 80) || '';
+
+          // Build a structured recap that the agent can use to continue.
+          // We include both a firstMessage (what the agent says on reconnect)
+          // AND a prompt addendum (so the agent has the full transcript in
+          // its working context). If ElevenLabs only allows ONE override,
+          // firstMessage alone is enough to acknowledge the reconnect.
           const transcript = data.lines
-            .map(l => `${l.role === 'user' ? 'User' : 'You (agent)'}: ${l.content}`)
+            .map(l => `${l.role === 'user' ? 'Visitor' : 'You'}: ${l.content}`)
             .join('\n');
+
+          // Craft a firstMessage that REFERENCES the last user turn so it
+          // feels truly continuous even if the prompt override is rejected.
+          const recapFirstMessage = lastUserText
+            ? `Welcome back — sorry, our connection dropped. You were just asking about "${lastUserText}". Where would you like to pick up?`
+            : `Welcome back — looks like our connection dropped. Let's continue where we left off.`;
 
           overrides = {
             agent: {
+              // firstMessage alone is enough for continuity — works even if
+              // the prompt override toggle is disabled on the dashboard.
+              firstMessage: recapFirstMessage,
+
+              // Prompt addendum: prepend the prior transcript so the agent
+              // has full context. We use 'prompt' field which APPENDS to the
+              // existing system prompt rather than replacing it (ElevenLabs
+              // behavior depends on agent settings — if it replaces, the
+              // recap context is the most important info anyway).
               prompt: {
                 prompt:
-                  '[Connection-Recovery Mode]\n' +
-                  'You were just on a voice call with this visitor and the ' +
-                  'connection was lost due to a page reload. Below is the ' +
-                  'transcript of what was discussed BEFORE the drop. Pick ' +
-                  'up the conversation naturally from where it ended — ' +
-                  'briefly acknowledge the reconnect in one short sentence, ' +
-                  'then continue. Do NOT re-introduce yourself or repeat ' +
-                  'questions already answered.\n\n' +
-                  '── Previous transcript ──\n' +
+                  'You are resuming a voice call that was just interrupted ' +
+                  'by a page reload. The transcript of what was discussed ' +
+                  'BEFORE the drop is below. Pick up the conversation ' +
+                  'naturally from where it ended. Do NOT re-introduce ' +
+                  'yourself or repeat questions already answered. Reference ' +
+                  'specifics from the prior conversation to show continuity.\n\n' +
+                  '── Previous conversation ──\n' +
                   transcript +
-                  '\n── End of transcript ──',
+                  '\n── End of previous conversation ──',
               },
-              firstMessage:
-                "Welcome back — looks like we got cut off. Let's continue where we left off.",
             },
           };
-          vLog(`Resume with ${data.lines.length} prior turns`);
+          vLog(`Resume with ${data.lines.length} prior turns; last user said: "${lastUserText}"`);
         } else {
           vLog('No prior history found — resuming as fresh session');
         }
