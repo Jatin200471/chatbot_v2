@@ -104,6 +104,9 @@ FROM chatwoot/chatwoot:latest
 # Copy ALL public build output
 COPY --from=node-builder /chatwoot-src/public /app/public
 
+# Copy SharedWorker files (voice persistence) — NOT processed by Vite, served statically
+COPY custom/widget/workers/ /app/public/workers/
+
 # Copy floating button source so we can inject AFTER overwriting base image files
 COPY custom/widget/sdk-floating-btn.js /tmp/cw-floating-btn.js
 
