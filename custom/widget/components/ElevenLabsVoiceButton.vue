@@ -15,7 +15,6 @@ const buildConvUrl = path => {
 
 // ─── Debug logger ─────────────────────────────────────────────────────────────
 // Enable:  localStorage.setItem('cw_voice_debug', 'true')
-// Disable: localStorage.removeItem('cw_voice_debug')
 const vLog = (...args) => {
   try {
     if (localStorage.getItem('cw_voice_debug') === 'true') console.log('[VOICE]', ...args);
@@ -24,20 +23,17 @@ const vLog = (...args) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SESSION PERSISTENCE
-// Stores call metadata in sessionStorage so the call can be flagged as
-// "was active" after a hard page reload. NOTE: the actual WebRTC audio
-// stream cannot survive a page reload — the ElevenLabs SDK must reconnect.
-// sessionStorage is used to display the call-active UI immediately while the
-// worker reconnects, and to pass the signedUrl back to the worker.
+// Real WebRTC streams cannot survive a hard page reload. To make the call
+// "continue" across page changes, sdk-floating-btn.js intercepts <a> clicks
+// when a call is active and does SPA-style navigation so the iframe is never
+// destroyed. For true hard refresh (F5), we save the signed URL here and the
+// next page load auto-reconnects to the same ElevenLabs session as long as
+// the signed URL is still within its TTL.
 // ─────────────────────────────────────────────────────────────────────────────
 const SESSION_CALL_KEY = 'cw_voice_session_data';
-const SESSION_TTL_MS   = 5 * 60 * 1000; // 5 minutes — ElevenLabs signed URLs expire
+const SESSION_TTL_MS   = 5 * 60 * 1000;
 
-function saveCallToSession(isActive, signedUrl) {
-  if (!isActive) {
-    try { sessionStorage.removeItem(SESSION_CALL_KEY); } catch (_) {}
-    return;
-  }
+function saveCallToSession(signedUrl) {
   try {
     sessionStorage.setItem(SESSION_CALL_KEY, JSON.stringify({
       isActive: true,
@@ -68,57 +64,111 @@ function clearSessionCall() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SHARED WORKER SINGLETON
-// Module-level so it survives Vue component mount/unmount cycles.
-// Only one WebSocket connection per browser session.
+// SDK SINGLETON
+// Module-level so the active conversation survives Vue component re-mounts
+// (e.g., when the chat view re-renders inside the same iframe).
 // ─────────────────────────────────────────────────────────────────────────────
-let _sharedWorker = null;
-let _workerPort   = null;
+let _conversation     = null;   // active Conversation instance
+let _conversationCtor = null;   // cached SDK constructor
+let _isConnecting     = false;  // race guard
 
-// Map of active component instances listening for worker messages.
-// Key: component uid (auto-assigned by Vue), Value: component instance.
-// This is the FIX for the original bug — the module-level handleWorkerMessage
-// had no reference to `this`, so CALL_STATE messages never updated the UI.
-const _listenerMap = new Map();
+// All mounted component instances that want broadcasts from the SDK.
+const _listeners = new Set();
 
-function _onWorkerMessage(evt) {
-  const { type, payload } = evt.data;
-  vLog('Worker →', type, payload);
-
-  // Broadcast to every mounted ElevenLabsVoiceButton instance
-  for (const instance of _listenerMap.values()) {
-    try {
-      instance._handleWorkerEvent(type, payload);
-    } catch (e) {
-      vLog('Instance handler error:', e?.message);
-    }
+function _broadcast(type, payload) {
+  for (const inst of _listeners) {
+    try { inst._handleEvent(type, payload); } catch (e) { vLog('listener error:', e?.message); }
   }
 }
 
-function getWorkerPort() {
-  if (_workerPort) return _workerPort;
+async function _loadSdk() {
+  if (_conversationCtor) return _conversationCtor;
+  vLog('Loading ElevenLabs SDK…');
+  const mod = await import('https://esm.sh/@11labs/client');
+  _conversationCtor = mod.Conversation;
+  vLog('SDK loaded ✓');
+  return _conversationCtor;
+}
+
+async function _startConversation(signedUrl) {
+  if (_conversation) {
+    vLog('Conversation already active — syncing state');
+    _broadcast('CALL_STATE', { isActive: true, isConnecting: false });
+    return _conversation;
+  }
+  if (_isConnecting) {
+    vLog('startConversation already in progress — ignoring duplicate');
+    return null;
+  }
+
+  _isConnecting = true;
+  _broadcast('CALL_STATE', { isActive: false, isConnecting: true });
 
   try {
-    // Production path (Docker): file is served from /workers/
-    // Dev path: relative import via Vite URL
-    const isLocalhost = window.location.hostname === 'localhost' ||
-                        window.location.hostname === '127.0.0.1';
-    const workerUrl = isLocalhost
-      ? new URL('../workers/voice-shared-worker.js', import.meta.url)
-      : '/workers/voice-shared-worker.js';
+    const Conversation = await _loadSdk();
 
-    _sharedWorker = new SharedWorker(workerUrl, { name: 'chatwoot-voice' });
-    _workerPort   = _sharedWorker.port;
+    _conversation = await Conversation.startSession({
+      signedUrl,
 
-    // Single message handler for ALL component instances
-    _workerPort.onmessage = _onWorkerMessage;
-    _workerPort.start();
+      onConnect: () => {
+        vLog('Connected ✅');
+        _isConnecting = false;
+        _broadcast('CALL_STATE', { isActive: true, isConnecting: false });
+      },
 
-    vLog('SharedWorker port opened:', workerUrl.toString?.() ?? workerUrl);
-    return _workerPort;
-  } catch (e) {
-    console.error('[VOICE] SharedWorker unavailable:', e?.message);
+      onMessage: ({ message, source }) => {
+        const text = (message || '').toString().trim();
+        if (!text) return;
+        vLog(`transcript [${source}]:`, text);
+        _broadcast('TRANSCRIPT', { source, message: text });
+      },
+
+      onDisconnect: () => {
+        vLog('Disconnected');
+        _conversation = null;
+        _isConnecting = false;
+        _broadcast('CALL_STATE', { isActive: false, isConnecting: false });
+        _broadcast('CALL_ENDED', {});
+      },
+
+      onError: (err) => {
+        const msg = err?.message || String(err);
+        console.error('[VOICE] Session error:', msg);
+        _conversation = null;
+        _isConnecting = false;
+        _broadcast('CALL_STATE', { isActive: false, isConnecting: false });
+        _broadcast('CALL_ERROR', { error: msg });
+      },
+    });
+
+    vLog('startSession returned — waiting for onConnect…');
+    return _conversation;
+  } catch (error) {
+    const msg = error?.message || String(error);
+    console.error('[VOICE] startConversation failed:', msg);
+    _conversation = null;
+    _isConnecting = false;
+    _broadcast('CALL_STATE', { isActive: false, isConnecting: false });
+    _broadcast('CALL_ERROR', { error: msg });
     return null;
+  }
+}
+
+async function _endConversation() {
+  if (!_conversation) {
+    _isConnecting = false;
+    _broadcast('CALL_STATE', { isActive: false, isConnecting: false });
+    return;
+  }
+  try {
+    vLog('Ending session…');
+    await _conversation.endSession();
+  } catch (e) {
+    vLog('endSession error (ignored):', e?.message);
+    _conversation = null;
+    _isConnecting = false;
+    _broadcast('CALL_STATE', { isActive: false, isConnecting: false });
+    _broadcast('CALL_ENDED', {});
   }
 }
 
@@ -134,7 +184,6 @@ export default {
 
   data() {
     return {
-      // Local reactive state — updated by _handleWorkerEvent
       isConnecting: false,
       isCallActive: false,
     };
@@ -176,80 +225,80 @@ export default {
   },
 
   mounted() {
-    // Register this instance to receive worker broadcasts
-    _listenerMap.set(this.$.uid, this);
+    _listeners.add(this);
 
-    // Open (or reuse) the SharedWorker port
-    const port = getWorkerPort();
-    if (port) {
-      // Ask worker for current state immediately
-      port.postMessage({ type: 'SYNC_STATE' });
+    // Reflect global SDK state on first mount
+    if (_conversation) {
+      this.isCallActive = true;
+      this.isConnecting = _isConnecting;
+      this.setActive(true);
+      this.setConnecting(_isConnecting);
+    } else if (_isConnecting) {
+      this.isConnecting = true;
+      this.setConnecting(true);
     }
 
-    // ── Resume after hard page reload ────────────────────────────────────
-    // If the user navigated away mid-call, sessionStorage has the signedUrl.
-    // We reconnect once per page load (guard: sessionStorage cleared on endCall).
+    // Resume after hard page reload using stored signedUrl
     const sessionCall = getSessionCall();
-    if (sessionCall?.signedUrl && port) {
+    if (sessionCall?.signedUrl && !_conversation && !_isConnecting) {
       vLog('Resuming call after page reload…');
-      // Optimistically show active UI while worker reconnects
-      this.isCallActive  = true;
-      this.isConnecting  = true;
-      this.setActive(true);
+      this.isConnecting = true;
       this.setConnecting(true);
+      // Show "live" UI immediately so user sees continuity
+      this.isCallActive = true;
+      this.setActive(true);
+      try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
 
       setTimeout(() => {
-        // Give Vue time to render, then tell worker to reconnect
-        port.postMessage({
-          type: 'START_CALL',
-          payload: { signedUrl: sessionCall.signedUrl },
+        _startConversation(sessionCall.signedUrl).then(conv => {
+          if (!conv) {
+            // Resume failed — clean up
+            clearSessionCall();
+            try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
+          }
         });
-      }, 300);
+      }, 200);
     }
 
-    // Listen for parent-page "end call" events (floating button, etc.)
     emitter.on('end-voice-call', this.endCall);
   },
 
   beforeUnmount() {
-    _listenerMap.delete(this.$.uid);
+    _listeners.delete(this);
     emitter.off('end-voice-call', this.endCall);
-
-    // Do NOT clear sessionStorage here — user may just be navigating between
-    // pages. Only clearSessionCall() on explicit endCall.
+    // NOTE: do not end the conversation here — user may just be navigating
+    // between routes inside the widget. endCall() is the only kill switch.
   },
 
   methods: {
     ...mapActions('elevenlabsVoice', ['setActive', 'setConnecting']),
 
-    // ── Core fix: called from _onWorkerMessage with `this` bound correctly ──
-    _handleWorkerEvent(type, payload) {
+    _handleEvent(type, payload) {
       switch (type) {
         case 'CALL_STATE':
-          // This is the fix — directly update reactive data from worker state
-          this.isActive    = payload.isActive;      // keep in sync (unused but safe)
-          this.isCallActive  = payload.isActive;
-          this.isConnecting  = payload.isConnecting;
+          this.isCallActive = payload.isActive;
+          this.isConnecting = payload.isConnecting;
           this.setActive(payload.isActive);
           this.setConnecting(payload.isConnecting);
-          vLog(`UI updated → active:${payload.isActive} connecting:${payload.isConnecting}`);
+          try {
+            localStorage.setItem('cw_voice_active', payload.isActive ? '1' : '0');
+          } catch (_) {}
+          vLog(`UI → active:${payload.isActive} connecting:${payload.isConnecting}`);
           break;
 
         case 'TRANSCRIPT': {
           const text = (payload.message || '').toString().trim();
           if (!text) break;
-          // Save transcript line to backend
           API.post(
             buildConvUrl('/api/v1/widget/conversations/voice_transcript'),
             { source: payload.source, content: text }
-          ).catch(e => {
-            vLog('transcript save failed:', e?.response?.status, e?.message);
-          });
+          ).catch(e => vLog('transcript save failed:', e?.response?.status, e?.message));
           break;
         }
 
         case 'CALL_ENDED':
-          // Notify backend to start auto-resolve timer
+          clearSessionCall();
+          try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
           API.post(
             buildConvUrl('/api/v1/widget/conversations/voice_call_ended'),
             {}
@@ -257,101 +306,86 @@ export default {
           break;
 
         case 'CALL_ERROR':
-          console.error('[VOICE] Worker error:', payload?.error);
-          // Reset UI — error means call is dead
-          this.isCallActive  = false;
-          this.isConnecting  = false;
+          console.error('[VOICE] Error:', payload?.error);
+          this.isCallActive = false;
+          this.isConnecting = false;
           this.setActive(false);
           this.setConnecting(false);
           clearSessionCall();
+          try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
           break;
       }
     },
 
     handleClick() {
-      if (this.isConnecting) return;  // Debounce: ignore clicks while connecting
+      if (this.isConnecting) return;
       this.isCallActive ? this.endCall() : this.startCall();
     },
 
-    // ── Start a new voice call ────────────────────────────────────────────
     async startCall() {
       if (!this.hasElevenLabsVoiceEnabled) return;
-
-      const port = getWorkerPort();
-      if (!port) {
-        alert('SharedWorker is not supported in this browser. Voice calling is unavailable.');
-        return;
-      }
 
       this.isConnecting = true;
       this.setConnecting(true);
 
       try {
-        // 1. Request microphone permission in the page context FIRST.
-        //    SharedWorkers cannot call getUserMedia directly — it must be
-        //    granted in the page and the browser then allows the SDK (running
-        //    inside the worker) to access audio as well.
+        // 1. Mic permission must be granted on the main thread — the SDK then
+        //    opens its own stream inside this same browsing context.
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Microphone API not available — voice requires HTTPS.');
+        }
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          // Release the test stream immediately; ElevenLabs SDK will open its own.
-          stream.getTracks().forEach(track => track.stop());
+          // Release the test stream; SDK opens its own.
+          stream.getTracks().forEach(t => t.stop());
           vLog('Microphone permission granted ✓');
         } catch (micErr) {
           console.error('[VOICE] Mic permission denied:', micErr?.message);
           this.isConnecting = false;
           this.setConnecting(false);
-          alert('Microphone permission is required for voice calls. Please allow access in your browser settings and try again.');
+          alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS') || 'Microphone permission is required for voice calls.');
           return;
         }
 
-        // 2. Fetch a fresh signed URL from the backend (agent ID stays server-side).
+        // 2. Fetch a fresh signed URL from the backend (agent id stays server-side).
         const { data } = await API.get(
           buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
         );
         const signedUrl = data?.signed_url;
         if (!signedUrl) throw new Error('Backend returned no signed_url');
 
-        vLog('Signed URL received — starting call via worker');
+        vLog('Signed URL received — starting call on main thread');
 
-        // 3. Persist to sessionStorage so a page reload can resume the call.
-        saveCallToSession(true, signedUrl);
-
-        // 4. Tell the worker to open the ElevenLabs WebSocket.
-        //    The worker will broadcast CALL_STATE updates back to us.
-        port.postMessage({ type: 'START_CALL', payload: { signedUrl } });
-
-        // 5. Set localStorage bridge so the parent page floating button appears.
+        // 3. Persist BEFORE starting so a fast page reload can still resume.
+        saveCallToSession(signedUrl);
         try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
 
-        // Note: we do NOT set isCallActive=true here — we wait for the worker's
-        // CALL_STATE { isActive: true } broadcast so UI reflects real state.
-
+        // 4. Start the conversation on the main thread (where getUserMedia +
+        //    AudioContext + WebSocket all work normally).
+        const conv = await _startConversation(signedUrl);
+        if (!conv) {
+          clearSessionCall();
+          try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
+        }
       } catch (error) {
         console.error('[VOICE] startCall error:', error?.message);
         this.isConnecting = false;
         this.setConnecting(false);
         this.setActive(false);
         clearSessionCall();
+        try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
         if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') {
           alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS'));
         }
       }
     },
 
-    // ── End the active voice call ─────────────────────────────────────────
     async endCall() {
-      const port = getWorkerPort();
-      if (port) {
-        port.postMessage({ type: 'END_CALL' });
-      }
-
-      // Immediately reset local state — worker will also broadcast CALL_STATE
-      this.isCallActive  = false;
-      this.isConnecting  = false;
+      await _endConversation();
+      this.isCallActive = false;
+      this.isConnecting = false;
       this.setActive(false);
       this.setConnecting(false);
-
-      // Clear session + localStorage bridge
       clearSessionCall();
       try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
     },
@@ -450,13 +484,11 @@ export default {
   transition: transform 0.2s ease;
 }
 
-/* ── Connecting state ── */
 .elevenlabs-connecting {
   opacity: 0.75;
   cursor: wait;
 }
 
-/* ── Active call — red pulsing button ── */
 .elevenlabs-active {
   background: #ef4444 !important;
   color: #ffffff !important;

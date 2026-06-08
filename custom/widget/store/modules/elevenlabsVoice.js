@@ -2,8 +2,9 @@
  * Vuex module: elevenlabsVoice
  *
  * Tracks UI-level voice call state (active, connecting, muted, duration,
- * transcript). The actual WebSocket is managed by the SharedWorker; this
- * module only holds reactive state for the Vue components to display.
+ * transcript). The actual WebSocket + WebRTC stream is owned by the
+ * @11labs/client SDK running on the main thread (inside the widget iframe).
+ * This module only holds reactive state for the Vue components to display.
  */
 
 const state = {
@@ -67,7 +68,7 @@ const mutations = {
 };
 
 const actions = {
-  // Called by ElevenLabsVoiceButton when worker broadcasts CALL_STATE
+  // Called by ElevenLabsVoiceButton when the SDK broadcasts CALL_STATE
   setActive({ commit }, value) {
     commit('SET_ACTIVE', value);
     if (value) {

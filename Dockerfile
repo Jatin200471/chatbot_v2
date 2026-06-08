@@ -104,10 +104,11 @@ FROM chatwoot/chatwoot:latest
 # Copy ALL public build output
 COPY --from=node-builder /chatwoot-src/public /app/public
 
-# Copy SharedWorker files (voice persistence) — NOT processed by Vite, served statically
-COPY custom/widget/workers/ /app/public/workers/
-
 # Copy floating button source so we can inject AFTER overwriting base image files
+# This file implements:
+#   • SPA-aware navigation during active voice calls (keeps iframe alive)
+#   • Floating "End Call" button on the parent page
+#   • Pre-chat form auto-fill from website cookies
 COPY custom/widget/sdk-floating-btn.js /tmp/cw-floating-btn.js
 
 # ── Inject into sdk.js AFTER COPY (Stage 2) ──────────────────────────────────

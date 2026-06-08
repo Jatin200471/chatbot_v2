@@ -30,10 +30,14 @@ module SecurityHeadersConcern
     # Prevent referrer leakage (customer URLs not sent to third-party servers)
     response.set_header('Referrer-Policy', 'strict-origin-when-cross-origin')
 
-    # Disable unused browser features inside the widget iframe
+    # Browser feature policy inside the widget iframe.
+    # microphone=* allows the voice agent (ElevenLabs) to capture audio. The
+    # parent page must still grant the iframe permission via its `allow=`
+    # attribute (handled by sdk-floating-btn.js MutationObserver).
+    # autoplay=* lets the agent's audio response play without a click.
     response.set_header(
       'Permissions-Policy',
-      'camera=(), microphone=(), geolocation=(), payment=()'
+      'camera=(), microphone=*, autoplay=*, geolocation=(), payment=()'
     )
 
     # Content-Security-Policy for the widget iframe HTML page.

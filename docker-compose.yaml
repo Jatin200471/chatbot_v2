@@ -51,6 +51,8 @@ services:
     environment:
       DB_POOL: ${RAILS_MAX_THREADS:-5}
       DISABLE_DATABASE_ENVIRONMENT_CHECK: '1'
+      # Stream Rails logs to docker logs (not /app/log files only)
+      RAILS_LOG_TO_STDOUT: 'true'
     networks:
       - chatwoot-network
     healthcheck:
@@ -115,6 +117,8 @@ services:
       redis:
         condition: service_healthy
     env_file: .env
+    environment:
+      RAILS_LOG_TO_STDOUT: 'true'
     volumes:
       - storage_data:/app/storage
     networks:
