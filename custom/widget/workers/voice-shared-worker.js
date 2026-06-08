@@ -1,167 +1,255 @@
 /**
- * SharedWorker — manages voice conversation across ALL pages
- * Survives page navigation, tab switching, and component unmounts
- * 
- * All pages connect to this worker — only ONE WebSocket per user session
+ * SharedWorker — manages ElevenLabs voice conversation across ALL pages/tabs.
+ *
+ * Architecture:
+ *   • One SharedWorker instance per browser origin (Chrome/Edge share it across tabs)
+ *   • Survives page navigation, tab switching, and Vue component unmounts
+ *   • Holds the single WebSocket/WebRTC connection to ElevenLabs
+ *   • All connected pages get broadcast messages for state sync
+ *
+ * Message protocol (page → worker):
+ *   START_CALL  { signedUrl }    — start a new ElevenLabs session
+ *   END_CALL                     — end the active session
+ *   SYNC_STATE                   — ask worker for current call state (on mount)
+ *   MUTE        { isMuted }      — toggle microphone
+ *
+ * Message protocol (worker → page):
+ *   CALL_STATE  { isActive, isConnecting }  — authoritative call state
+ *   TRANSCRIPT  { source, message }         — live transcript line
+ *   CALL_ENDED                               — session ended (trigger backend notify)
+ *   CALL_ERROR  { error }                   — something went wrong
  */
 
-let conversationSession = null;
-let conversationClass = null;
-let ports = []; // All connected pages
+let conversationSession = null;   // Active ElevenLabs Conversation instance
+let conversationClass   = null;   // Loaded once from esm.sh
+let isConnecting        = false;  // Guard: prevent double-start races
 
-// Debug
+// All ports connected to this worker (one per page/tab)
+const ports = new Set();
+
+// ─── Debug logger ────────────────────────────────────────────────────────────
+// Enable in browser:  localStorage.setItem('cw_voice_debug', 'true')
 const vLog = (...args) => {
   try {
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('cw_voice_debug') === 'true') {
-      console.log('[VOICE-WORKER]', ...args);
-    }
+    // SharedWorker has no localStorage; rely on importScripts trick or just
+    // check a module-level flag that can be toggled via DEBUG_ENABLE message.
+    if (_debugEnabled) console.log('[VOICE-WORKER]', ...args);
   } catch (_) {}
 };
+let _debugEnabled = false;
 
-// Handle new page connecting to this worker
+// ─── Port lifecycle ───────────────────────────────────────────────────────────
 self.addEventListener('connect', (e) => {
   const port = e.ports[0];
-  ports.push(port);
-  vLog(`Page connected. Total ports: ${ports.length}`);
+  ports.add(port);
+  vLog(`Port connected. Total: ${ports.size}`);
 
   port.addEventListener('message', (evt) => {
-    const { type, payload } = evt.data;
-    vLog(`Message from page:`, type);
-
-    if (type === 'START_CALL') {
-      startCall(payload, port);
-    } else if (type === 'END_CALL') {
-      endCall(port);
-    } else if (type === 'SYNC_STATE') {
-      // New page needs to know if call is active
-      broadcastState(port);
-    } else if (type === 'MUTE') {
-      if (conversationSession?.setInputDeviceSettings) {
-        conversationSession.setInputDeviceSettings({ enabled: !payload.isMuted });
-      }
-    }
+    handleMessage(evt.data, port);
   });
 
+  // Required: start the port's message queue
   port.start();
 
-  // Tell this page the current state
-  broadcastState(port);
+  // Immediately sync state so the new page knows call status
+  sendToPort(port, {
+    type: 'CALL_STATE',
+    payload: { isActive: !!conversationSession, isConnecting },
+  });
 });
 
-async function startCall(payload, initiatorPort) {
-  // If already calling, just sync state to new page
+// ─── Message handler ──────────────────────────────────────────────────────────
+function handleMessage({ type, payload }, port) {
+  vLog('← msg:', type, payload);
+  switch (type) {
+    case 'START_CALL':
+      startCall(payload, port);
+      break;
+    case 'END_CALL':
+      endCall();
+      break;
+    case 'SYNC_STATE':
+      sendToPort(port, {
+        type: 'CALL_STATE',
+        payload: { isActive: !!conversationSession, isConnecting },
+      });
+      break;
+    case 'MUTE':
+      if (conversationSession?.setInputDeviceSettings) {
+        // ElevenLabs SDK: enabled:false = muted
+        conversationSession.setInputDeviceSettings({ enabled: !payload.isMuted });
+      }
+      break;
+    case 'DEBUG_ENABLE':
+      _debugEnabled = true;
+      break;
+    default:
+      vLog('Unknown message type:', type);
+  }
+}
+
+// ─── Start call ───────────────────────────────────────────────────────────────
+async function startCall({ signedUrl } = {}, initiatorPort) {
+  // Already active — just sync state back to the requesting page
   if (conversationSession) {
-    vLog('Call already active, syncing to new page');
-    broadcastState(initiatorPort);
+    vLog('Call already active — syncing state');
+    broadcastToAll({
+      type: 'CALL_STATE',
+      payload: { isActive: true, isConnecting: false },
+    });
     return;
   }
 
-  try {
-    vLog('Starting call...');
+  // Race guard — ignore if another startCall is in-flight
+  if (isConnecting) {
+    vLog('startCall already in progress — ignoring duplicate');
+    return;
+  }
 
-    // Load SDK if not loaded
+  if (!signedUrl) {
+    broadcastToAll({
+      type: 'CALL_ERROR',
+      payload: { error: 'No signedUrl provided to SharedWorker' },
+    });
+    return;
+  }
+
+  isConnecting = true;
+  broadcastToAll({
+    type: 'CALL_STATE',
+    payload: { isActive: false, isConnecting: true },
+  });
+
+  try {
+    vLog('Loading ElevenLabs SDK…');
     if (!conversationClass) {
+      // Load SDK once; esm.sh is cached after first load
       const mod = await import('https://esm.sh/@11labs/client');
       conversationClass = mod.Conversation;
+      vLog('SDK loaded ✓');
     }
 
-    // Start conversation
+    vLog('Starting ElevenLabs session…');
     conversationSession = await conversationClass.startSession({
-      signedUrl: payload.signedUrl,
-
-      onMessage: ({ message, source }) => {
-        vLog(`transcript [${source}]:`, message);
-        // Broadcast to all connected pages — they'll save to backend
-        broadcastToAllPorts({
-          type: 'TRANSCRIPT',
-          payload: { source, message }
-        });
-      },
+      signedUrl,
 
       onConnect: () => {
         vLog('Connected ✅');
-        broadcastToAllPorts({
+        isConnecting = false;
+        broadcastToAll({
           type: 'CALL_STATE',
-          payload: { isActive: true, isConnecting: false }
+          payload: { isActive: true, isConnecting: false },
+        });
+      },
+
+      onMessage: ({ message, source }) => {
+        const text = (message || '').toString().trim();
+        if (!text) return;
+        vLog(`transcript [${source}]:`, text);
+        broadcastToAll({
+          type: 'TRANSCRIPT',
+          payload: { source, message: text },
         });
       },
 
       onDisconnect: () => {
         vLog('Disconnected');
         conversationSession = null;
-        broadcastToAllPorts({
+        isConnecting = false;
+        broadcastToAll({
           type: 'CALL_STATE',
-          payload: { isActive: false, isConnecting: false }
+          payload: { isActive: false, isConnecting: false },
         });
-        broadcastToAllPorts({
-          type: 'CALL_ENDED'
-        });
+        broadcastToAll({ type: 'CALL_ENDED' });
       },
 
       onError: (err) => {
-        vLog('Error:', err);
-        broadcastToAllPorts({
+        const msg = err?.message || String(err);
+        console.error('[VOICE-WORKER] Session error:', msg);
+        conversationSession = null;
+        isConnecting = false;
+        broadcastToAll({
+          type: 'CALL_STATE',
+          payload: { isActive: false, isConnecting: false },
+        });
+        broadcastToAll({
           type: 'CALL_ERROR',
-          payload: { error: err?.message }
+          payload: { error: msg },
         });
       },
     });
 
-    broadcastToAllPorts({
-      type: 'CALL_STATE',
-      payload: { isActive: true, isConnecting: false }
-    });
+    // startSession resolves after the session is created but BEFORE onConnect
+    // fires. We keep isConnecting=true until onConnect clears it above.
+    vLog('startSession returned — waiting for onConnect…');
 
   } catch (error) {
-    console.error('[VOICE-WORKER] startCall failed:', error?.message);
+    const msg = error?.message || String(error);
+    console.error('[VOICE-WORKER] startCall failed:', msg);
     conversationSession = null;
-    broadcastToAllPorts({
+    isConnecting = false;
+    broadcastToAll({
+      type: 'CALL_STATE',
+      payload: { isActive: false, isConnecting: false },
+    });
+    broadcastToAll({
       type: 'CALL_ERROR',
-      payload: { error: error?.message }
+      payload: { error: msg },
     });
   }
 }
 
-async function endCall(port) {
-  if (conversationSession) {
-    try {
-      await conversationSession.endSession();
-    } catch (e) {
-      vLog('endSession error:', e?.message);
-    }
-    conversationSession = null;
+// ─── End call ─────────────────────────────────────────────────────────────────
+async function endCall() {
+  if (!conversationSession) {
+    // No active session — just reset state in case UI is out of sync
+    isConnecting = false;
+    broadcastToAll({
+      type: 'CALL_STATE',
+      payload: { isActive: false, isConnecting: false },
+    });
+    return;
   }
 
-  broadcastToAllPorts({
-    type: 'CALL_STATE',
-    payload: { isActive: false, isConnecting: false }
-  });
+  try {
+    vLog('Ending session…');
+    await conversationSession.endSession();
+    // onDisconnect callback above handles clearing + broadcasting
+  } catch (e) {
+    vLog('endSession error (ignored):', e?.message);
+    // Force-clear even if endSession threw
+    conversationSession = null;
+    isConnecting = false;
+    broadcastToAll({
+      type: 'CALL_STATE',
+      payload: { isActive: false, isConnecting: false },
+    });
+    broadcastToAll({ type: 'CALL_ENDED' });
+  }
 }
 
-function broadcastState(port) {
-  const isActive = !!conversationSession;
-  port.postMessage({
-    type: 'CALL_STATE',
-    payload: { isActive, isConnecting: false }
-  });
+// ─── Broadcast helpers ────────────────────────────────────────────────────────
+function sendToPort(port, message) {
+  try {
+    port.postMessage(message);
+  } catch (e) {
+    // Port is dead (page closed/navigated away) — remove it
+    vLog('Dead port removed:', e?.message);
+    ports.delete(port);
+  }
 }
 
-function broadcastToAllPorts(message) {
-  ports.forEach(port => {
+function broadcastToAll(message) {
+  const dead = [];
+  for (const port of ports) {
     try {
       port.postMessage(message);
     } catch (e) {
-      vLog('Broadcast failed:', e?.message);
+      dead.push(port);
     }
-  });
-  // Clean dead ports
-  ports = ports.filter(p => {
-    try {
-      return !!p;
-    } catch {
-      return false;
-    }
-  });
+  }
+  dead.forEach(p => ports.delete(p));
+  vLog(`→ broadcast ${message.type} to ${ports.size} port(s)`);
 }
 
 vLog('SharedWorker initialized');
