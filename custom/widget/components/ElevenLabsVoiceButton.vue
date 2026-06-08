@@ -18,9 +18,6 @@ const buildConvUrl = path => {
 //   • Works across page navigations (stored on window)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const WINDOW_SESSION_KEY = '_cwVoiceSession';
-const WINDOW_CONV_CLASS  = '_cwConversationClass';
-
 // Debug logger — console mein sirf tab dikhega jab debug mode ON ho
 // ON:  localStorage.setItem('cw_voice_debug', 'true')
 // OFF: localStorage.removeItem('cw_voice_debug')
@@ -30,31 +27,100 @@ const vLog = (...args) => {
   } catch (_) {}
 };
 
-let _sdkLoadPromise = null;
+// ─────────────────────────────────────────────────────────────────────────────
+// SESSION PERSISTENCE: Survives page reload on full-page navigation
+// When page reloads, we check sessionStorage for active call and resume it
+// ─────────────────────────────────────────────────────────────────────────────
 
-async function loadSDK() {
-  if (_sdkLoadPromise) return _sdkLoadPromise;
-  _sdkLoadPromise = (async () => {
-    if (window[WINDOW_CONV_CLASS]) return true;
-    try {
-      // esm.sh converts any npm package to ESM — works without UMD build
-      const mod = await import('https://esm.sh/@11labs/client');
-      if (mod?.Conversation) {
-        window[WINDOW_CONV_CLASS] = mod.Conversation;
-        return true;
-      }
-      return false;
-    } catch (e) {
-      console.error('[VOICE] SDK load failed:', e?.message);
-      _sdkLoadPromise = null;
-      return false;
-    }
-  })();
-  return _sdkLoadPromise;
+const SESSION_CALL_KEY = 'cw_voice_session_data';
+
+function saveCallToSession(isActive, signedUrl) {
+  if (!isActive) {
+    try { sessionStorage.removeItem(SESSION_CALL_KEY); } catch (_) {}
+    return;
+  }
+  try {
+    sessionStorage.setItem(SESSION_CALL_KEY, JSON.stringify({
+      isActive: true,
+      signedUrl,
+      timestamp: Date.now()
+    }));
+  } catch (_) {}
 }
 
-function getConversationClass() {
-  return window[WINDOW_CONV_CLASS];
+function getSessionCall() {
+  try {
+    const data = sessionStorage.getItem(SESSION_CALL_KEY);
+    if (!data) return null;
+    const parsed = JSON.parse(data);
+    // Only restore if less than 5 minutes old
+    if (Date.now() - parsed.timestamp > 5 * 60 * 1000) {
+      sessionStorage.removeItem(SESSION_CALL_KEY);
+      return null;
+    }
+    return parsed;
+  } catch (_) {
+    return null;
+  }
+}
+
+function clearSessionCall() {
+  try { sessionStorage.removeItem(SESSION_CALL_KEY); } catch (_) {}
+}
+
+let _sharedWorker = null;
+let _workerPort = null;
+let _callRestoredFromSession = false; // Track if we already tried restoring
+
+function getSharedWorker() {
+  if (!_sharedWorker) {
+    try {
+      // Modern browsers support SharedWorker for persistent background connections
+      _sharedWorker = new SharedWorker(
+        new URL('../workers/voice-shared-worker.js', import.meta.url),
+        { name: 'chatwoot-voice' }
+      );
+      _sharedWorker.port.onmessage = handleWorkerMessage;
+      _sharedWorker.port.start();
+      vLog('SharedWorker connected');
+    } catch (e) {
+      console.warn('[VOICE] SharedWorker not supported, falling back to page-local storage:', e?.message);
+      return null;
+    }
+  }
+  return _sharedWorker;
+}
+
+function handleWorkerMessage(evt) {
+  const { type, payload } = evt.data;
+  vLog(`Worker message: ${type}`, payload);
+
+  if (type === 'CALL_STATE') {
+    // Call state changed in worker or another page
+    // Component will update via computed properties
+  } else if (type === 'TRANSCRIPT') {
+    // Worker received transcript — save to backend
+    // Using axios with website_token already included
+    const text = (payload.message || '').toString().trim();
+    if (text) {
+      API.post(
+        buildConvUrl('/api/v1/widget/conversations/voice_transcript'),
+        { source: payload.source, content: text }
+      ).catch(e => {
+        console.warn('[VOICE] transcript save failed:', e?.response?.status, e?.message);
+      });
+    }
+  } else if (type === 'CALL_ENDED') {
+    // Call ended — notify backend for auto-resolve timer
+    API.post(
+      buildConvUrl('/api/v1/widget/conversations/voice_call_ended'),
+      {}
+    ).catch(e => {
+      vLog('voice_call_ended notify failed:', e?.message);
+    });
+  } else if (type === 'CALL_ERROR') {
+    console.error('[VOICE]', payload.error);
+  }
 }
 
 export default {
@@ -104,22 +170,40 @@ export default {
     },
   },
   mounted() {
-    // Preload SDK so call starts instantly on first click
-    if (this.hasElevenLabsVoiceEnabled) loadSDK();
-
-    // ── Resume after page navigation ────────────────────────────────────
-    if (window[WINDOW_SESSION_KEY]) {
-      this.isCallActive = true;
-      this.setActive(true);
+    // Connect to SharedWorker (persistent across page navigations)
+    const worker = getSharedWorker();
+    if (worker) {
+      _workerPort = worker.port;
+      // Ask worker for current call state
+      _workerPort.postMessage({ type: 'SYNC_STATE' });
     }
 
-    // ── Floating End Call button (sdk-floating-btn.js) ───────────────────
+    // ── Restore call from page reload ─────────────────────────────────────
+    // If page reloaded while voice call was active, resume it
+    if (!_callRestoredFromSession) {
+      _callRestoredFromSession = true;
+      const sessionCall = getSessionCall();
+      if (sessionCall && sessionCall.signedUrl) {
+        vLog('Resuming voice call after page reload...');
+        this.isCallActive = true;
+        this.setActive(true);
+        // Use setTimeout to ensure component is fully mounted
+        setTimeout(() => {
+          this._resumeCallFromSession(sessionCall.signedUrl);
+        }, 500);
+      }
+    }
+
+    // Floating End Call button (sdk-floating-btn.js) ───────────────────
     // Parent page button → sends event → end call
     emitter.on('end-voice-call', this.endCall);
   },
   beforeUnmount() {
     emitter.off('end-voice-call', this.endCall);
-    if (!this.isCallActive) this._cleanupSession();
+    if (!this.isCallActive) {
+      clearSessionCall();
+      this._cleanupSession();
+    }
   },
   methods: {
     ...mapActions('elevenlabsVoice', ['setActive', 'setConnecting']),
@@ -132,81 +216,79 @@ export default {
     // ── Start voice call ──────────────────────────────────────────────────
     async startCall() {
       if (!this.hasElevenLabsVoiceEnabled) return;
+      
+      const worker = getSharedWorker();
+      if (!worker) {
+        alert('SharedWorker not supported. Voice calling unavailable.');
+        return;
+      }
+
       this.isConnecting = true;
       this.setConnecting(true);
 
       try {
-        // 1. Load @11labs/client SDK
-        const loaded = await loadSDK();
-        if (!loaded) throw new Error('Failed to load ElevenLabs SDK');
-
-        const Conversation = getConversationClass();
-        if (!Conversation) throw new Error('ElevenLabs Conversation class not found');
-
-        // 2. Get signed URL from backend — agent_id never reaches browser
+        // Get signed URL from backend
         const { data } = await API.get(
           buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
         );
         const signedUrl = data?.signed_url;
         if (!signedUrl) throw new Error('No signed URL from server');
 
-        // 3. Start session via SDK — handles ALL WebSocket protocol internally
-        //    (ping/pong, audio, reconnect) — no 3-sec cutoff ✅
-        const session = await Conversation.startSession({
-          signedUrl,
+        // Save to sessionStorage — survives page reload
+        saveCallToSession(true, signedUrl);
+        vLog('Call saved to session');
 
-          // ── Live transcript ── fires for every AI + user turn ────────────
-          onMessage: ({ message, source }) => {
-            vLog(`transcript [${source}]:`, message);
-            this._saveTranscript(source, message);
-          },
-
-          onConnect: () => {
-            vLog('Connected ✅');
-            this.isConnecting = false;
-            this.setConnecting(false);
-            this.isCallActive = true;
-            this.setActive(true);
-          },
-
-          onDisconnect: () => {
-            vLog('Disconnected');
-            this._cleanupSession();
-            this.isCallActive = false;
-            this.isConnecting = false;
-            this.setActive(false);
-            this.setConnecting(false);
-            // Tell backend that voice call ended so it can finalize
-            // last_activity_at for the auto-resolve timer.
-            this._notifyVoiceCallEnded();
-          },
-
-          onError: err  => vLog('error:', err),
-          onModeChange: ({ mode }) => vLog('mode:', mode),
+        // Tell worker to start call — worker handles WebSocket + reconnect
+        _workerPort.postMessage({
+          type: 'START_CALL',
+          payload: { signedUrl }
         });
 
-        // 4. Store session on window — survives Vue component unmount/remount
-        //    when user navigates pages
-        window[WINDOW_SESSION_KEY] = session;
+        // Worker will send CALL_STATE message when connected
+        this.isCallActive = true;
+        this.setActive(true);
 
       } catch (error) {
         console.error('[VOICE] startCall failed:', error?.message);
         this.isConnecting = false;
         this.setConnecting(false);
         this.setActive(false);
-        window[WINDOW_SESSION_KEY] = null;
+        clearSessionCall();
         if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') {
           alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS'));
         }
       }
     },
 
+    // ── Resume call after page reload ─────────────────────────────────────
+    // User navigated away while on a call, page reloaded, now reconnect
+    async _resumeCallFromSession(signedUrl) {
+      try {
+        const worker = getSharedWorker();
+        if (!worker) {
+          clearSessionCall();
+          return;
+        }
+
+        vLog('Resuming voice call from session...');
+        // Tell worker to restore the call
+        _workerPort.postMessage({
+          type: 'START_CALL',
+          payload: { signedUrl }
+        });
+      } catch (error) {
+        console.error('[VOICE] resume failed:', error?.message);
+        clearSessionCall();
+      }
+    },
+
     // ── End voice call ────────────────────────────────────────────────────
     async endCall() {
-      const session = window[WINDOW_SESSION_KEY];
-      if (session) {
-        try { await session.endSession(); } catch (_) {}
+      const worker = getSharedWorker();
+      if (worker && _workerPort) {
+        _workerPort.postMessage({ type: 'END_CALL' });
       }
+      clearSessionCall(); // Clear call from session when explicitly ended
       this._cleanupSession();
       this.isCallActive = false;
       this.isConnecting = false;
@@ -215,44 +297,8 @@ export default {
     },
 
     _cleanupSession() {
-      window[WINDOW_SESSION_KEY] = null;
       // Clear localStorage bridge so parent page hides the floating button
       try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
-    },
-
-    // ── Notify backend that voice call ended ──────────────────────────────
-    // Backend resets last_activity_at to pre-call time so the auto-resolve
-    // inactivity timer is based on when the call started, not when it ended.
-    async _notifyVoiceCallEnded() {
-      try {
-        await API.post(
-          buildConvUrl('/api/v1/widget/conversations/voice_call_ended'),
-          {}
-        );
-        vLog('Voice call ended — backend notified');
-      } catch (e) {
-        // Non-critical — auto-resolve still works via last_activity_at preservation
-        vLog('voice_call_ended notify failed (non-critical):', e?.message);
-      }
-    },
-
-    // ── Save transcript turn to Chatwoot conversation ─────────────────────
-    // Called on EVERY message — real-time, no polling needed ✅
-    async _saveTranscript(source, content) {
-      const text = (content || '').toString().trim();
-      if (!text) return;
-      try {
-        await API.post(
-          buildConvUrl('/api/v1/widget/conversations/voice_transcript'),
-          { source, content: text }
-        );
-        // Sync messages so transcript appears in widget immediately
-        try {
-          await this.$store.dispatch('conversation/syncLatestMessages');
-        } catch (_) {}
-      } catch (e) {
-        console.warn('[VOICE] transcript save failed:', e?.response?.status, e?.message);
-      }
     },
   },
 };
