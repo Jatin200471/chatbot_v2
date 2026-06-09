@@ -375,6 +375,59 @@ export default {
       // independently of our host. Apply the same theme there too.
       this._observePortaledWidget(color);
 
+      // ── Listen for end-of-call events emitted by the widget ─────────
+      // The widget emits a custom event when its own End Call button is
+      // clicked OR the call ends naturally. We hook into every plausible
+      // event name so we close the chat panel as soon as the widget ends.
+      this._wireEndCallEvents(el);
+    },
+
+    // Multiple possible event names — different SDK versions use different ones
+    _wireEndCallEvents(el) {
+      const endHandler = (event) => {
+        vLog('widget fired end-call event:', event?.type);
+        if (this.isCallActive) {
+          this._closeWidgetPanel();
+          this.endCall();
+        }
+      };
+      [
+        'convai-call-end',
+        'convai-end',
+        'call-end',
+        'session-end',
+        'end',
+        'disconnect',
+        'elevenlabs:call-end',
+        'elevenlabs-convai:call-end',
+      ].forEach(name => {
+        try { el.addEventListener(name, endHandler); } catch (_) {}
+      });
+      this._endHandler = endHandler;
+
+      // ── Safety fallback ── poll the shadow DOM every 2s for the rating
+      // screen. Conservative — only matches phrases that are specifically
+      // post-call (won't false-trigger during normal call). Triggers our
+      // cleanup if widget ended call internally and we missed the event.
+      if (this._endedFallback) clearInterval(this._endedFallback);
+      this._endedFallback = setInterval(() => {
+        if (!this.widgetElement || !this.isCallActive) return;
+        const root = this.widgetElement.shadowRoot;
+        if (!root) return;
+        const html = (root.innerHTML || '').toLowerCase();
+        // ONLY very specific post-call markers — no false positives
+        const callEnded =
+          html.includes('how was this conversation') ||
+          html.includes('you ended the conversation') ||
+          html.includes('conversation ended');
+        if (callEnded) {
+          vLog('detected post-call rating screen — closing panel');
+          clearInterval(this._endedFallback);
+          this._endedFallback = null;
+          this._closeWidgetPanel();
+          this.endCall();
+        }
+      }, 2000);
     },
 
     _injectShadowStyles(el, color) {
@@ -454,6 +507,10 @@ export default {
       if (this._portalObserver) {
         try { this._portalObserver.disconnect(); } catch (_) {}
         this._portalObserver = null;
+      }
+      if (this._endedFallback) {
+        clearInterval(this._endedFallback);
+        this._endedFallback = null;
       }
       // Also kill any portaled <elevenlabs-convai> instances on <body>
       document.querySelectorAll('elevenlabs-convai').forEach(el => {
