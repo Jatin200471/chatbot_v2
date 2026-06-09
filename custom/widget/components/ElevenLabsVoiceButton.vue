@@ -79,6 +79,40 @@ function clearSessionCall() {
 // Singletons — survive Vue component re-mounts within same iframe load
 // ─────────────────────────────────────────────────────────────────────────────
 let _scriptLoadPromise = null;
+let _widgetHideStyleInstalled = false;
+
+// Hide the official ElevenLabs widget UI entirely (it portals itself to
+// document.body so off-screen positioning on our host isn't enough). The
+// widget keeps functioning in the DOM — audio, WebSocket, SDK all alive —
+// we only suppress its visual rendering. Our custom phone icon in the chat
+// input + the floating "End Call" button on the parent page are the only
+// visible voice-related UI.
+function installWidgetHideStyle() {
+  if (_widgetHideStyleInstalled) return;
+  try {
+    const style = document.createElement('style');
+    style.id = 'cw-hide-elevenlabs-widget';
+    style.textContent = `
+      elevenlabs-convai,
+      elevenlabs-convai *,
+      [class*="convai-widget"],
+      [class*="elevenlabs-convai"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        position: absolute !important;
+        left: -10000px !important;
+        top: -10000px !important;
+        width: 1px !important;
+        height: 1px !important;
+        overflow: hidden !important;
+      }
+    `;
+    document.head.appendChild(style);
+    _widgetHideStyleInstalled = true;
+  } catch (_) {}
+}
 
 function loadElevenLabsScript() {
   if (_scriptLoadPromise) return _scriptLoadPromise;
@@ -156,6 +190,9 @@ export default {
   },
 
   mounted() {
+    // Hide the official widget UI globally — only our phone icon is visible
+    installWidgetHideStyle();
+
     // Preload the SDK so the click-to-start is snappy
     if (this.hasElevenLabsVoiceEnabled) {
       loadElevenLabsScript();
@@ -163,10 +200,10 @@ export default {
 
     // Resume after hard page reload (sessionStorage flag)
     const sessionCall = getSessionCall();
-    if (sessionCall?.signedUrl) {
+    if (sessionCall) {
       vLog('Found session — auto-resuming call after page reload…');
       // Defer slightly so configMixin/store are ready
-      setTimeout(() => this._resumeCall(sessionCall.signedUrl), 300);
+      setTimeout(() => this._resumeCall(), 300);
     }
 
     emitter.on('end-voice-call', this.endCall);
@@ -313,8 +350,14 @@ export default {
     },
 
     // ── Resume after hard refresh ───────────────────────────────────────
-    async _resumeCall(signedUrl) {
+    // ElevenLabs signed URLs are single-use, so we ALWAYS fetch a fresh
+    // one on resume (not the stale one from sessionStorage). We also pull
+    // the conversation transcript from /voice_history and surface it to
+    // the agent via dynamic variables / prompt override so the new
+    // session continues the prior conversation contextually.
+    async _resumeCall() {
       if (!this.hasElevenLabsVoiceEnabled) return;
+
       this.isConnecting = true;
       this.setConnecting(true);
       this.isCallActive = true;
@@ -322,20 +365,71 @@ export default {
       try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
 
       try {
+        // 1. Mic permission (may already be granted from previous load,
+        //    but browser sometimes requires re-grant after iframe destroy)
+        if (navigator.mediaDevices?.getUserMedia) {
+          try {
+            const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+            s.getTracks().forEach(t => t.stop());
+          } catch (_) {
+            // Mic not granted — user will see browser prompt on next interact
+          }
+        }
+
+        // 2. Get a FRESH signed URL (old one is single-use)
+        const { data } = await API.get(
+          buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
+        );
+        const freshSignedUrl = data?.signed_url;
+        if (!freshSignedUrl) throw new Error('Backend returned no signed_url for resume');
+
+        // Update sessionStorage with the fresh URL
+        saveCallToSession(freshSignedUrl);
+
+        // 3. Fetch transcript history for context injection
+        let historyContext = '';
+        try {
+          const histRes = await API.get(
+            buildConvUrl('/api/v1/widget/conversations/voice_history?limit=15')
+          );
+          if (histRes.data?.has_history && histRes.data?.lines?.length) {
+            const transcript = histRes.data.lines
+              .map(l => `${l.role === 'user' ? 'Visitor' : 'You'}: ${l.content}`)
+              .join('\n');
+            historyContext = transcript;
+            vLog(`Resume with ${histRes.data.lines.length} prior turns`);
+          }
+        } catch (_) {
+          // Non-fatal — proceed without context if history fetch fails
+        }
+
+        // 4. Load + mount widget with the fresh URL
         await loadElevenLabsScript();
-        this._mountWidget(signedUrl);
+        this._mountWidget(freshSignedUrl, historyContext);
+
+        // 5. Trigger the widget's internal start
         setTimeout(() => this._clickWidgetButton({ preferEnd: false }), 300);
+
+        // 6. Start transcript polling
         this._startTranscriptPoll();
+
         this.isConnecting = false;
         this.setConnecting(false);
+        vLog('Resumed call ✓');
       } catch (e) {
-        console.error('[VOICE] resume failed:', e?.message);
-        this.endCall();
+        console.error('[VOICE] resume failed:', e?.message || e);
+        // Clean up — user can manually start fresh call
+        clearSessionCall();
+        this.isCallActive = false;
+        this.isConnecting = false;
+        this.setActive(false);
+        this.setConnecting(false);
+        try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
       }
     },
 
     // ── Widget DOM management ───────────────────────────────────────────
-    _mountWidget(signedUrl) {
+    _mountWidget(signedUrl, historyContext = '') {
       const host = this.$refs.widgetHost;
       if (!host) return;
 
@@ -348,6 +442,22 @@ export default {
       const el = document.createElement('elevenlabs-convai');
       el.setAttribute('signed-url', signedUrl);
       el.setAttribute('data-chatwoot', 'true');
+
+      // Inject prior conversation as dynamic variable if we have history.
+      // The agent's prompt template can reference {{previous_conversation}}
+      // to use it; even without that, ElevenLabs sends it as context.
+      if (historyContext) {
+        const dynVars = JSON.stringify({
+          previous_conversation: historyContext,
+          reconnect_mode: 'true',
+        });
+        el.setAttribute('dynamic-variables', dynVars);
+        // Override first message to acknowledge the reconnect
+        el.setAttribute(
+          'override-first-message',
+          "Welcome back — looks like we got disconnected. Let me continue where we left off."
+        );
+      }
 
       // ── Theme tokens via CSS custom properties ──────────────────────
       // The widget reads these to color its primary button, animations, etc.
