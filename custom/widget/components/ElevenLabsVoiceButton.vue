@@ -5,20 +5,16 @@ import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
 import { emitter } from 'shared/helpers/mitt';
 
 /**
- * Voice button — popup mode.
+ * Voice button — secure popup launcher.
  *
- * Instead of running the ElevenLabs SDK inside the widget iframe (which gets
- * destroyed on every parent-page hard refresh), we open a separate popup
- * window that hosts the call. The popup is its own browsing context so it
- * survives parent navigation / F5 / URL changes completely intact.
- *
- * Wire protocol (popup ↔ widget ↔ parent):
- *   popup → window.opener (this iframe) via postMessage
- *   popup → window.opener.parent (the page) via postMessage
- *   this iframe → window.parent (the page) via postMessage (for hide/show)
+ *  • Opens /voice-popup.html in a small floating window
+ *  • Delivers signedUrl + tokens via postMessage (NEVER in the URL)
+ *  • The popup hosts the @11labs/client SDK call
+ *  • Each transcript turn is POSTed to backend so the chat panel
+ *    auto-shows live messages via Chatwoot's existing message-poll loop
+ *  • End Call closes both the popup AND the chat widget panel
  */
 
-// URL helper — appends website_token to API requests
 const buildConvUrl = path => {
   if (!WEBSITE_TOKEN) return path;
   const sep = path.includes('?') ? '&' : '?';
@@ -31,33 +27,27 @@ const vLog = (...args) => {
   } catch (_) {}
 };
 
-// Module-level so the popup reference survives Vue re-mounts within the
-// same iframe load. On a hard parent-page refresh the iframe is destroyed,
-// _popupRef is gone, and we rely on the heartbeat in localStorage +
-// BroadcastChannel to re-detect the popup.
+// ── Module-level state survives Vue re-mounts within same iframe load ───
 let _popupRef = null;
 let _broadcast = null;
+let _pendingConfigPromise = null;
+let _pendingConfig = null;
 
-const HEARTBEAT_KEY  = 'cw_voice_popup_heartbeat';
-const HEARTBEAT_MAX_AGE_MS = 4000; // older than this = popup considered dead
+const HEARTBEAT_KEY        = 'cw_voice_popup_heartbeat';
+const HEARTBEAT_MAX_AGE_MS = 4000;
 
 function isPopupAlive() {
   if (_popupRef && !_popupRef.closed) return true;
-  // Even if we lost the direct reference, an alive popup writes a heartbeat
   try {
     const last = parseInt(localStorage.getItem(HEARTBEAT_KEY) || '0', 10);
     if (last && Date.now() - last < HEARTBEAT_MAX_AGE_MS) return true;
   } catch (_) {}
   return false;
 }
-
 function getBroadcastChannel() {
   if (_broadcast) return _broadcast;
-  try {
-    _broadcast = new BroadcastChannel('cw-voice');
-  } catch (_) {
-    _broadcast = null;
-  }
+  try { _broadcast = new BroadcastChannel('cw-voice'); }
+  catch (_) { _broadcast = null; }
   return _broadcast;
 }
 
@@ -83,15 +73,10 @@ export default {
       voiceAgentProvider:  'voiceAgentConfig/getVoiceAgentProvider',
       widgetColor:         'appConfig/getWidgetColor',
     }),
-
     hasElevenLabsVoiceEnabled() {
       return this.isVoiceAgentEnabled && this.voiceAgentProvider === 'elevenlabs';
     },
-
-    shouldShowButton() {
-      return this.hasElevenLabsVoiceEnabled;
-    },
-
+    shouldShowButton() { return this.hasElevenLabsVoiceEnabled; },
     buttonClasses() {
       const sizeMap = { small: 'min-h-7 min-w-7', medium: 'min-h-9 min-w-9', large: 'min-h-10 min-w-10' };
       return [
@@ -101,34 +86,24 @@ export default {
         this.isCallActive  ? 'elevenlabs-active'    : '',
       ];
     },
-
-    iconSize() {
-      return { small: 16, medium: 18, large: 22 }[this.size] || 18;
-    },
-
+    iconSize() { return { small: 16, medium: 18, large: 22 }[this.size] || 18; },
     tooltipText() {
-      if (this.isCallActive)  return this.$t('VOICE_AGENT.END_CALL');
-      if (this.isConnecting)  return this.$t('VOICE_AGENT.CONNECTING');
+      if (this.isCallActive) return this.$t('VOICE_AGENT.END_CALL');
+      if (this.isConnecting) return this.$t('VOICE_AGENT.CONNECTING');
       return this.$t('VOICE_AGENT.START_CALL');
     },
   },
 
   mounted() {
-    // ── Cross-window listeners ───────────────────────────────────────────
     window.addEventListener('message', this.onWindowMessage);
     emitter.on('end-voice-call', this.endCall);
 
     const ch = getBroadcastChannel();
     if (ch) {
       ch.addEventListener('message', this.onBroadcastMessage);
-      // After a parent-page refresh, our _popupRef is gone. Ping the channel
-      // so an alive popup will respond with a heartbeat and we can re-sync.
       try { ch.postMessage({ type: 'ping' }); } catch (_) {}
     }
 
-    // ── Detect popup-alive on mount (handles parent hard refresh) ────────
-    // Check synchronously via heartbeat in localStorage, then again after
-    // a short delay to catch BroadcastChannel responses to our ping.
     if (isPopupAlive()) this._syncCallActiveFromPopup();
     this._popupSyncTimer = setTimeout(() => {
       if (isPopupAlive() && !this.isCallActive) this._syncCallActiveFromPopup();
@@ -148,103 +123,48 @@ export default {
 
     handleClick() {
       if (this.isConnecting) return;
-      if (this.isCallActive && isPopupAlive()) {
-        // Focus the existing popup instead of opening a new one
+      if (this.isCallActive && _popupRef && !_popupRef.closed) {
         try { _popupRef.focus(); } catch (_) {}
         return;
       }
       this.isCallActive ? this.endCall() : this.startCall();
     },
 
-    // ── Open the popup window and start the call ─────────────────────────
-    async startCall() {
+    startCall() {
       if (!this.hasElevenLabsVoiceEnabled) return;
-
       this.isConnecting = true;
       this.setConnecting(true);
 
-      try {
-        // 1. Fetch fresh signed URL (agent_id stays server-side)
-        const { data } = await API.get(
-          buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
-        );
-        const signedUrl = data?.signed_url;
-        if (!signedUrl) throw new Error('Backend returned no signed_url');
+      const w = 380, h = 620;
+      const left = Math.max(0, Math.round((screen.availWidth  - w) / 2));
+      const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
+      const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;
 
-        // 2. Read widget config for the popup look & feel
-        const cfg = window.chatwootWebChannel || {};
-        const popupParams = new URLSearchParams({
-          signed_url:     signedUrl,
-          website_token:  WEBSITE_TOKEN || '',
-          base_url:       window.location.origin,
-          color:          this.widgetColor || cfg.widgetColor || this.color || '#1f93ff',
-          avatar:         cfg.avatarUrl || '',
-          agent_name:     cfg.websiteName || 'AI Assistant',
-          agent_role:     'Voice Assistant',
-          brand:          cfg.websiteName || '',
-          auth_token:     window.authToken || '',
-          cw_conversation: this.getCwConversationToken() || '',
-        });
+      const cleanUrl = `${window.location.origin}/voice-popup.html`;
+      _popupRef = window.open(cleanUrl, 'cwVoiceCall', features);
 
-        const popupUrl = `${window.location.origin}/voice-popup.html?${popupParams.toString()}`;
-
-        // 3. Open the popup (centered on screen)
-        const w = 380, h = 600;
-        const left = Math.max(0, (screen.width  - w) / 2);
-        const top  = Math.max(0, (screen.height - h) / 2);
-        const features = [
-          `width=${w}`,
-          `height=${h}`,
-          `left=${left}`,
-          `top=${top}`,
-          'resizable=yes',
-          'scrollbars=no',
-          'toolbar=no',
-          'location=no',
-          'status=no',
-          'menubar=no',
-        ].join(',');
-
-        _popupRef = window.open(popupUrl, 'cwVoiceCall', features);
-
-        if (!_popupRef) {
-          this.isConnecting = false;
-          this.setConnecting(false);
-          alert('Popup blocked — please allow popups for this site to start a voice call.');
-          return;
-        }
-
-        // Try to focus the popup (some browsers need this)
-        try { _popupRef.focus(); } catch (_) {}
-
-        // 4. Notify parent page to hide the widget while the popup is up
-        this.notifyParentWidgetHide(true);
-
-        // 5. Flag voice-active so sdk-floating-btn.js intercepts navigation
-        try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
-
-        // 6. Optimistically reflect active state — popup will confirm via msg
+      if (!_popupRef) {
         this.isConnecting = false;
         this.setConnecting(false);
-        this.isCallActive = true;
-        this.setActive(true);
-
-        vLog('Popup opened ✓', popupUrl);
-      } catch (error) {
-        console.error('[VOICE] startCall error:', error?.message || error);
-        this.isConnecting = false;
-        this.setConnecting(false);
-        this.setActive(false);
-        try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
-        if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') {
-          alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS'));
-        }
+        alert('Popup blocked — please allow popups for this site to start a voice call.');
+        return;
       }
+      try { _popupRef.focus(); } catch (_) {}
+
+      _pendingConfigPromise = this._buildConfig();
+
+      this.notifyParentWidgetHide(true);
+      try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
+
+      this.isConnecting = false;
+      this.setConnecting(false);
+      this.isCallActive = true;
+      this.setActive(true);
+
+      vLog('Popup opened ✓ (clean URL, config via postMessage)');
     },
 
-    // ── End the call (closes the popup) ─────────────────────────────────
     endCall() {
-      // Path 1 — we still have the direct popup reference (same iframe load)
       if (_popupRef && !_popupRef.closed) {
         try {
           _popupRef.postMessage({ source: 'cw-widget', event: 'request-end-call' }, '*');
@@ -255,14 +175,8 @@ export default {
           }
         }, 1500);
       }
-
-      // Path 2 — parent was refreshed, no direct ref but popup is alive via
-      // heartbeat. Use BroadcastChannel to ask it to end (same origin).
       const ch = getBroadcastChannel();
-      if (ch) {
-        try { ch.postMessage({ type: 'request-end-call' }); } catch (_) {}
-      }
-
+      if (ch) { try { ch.postMessage({ type: 'request-end-call' }); } catch (_) {} }
       this.resetCallState();
     },
 
@@ -276,7 +190,6 @@ export default {
       this.notifyParentWidgetHide(false);
     },
 
-    // ── Reflect "popup is alive" state into the widget UI ───────────────
     _syncCallActiveFromPopup() {
       if (this.isCallActive) return;
       vLog('Detected alive popup via heartbeat — syncing UI to active');
@@ -288,20 +201,16 @@ export default {
       this.notifyParentWidgetHide(true);
     },
 
-    // ── BroadcastChannel messages from the popup ────────────────────────
     onBroadcastMessage(e) {
       const m = e?.data;
       if (!m || typeof m !== 'object') return;
       if (m.type === 'heartbeat') {
-        // Popup is alive; mirror into UI if we're not already showing active
         if (!this.isCallActive) this._syncCallActiveFromPopup();
       } else if (m.type === 'ended') {
-        // Popup ended its call
         this.resetCallState();
       }
     },
 
-    // ── Cross-window messages from the popup ────────────────────────────
     onWindowMessage(e) {
       const data = e?.data;
       if (!data || typeof data !== 'object') return;
@@ -311,6 +220,10 @@ export default {
         case 'voice-popup-opened':
           vLog('popup says: opened');
           break;
+        case 'voice-popup-request-config':
+          vLog('popup requesting config…');
+          this._sendConfigToPopup(e.source || _popupRef);
+          break;
         case 'voice-popup-connected':
           vLog('popup says: connected ✅');
           this.isCallActive = true;
@@ -319,7 +232,9 @@ export default {
           this.setConnecting(false);
           break;
         case 'voice-popup-transcript':
-          vLog('popup transcript:', data.source, data.message);
+          vLog('popup transcript →', data.source, data.message);
+          try { this.$store.dispatch('conversation/fetchOldConversations'); } catch (_) {}
+          try { this.$store.dispatch('message/fetchAllMessages'); } catch (_) {}
           break;
         case 'voice-popup-error':
           console.error('[VOICE] popup error:', data.error);
@@ -333,7 +248,6 @@ export default {
       }
     },
 
-    // ── Tell the parent page (sdk-floating-btn.js) to hide/show widget ──
     notifyParentWidgetHide(hide) {
       try {
         window.parent.postMessage({
@@ -342,20 +256,62 @@ export default {
       } catch (_) {}
     },
 
-    // ── Grab the cw_conversation JWT so the popup can hit widget APIs ───
+    async _buildConfig() {
+      const { data } = await API.get(
+        buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
+      );
+      const signedUrl = data?.signed_url;
+      if (!signedUrl) throw new Error('Backend returned no signed_url');
+
+      const ch = window.chatwootWebChannel || {};
+      const config = {
+        signedUrl,
+        baseUrl:        window.location.origin,
+        websiteToken:   WEBSITE_TOKEN || '',
+        color:          this.widgetColor || ch.widgetColor || this.color || '#1f93ff',
+        avatar:         ch.avatarUrl || '',
+        agentName:      ch.websiteName || 'AI Assistant',
+        agentRole:      'Voice Assistant',
+        brand:          ch.websiteName || '',
+        authToken:      window.authToken || '',
+        cwConversation: this.getCwConversationToken() || '',
+      };
+      _pendingConfig = config;
+      return config;
+    },
+
+    async _sendConfigToPopup(targetWindow) {
+      try {
+        const config = _pendingConfig
+          || (_pendingConfigPromise && await _pendingConfigPromise)
+          || await this._buildConfig();
+        if (targetWindow && !targetWindow.closed) {
+          targetWindow.postMessage(
+            { source: 'cw-widget', event: 'config', config },
+            '*'
+          );
+          vLog('Config sent to popup via postMessage ✓');
+        }
+      } catch (error) {
+        console.error('[VOICE] Failed to build/send config:', error?.message);
+        try {
+          if (targetWindow && !targetWindow.closed) {
+            targetWindow.postMessage(
+              { source: 'cw-widget', event: 'config-error', error: error?.message || 'failed' },
+              '*'
+            );
+          }
+        } catch (_) {}
+      }
+    },
+
     getCwConversationToken() {
       try {
-        // Chatwoot widget stores this in cookies AND in axios state
-        // Easiest source: read from the most recent API request URL
         const cookieMatch = document.cookie.match(/cw_conversation=([^;]+)/);
         if (cookieMatch) return decodeURIComponent(cookieMatch[1]);
       } catch (_) {}
-      try {
-        // Fallback: localStorage (some Chatwoot versions store it here)
-        return localStorage.getItem('cw_conversation') || '';
-      } catch (_) {
-        return '';
-      }
+      try { return localStorage.getItem('cw_conversation') || ''; }
+      catch (_) { return ''; }
     },
   },
 };
@@ -371,7 +327,6 @@ export default {
       type="button"
       @click="handleClick"
     >
-      <!-- Connecting → spinner -->
       <svg
         v-if="isConnecting"
         :width="iconSize"
@@ -390,7 +345,6 @@ export default {
         />
       </svg>
 
-      <!-- Active → red hang-up icon -->
       <svg
         v-else-if="isCallActive"
         :width="iconSize"
@@ -408,7 +362,6 @@ export default {
         />
       </svg>
 
-      <!-- Idle → phone icon -->
       <svg
         v-else
         :width="iconSize"
@@ -435,7 +388,6 @@ export default {
   position: relative;
   display: inline-flex;
 }
-
 .elevenlabs-voice-btn {
   background: transparent;
   color: var(--widget-color, #1f93ff);
@@ -447,16 +399,8 @@ export default {
 .elevenlabs-voice-btn:active:not(:disabled) {
   transform: scale(0.95);
 }
-
-.call-icon {
-  transition: transform 0.2s ease;
-}
-
-.elevenlabs-connecting {
-  opacity: 0.75;
-  cursor: wait;
-}
-
+.call-icon { transition: transform 0.2s ease; }
+.elevenlabs-connecting { opacity: 0.75; cursor: wait; }
 .elevenlabs-active {
   background: #ef4444 !important;
   color: #ffffff !important;
@@ -466,7 +410,6 @@ export default {
 .elevenlabs-active:hover {
   background: #dc2626 !important;
 }
-
 @keyframes pulse-active {
   0%,  100% { box-shadow: 0 0 0 0   rgba(239, 68, 68, 0.45); }
   50%        { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.08); }

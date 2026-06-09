@@ -297,48 +297,49 @@
   // When the voice call runs in a separate popup window (see voice-popup.html),
   // we hide the entire Chatwoot widget on the parent page so the popup is the
   // only visible interface. When the popup closes, the widget reappears.
-
   var WIDGET_SELECTORS = [
-    '#cw-widget-holder',        // Chatwoot widget iframe container (new)
-    '#woot-widget-holder',      // Chatwoot widget iframe container (legacy)
-    '.woot-widget-holder',
-    '.woot-widget-bubble',      // Floating bubble button
-    '.woot--bubble-holder',
+    '#chatwoot_live_chat_widget',  // The widget iframe itself
+    '#cw-widget-holder',
+    '#woot-widget-holder',
     '#cw-bubble-holder',
+    '.woot-widget-holder',
+    '.woot-widget-bubble',         // Floating bubble launcher
+    '.woot--bubble-holder',
+    '.woot-elements--right',
+    '.woot-elements--left',
   ];
 
+  function _ensureHideStyle() {
+    if (document.getElementById('cw-voice-hide-style')) return;
+    var s = document.createElement('style');
+    s.id = 'cw-voice-hide-style';
+    s.textContent =
+      '.cw-voice-hidden{display:none !important;visibility:hidden !important;' +
+      'opacity:0 !important;pointer-events:none !important;}';
+    document.head.appendChild(s);
+  }
   function _hideChatwootWidget() {
+    _ensureHideStyle();
     WIDGET_SELECTORS.forEach(function (sel) {
       document.querySelectorAll(sel).forEach(function (el) {
-        if (el.dataset.cwHiddenForVoice !== '1') {
-          el.dataset.cwHiddenForVoice = '1';
-          el.dataset.cwOriginalDisplay = el.style.display || '';
-          el.style.display = 'none';
-        }
+        el.classList.add('cw-voice-hidden');
       });
     });
   }
-
   function _showChatwootWidget() {
-    WIDGET_SELECTORS.forEach(function (sel) {
-      document.querySelectorAll(sel).forEach(function (el) {
-        if (el.dataset.cwHiddenForVoice === '1') {
-          el.style.display = el.dataset.cwOriginalDisplay || '';
-          delete el.dataset.cwHiddenForVoice;
-          delete el.dataset.cwOriginalDisplay;
-        }
-      });
+    document.querySelectorAll('.cw-voice-hidden').forEach(function (el) {
+      el.classList.remove('cw-voice-hidden');
     });
   }
 
   window.addEventListener('message', function (e) {
     var data = e.data;
 
-    // ── Voice popup events (from voice-popup.html or widget iframe) ────
+    // Voice popup events (from widget iframe forwarding popup state).
+    // Flips floating-button state so SPA-nav interceptor stays active.
     if (data && typeof data === 'object') {
       if (data.event === 'cw-voice-popup-opened') {
         _hideChatwootWidget();
-        // Also flip floating-button state so SPA-nav interceptor is active
         applyVoiceState(true, false);
         return;
       }
@@ -349,7 +350,7 @@
       }
     }
 
-    // ── Plain object format (direct window.parent / window.top postMessage)
+    // Plain object format (direct window.parent / window.top postMessage)
     if (data && typeof data === 'object' && data.event === 'voice-call-active') {
       applyVoiceState(data.isActive, data.autoOpen);
       return;
