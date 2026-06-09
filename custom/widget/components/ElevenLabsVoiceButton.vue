@@ -275,8 +275,44 @@ export default {
         buildConvUrl('/api/v1/widget/conversations/voice_call_ended'), {}
       ).catch(() => {});
 
-      // Remove + remount fresh so next call is clean
+      // Remove widget DOM (kills any lingering "rating" UI from ElevenLabs)
       this._removeWidget();
+
+      // Close the entire chat panel so visitor doesn't see post-call UI
+      this._closeWidgetPanel();
+    },
+
+    // ── Close the Chatwoot widget panel (visitor-side) ──────────────────
+    // We try every known close signal because Chatwoot SDK versions vary in
+    // how they expose the toggle. Most setups respect at least one of these.
+    _closeWidgetPanel() {
+      // 1. Internal emitter (most modern Chatwoot widget code)
+      try { emitter.emit('close-widget'); } catch (_) {}
+      try { emitter.emit('chatwoot:toggle'); } catch (_) {}
+
+      // 2. Vuex action — flip isWidgetOpen to false
+      try { this.$store.dispatch('appConfig/setIsWidgetOpen', false); } catch (_) {}
+
+      // 3. postMessage to parent — sdk.js listens and toggles the iframe
+      const closeMessages = [
+        { event: 'toggle-bubble' },
+        { event: 'close-widget' },
+        'chatwoot-widget:close-widget',
+        'chatwoot-widget:toggle-close',
+      ];
+      closeMessages.forEach(msg => {
+        try { window.parent.postMessage(msg, '*'); } catch (_) {}
+      });
+
+      // 4. Last resort — call $chatwoot on parent if accessible
+      try {
+        if (window.parent.$chatwoot && typeof window.parent.$chatwoot.toggle === 'function') {
+          window.parent.$chatwoot.toggle('close');
+        }
+      } catch (_) {}
+
+      // Mark widget as closed in localStorage so it doesn't auto-reopen
+      try { localStorage.setItem('cw_widget_open', 'false'); } catch (_) {}
     },
 
     // ── Resume after hard refresh ───────────────────────────────────────
@@ -314,13 +350,130 @@ export default {
 
       const el = document.createElement('elevenlabs-convai');
       el.setAttribute('signed-url', signedUrl);
-      // Theme + variant hooks (widget honors widget color if it can read CSS vars)
-      if (this.widgetColor) {
-        el.style.setProperty('--el-color-primary', this.widgetColor);
-      }
       el.setAttribute('data-chatwoot', 'true');
+
+      // ── Theme tokens via CSS custom properties ──────────────────────
+      // The widget reads these to color its primary button, animations, etc.
+      // Setting them on the element (and globally below) lets the widget
+      // pick up the Chatwoot widget color automatically.
+      const color = this.widgetColor || this.color || '#1f93ff';
+      [
+        '--el-color-primary',
+        '--el-primary',
+        '--elc-color-primary',
+        '--convai-color-primary',
+        '--brand-color',
+      ].forEach(v => el.style.setProperty(v, color));
+
       host.appendChild(el);
       this.widgetElement = el;
+
+      // ── Inject Chatwoot-styled CSS into the widget's shadow DOM ─────
+      // The widget renders inside a closed-ish Shadow DOM; we wait for it
+      // to attach, then push a <style> tag in to override branding bits.
+      this._injectShadowStyles(el, color);
+
+      // ── Watch for the widget portaling itself to <body> ─────────────
+      // ElevenLabs sometimes injects floating UI into document.body
+      // independently of our host. Apply the same theme there too.
+      this._observePortaledWidget(color);
+
+      // ── Listen for the call-ended signal from inside shadow DOM ─────
+      // The rating screen ("How was this conversation?") appears after
+      // the widget ends a call — we close the chat panel BEFORE the user
+      // ever sees it.
+      this._watchForCallEndedInside(el);
+    },
+
+    _injectShadowStyles(el, color) {
+      const tryInject = (attempt = 0) => {
+        const root = el.shadowRoot;
+        if (!root) {
+          if (attempt < 20) setTimeout(() => tryInject(attempt + 1), 150);
+          return;
+        }
+        if (root.querySelector('style[data-cw-injected]')) return;
+
+        const style = document.createElement('style');
+        style.setAttribute('data-cw-injected', 'true');
+        style.textContent = `
+          /* ── Chatwoot brand integration ── */
+          :host, * {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                         Roboto, 'Helvetica Neue', Arial, sans-serif !important;
+          }
+
+          /* Primary brand color — applied via common variable names */
+          :host {
+            --el-color-primary: ${color} !important;
+            --el-primary: ${color} !important;
+            --convai-color-primary: ${color} !important;
+            --brand-color: ${color} !important;
+          }
+
+          /* Hide ElevenLabs branding footer ("Powered by ElevenAgents") */
+          [class*="powered"], [class*="branding"], [class*="footer"],
+          a[href*="elevenlabs"], a[href*="elevenagents"] {
+            display: none !important;
+          }
+
+          /* Hide the post-call rating screen — we close the panel anyway */
+          [class*="rating"], [class*="feedback"], [class*="review"],
+          [class*="stars"] {
+            display: none !important;
+          }
+
+          /* Hide the fullscreen-expand arrow (top-right of widget) */
+          [class*="expand"], [class*="fullscreen"], [aria-label*="expand"i] {
+            display: none !important;
+          }
+        `;
+        root.appendChild(style);
+      };
+      tryInject();
+    },
+
+    _observePortaledWidget(color) {
+      if (this._portalObserver) return;
+      const apply = (node) => {
+        if (!node || node.nodeType !== 1) return;
+        const tag = (node.tagName || '').toLowerCase();
+        // Apply theme to any elevenlabs-convai element added anywhere
+        if (tag === 'elevenlabs-convai') {
+          [
+            '--el-color-primary', '--el-primary', '--elc-color-primary',
+            '--convai-color-primary', '--brand-color',
+          ].forEach(v => node.style.setProperty(v, color));
+          this._injectShadowStyles(node, color);
+        }
+      };
+      this._portalObserver = new MutationObserver(mutations => {
+        mutations.forEach(m => m.addedNodes.forEach(apply));
+      });
+      this._portalObserver.observe(document.body, { childList: true, subtree: true });
+    },
+
+    _watchForCallEndedInside(el) {
+      // Poll shadow root for the rating/feedback screen → once it appears
+      // we close the Chatwoot widget panel so the visitor never sees it.
+      const checkInterval = setInterval(() => {
+        if (!this.widgetElement) {
+          clearInterval(checkInterval);
+          return;
+        }
+        const root = el.shadowRoot;
+        if (!root) return;
+        // Look for typical end-of-call markers
+        const html = root.innerHTML || '';
+        const sawRating =
+          /how was|rate|rating|stars|feedback|you ended the conversation/i.test(html);
+        if (sawRating && this.isCallActive) {
+          clearInterval(checkInterval);
+          this._closeWidgetPanel();
+          this.endCall();
+        }
+      }, 600);
+      this._endedWatcher = checkInterval;
     },
 
     _removeWidget() {
@@ -328,6 +481,19 @@ export default {
         try { this.widgetElement.remove(); } catch (_) {}
         this.widgetElement = null;
       }
+      // Stop watching the shadow DOM
+      if (this._endedWatcher) {
+        clearInterval(this._endedWatcher);
+        this._endedWatcher = null;
+      }
+      if (this._portalObserver) {
+        try { this._portalObserver.disconnect(); } catch (_) {}
+        this._portalObserver = null;
+      }
+      // Also kill any portaled <elevenlabs-convai> instances on <body>
+      document.querySelectorAll('elevenlabs-convai').forEach(el => {
+        try { el.remove(); } catch (_) {}
+      });
     },
 
     // Heuristic — find the widget's internal Start/End button inside its
