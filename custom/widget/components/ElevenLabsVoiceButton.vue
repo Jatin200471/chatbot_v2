@@ -283,26 +283,23 @@ export default {
     },
 
     // ── Close the Chatwoot widget panel (visitor-side) ──────────────────
-    // We try every known close signal because Chatwoot SDK versions vary in
-    // how they expose the toggle. Most setups respect at least one of these.
+    // Chatwoot SDK strictly expects 'chatwoot-widget:' prefix + VALID JSON,
+    // so we ONLY send properly-formatted messages here (broken strings
+    // cause "Unexpected token" SyntaxErrors in the SDK's JSON.parse).
     _closeWidgetPanel() {
-      // 1. Internal emitter (most modern Chatwoot widget code)
+      // 1. Internal emitter (works for in-iframe Vue components)
       try { emitter.emit('close-widget'); } catch (_) {}
-      try { emitter.emit('chatwoot:toggle'); } catch (_) {}
 
       // 2. Vuex action — flip isWidgetOpen to false
       try { this.$store.dispatch('appConfig/setIsWidgetOpen', false); } catch (_) {}
 
-      // 3. postMessage to parent — sdk.js listens and toggles the iframe
-      const closeMessages = [
-        { event: 'toggle-bubble' },
-        { event: 'close-widget' },
-        'chatwoot-widget:close-widget',
-        'chatwoot-widget:toggle-close',
-      ];
-      closeMessages.forEach(msg => {
-        try { window.parent.postMessage(msg, '*'); } catch (_) {}
-      });
+      // 3. postMessage to parent — properly-formatted Chatwoot SDK message
+      try {
+        window.parent.postMessage(
+          'chatwoot-widget:' + JSON.stringify({ event: 'toggle-bubble' }),
+          '*'
+        );
+      } catch (_) {}
 
       // 4. Last resort — call $chatwoot on parent if accessible
       try {
@@ -378,11 +375,6 @@ export default {
       // independently of our host. Apply the same theme there too.
       this._observePortaledWidget(color);
 
-      // ── Listen for the call-ended signal from inside shadow DOM ─────
-      // The rating screen ("How was this conversation?") appears after
-      // the widget ends a call — we close the chat panel BEFORE the user
-      // ever sees it.
-      this._watchForCallEndedInside(el);
     },
 
     _injectShadowStyles(el, color) {
@@ -453,38 +445,11 @@ export default {
       this._portalObserver.observe(document.body, { childList: true, subtree: true });
     },
 
-    _watchForCallEndedInside(el) {
-      // Poll shadow root for the rating/feedback screen → once it appears
-      // we close the Chatwoot widget panel so the visitor never sees it.
-      const checkInterval = setInterval(() => {
-        if (!this.widgetElement) {
-          clearInterval(checkInterval);
-          return;
-        }
-        const root = el.shadowRoot;
-        if (!root) return;
-        // Look for typical end-of-call markers
-        const html = root.innerHTML || '';
-        const sawRating =
-          /how was|rate|rating|stars|feedback|you ended the conversation/i.test(html);
-        if (sawRating && this.isCallActive) {
-          clearInterval(checkInterval);
-          this._closeWidgetPanel();
-          this.endCall();
-        }
-      }, 600);
-      this._endedWatcher = checkInterval;
-    },
 
     _removeWidget() {
       if (this.widgetElement) {
         try { this.widgetElement.remove(); } catch (_) {}
         this.widgetElement = null;
-      }
-      // Stop watching the shadow DOM
-      if (this._endedWatcher) {
-        clearInterval(this._endedWatcher);
-        this._endedWatcher = null;
       }
       if (this._portalObserver) {
         try { this._portalObserver.disconnect(); } catch (_) {}
