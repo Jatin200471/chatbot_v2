@@ -158,21 +158,82 @@ export default {
     },
 
     // ── Open the popup window and start the call ─────────────────────────
-    async startCall() {
+    //
+    // CRITICAL: window.open() must be called SYNCHRONOUSLY inside the click
+    // handler — no `await` allowed before it. If we `await` for the signed
+    // URL first, the browser thinks the gesture has expired and either
+    // blocks the popup entirely OR opens it as a tab (Chrome 119+).
+    //
+    // Solution: open the popup IMMEDIATELY with a loading splash page,
+    // then fetch the signed URL asynchronously and navigate the popup to
+    // the real URL once we have it.
+    startCall() {
       if (!this.hasElevenLabsVoiceEnabled) return;
 
       this.isConnecting = true;
       this.setConnecting(true);
 
+      // ── STEP 1: SYNCHRONOUS window.open (preserves user-gesture) ──────
+      const w = 380, h = 620;
+      const left = Math.max(0, Math.round((screen.availWidth  - w) / 2));
+      const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
+      const features = [
+        'popup=yes',          // FORCE popup window mode (NOT tab) — Chrome 119+
+        `width=${w}`,
+        `height=${h}`,
+        `left=${left}`,
+        `top=${top}`,
+        'resizable=yes',
+        'scrollbars=no',
+        'toolbar=no',
+        'location=no',
+        'status=no',
+        'menubar=no',
+        'noopener=no',        // we NEED window.opener for postMessage
+        'noreferrer=no',
+      ].join(',');
+
+      // Open synchronously with about:blank — we'll navigate it to the real
+      // popup URL in a moment, after fetching the signed URL.
+      _popupRef = window.open('about:blank', 'cwVoiceCall', features);
+
+      if (!_popupRef) {
+        this.isConnecting = false;
+        this.setConnecting(false);
+        alert('Popup blocked — please allow popups for this site to start a voice call.');
+        return;
+      }
+
+      // Show a brief loading state in the popup so the user knows
+      // something is happening while we fetch the signed URL.
       try {
-        // 1. Fetch fresh signed URL (agent_id stays server-side)
+        _popupRef.document.write(
+          `<!DOCTYPE html><html><head><title>Voice Call</title>
+           <style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif;
+             background:#f8fafc;color:#64748b;display:grid;place-items:center;height:100vh;}
+             .loader{text-align:center;}
+             .spinner{width:32px;height:32px;border:3px solid #e2e8f0;
+               border-top-color:#1f93ff;border-radius:50%;
+               animation:spin .8s linear infinite;margin:0 auto 12px;}
+             @keyframes spin{to{transform:rotate(360deg);}}</style></head>
+           <body><div class="loader"><div class="spinner"></div>Connecting…</div></body></html>`
+        );
+      } catch (_) {}
+
+      // ── STEP 2: ASYNC — fetch signed URL, then navigate popup ─────────
+      this._completeStartCall(_popupRef);
+    },
+
+    async _completeStartCall(popup) {
+      try {
+        // Fetch fresh signed URL (agent_id stays server-side)
         const { data } = await API.get(
           buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
         );
         const signedUrl = data?.signed_url;
         if (!signedUrl) throw new Error('Backend returned no signed_url');
 
-        // 2. Read widget config for the popup look & feel
+        // Read widget config for the popup look & feel
         const cfg = window.chatwootWebChannel || {};
         const popupParams = new URLSearchParams({
           signed_url:      signedUrl,
@@ -189,53 +250,43 @@ export default {
 
         const popupUrl = `${window.location.origin}/voice-popup.html?${popupParams.toString()}`;
 
-        // 3. Open the popup (centered on screen)
-        const w = 380, h = 600;
-        const left = Math.max(0, (screen.width  - w) / 2);
-        const top  = Math.max(0, (screen.height - h) / 2);
-        const features = [
-          `width=${w}`,
-          `height=${h}`,
-          `left=${left}`,
-          `top=${top}`,
-          'resizable=yes',
-          'scrollbars=no',
-          'toolbar=no',
-          'location=no',
-          'status=no',
-          'menubar=no',
-        ].join(',');
-
-        _popupRef = window.open(popupUrl, 'cwVoiceCall', features);
-
-        if (!_popupRef) {
-          this.isConnecting = false;
-          this.setConnecting(false);
-          alert('Popup blocked — please allow popups for this site to start a voice call.');
-          return;
+        // Check popup is still alive (user might have closed it)
+        if (!popup || popup.closed) {
+          throw new Error('Popup was closed before signed URL arrived');
         }
 
-        try { _popupRef.focus(); } catch (_) {}
+        // Navigate the already-open popup to the real URL
+        popup.location.href = popupUrl;
+        try { popup.focus(); } catch (_) {}
 
-        // 4. Notify parent page to hide the widget while the popup is up
+        // Notify parent page to hide the widget while the popup is up
         this.notifyParentWidgetHide(true);
 
-        // 5. Flag voice-active so sdk-floating-btn.js intercepts navigation
+        // Flag voice-active so sdk-floating-btn.js intercepts navigation
         try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
 
-        // 6. Optimistically reflect active state — popup confirms via msg
+        // Optimistically reflect active state — popup confirms via msg
         this.isConnecting = false;
         this.setConnecting(false);
         this.isCallActive = true;
         this.setActive(true);
 
-        vLog('Popup opened ✓', popupUrl);
+        vLog('Popup navigated to ✓', popupUrl);
       } catch (error) {
         console.error('[VOICE] startCall error:', error?.message || error);
         this.isConnecting = false;
         this.setConnecting(false);
         this.setActive(false);
         try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
+        try {
+          if (popup && !popup.closed) {
+            popup.document.write(
+              '<p style="font-family:Arial;padding:20px;color:#ef4444;">' +
+              'Failed to start voice call: ' + (error?.message || 'unknown') + '</p>'
+            );
+            setTimeout(() => { try { popup.close(); } catch (_) {} }, 2500);
+          }
+        } catch (_) {}
         if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') {
           alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS'));
         }
