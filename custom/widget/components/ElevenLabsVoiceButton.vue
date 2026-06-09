@@ -5,33 +5,16 @@ import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
 import { emitter } from 'shared/helpers/mitt';
 
 /**
- * Voice button — official @elevenlabs/convai-widget-embed integration.
+ * Voice button — secure popup launcher.
  *
- * Architecture:
- *   • We use the OFFICIAL ElevenLabs Web Component (<elevenlabs-convai>)
- *     because it's battle-tested for audio, navigation, and reconnect.
- *   • Mount it off-screen (hidden) and trigger its built-in buttons
- *     programmatically — visitor only sees OUR voice icon in the
- *     ChatInputWrap (matches Chatwoot's design language).
- *   • For PRIVATE agents we fetch a short-lived signed URL from our
- *     backend so the agent_id is never exposed in the page HTML.
- *   • Transcripts are persisted via backend polling
- *     (/api/v1/widget/conversations/voice_transcript_poll) which queries
- *     ElevenLabs directly and writes messages into the Chatwoot
- *     conversation — works even when the visitor disconnects mid-call.
- *
- * Page-change behavior:
- *   • sdk-floating-btn.js intercepts <a> clicks while a call is active
- *     and does SPA-style navigation — the iframe (and the widget inside)
- *     are NEVER destroyed, so the call continues seamlessly.
- *   • For true hard refresh (F5), the saved signed URL in sessionStorage
- *     + voice_history-based prompt override let the new session pick up
- *     the previous conversation in the visitor's NEXT spoken turn.
+ *  • Opens /voice-popup.html in a small floating window
+ *  • Delivers signedUrl + tokens via postMessage (NEVER in the URL)
+ *  • The popup hosts the @11labs/client SDK call
+ *  • Each transcript turn is POSTed to backend so the chat panel
+ *    auto-shows live messages via Chatwoot's existing message-poll loop
+ *  • End Call closes both the popup AND the chat widget panel
  */
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
 const buildConvUrl = path => {
   if (!WEBSITE_TOKEN) return path;
   const sep = path.includes('?') ? '&' : '?';
@@ -44,95 +27,30 @@ const vLog = (...args) => {
   } catch (_) {}
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Session persistence — only for F5 fallback
-// (Link-click navigation is handled by sdk-floating-btn.js SPA interceptor.)
-// ─────────────────────────────────────────────────────────────────────────────
-const SESSION_CALL_KEY = 'cw_voice_session_data';
-const SESSION_TTL_MS   = 5 * 60 * 1000;
+// ── Module-level state survives Vue re-mounts within same iframe load ───
+let _popupRef = null;
+let _broadcast = null;
+let _pendingConfigPromise = null;
+let _pendingConfig = null;
 
-function saveCallToSession(signedUrl) {
+const HEARTBEAT_KEY        = 'cw_voice_popup_heartbeat';
+const HEARTBEAT_MAX_AGE_MS = 4000;
+
+function isPopupAlive() {
+  if (_popupRef && !_popupRef.closed) return true;
   try {
-    sessionStorage.setItem(SESSION_CALL_KEY, JSON.stringify({
-      isActive: true, signedUrl, timestamp: Date.now(),
-    }));
+    const last = parseInt(localStorage.getItem(HEARTBEAT_KEY) || '0', 10);
+    if (last && Date.now() - last < HEARTBEAT_MAX_AGE_MS) return true;
   } catch (_) {}
+  return false;
 }
-function getSessionCall() {
-  try {
-    const raw = sessionStorage.getItem(SESSION_CALL_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed?.isActive || !parsed?.signedUrl) return null;
-    if (Date.now() - parsed.timestamp > SESSION_TTL_MS) {
-      sessionStorage.removeItem(SESSION_CALL_KEY);
-      return null;
-    }
-    return parsed;
-  } catch (_) { return null; }
-}
-function clearSessionCall() {
-  try { sessionStorage.removeItem(SESSION_CALL_KEY); } catch (_) {}
+function getBroadcastChannel() {
+  if (_broadcast) return _broadcast;
+  try { _broadcast = new BroadcastChannel('cw-voice'); }
+  catch (_) { _broadcast = null; }
+  return _broadcast;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Singletons — survive Vue component re-mounts within same iframe load
-// ─────────────────────────────────────────────────────────────────────────────
-let _scriptLoadPromise = null;
-let _widgetHideStyleInstalled = false;
-
-// Hide the official ElevenLabs widget UI entirely (it portals itself to
-// document.body so off-screen positioning on our host isn't enough). The
-// widget keeps functioning in the DOM — audio, WebSocket, SDK all alive —
-// we only suppress its visual rendering. Our custom phone icon in the chat
-// input + the floating "End Call" button on the parent page are the only
-// visible voice-related UI.
-function installWidgetHideStyle() {
-  if (_widgetHideStyleInstalled) return;
-  try {
-    const style = document.createElement('style');
-    style.id = 'cw-hide-elevenlabs-widget';
-    style.textContent = `
-      elevenlabs-convai,
-      elevenlabs-convai *,
-      [class*="convai-widget"],
-      [class*="elevenlabs-convai"] {
-        display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-        position: absolute !important;
-        left: -10000px !important;
-        top: -10000px !important;
-        width: 1px !important;
-        height: 1px !important;
-        overflow: hidden !important;
-      }
-    `;
-    document.head.appendChild(style);
-    _widgetHideStyleInstalled = true;
-  } catch (_) {}
-}
-
-function loadElevenLabsScript() {
-  if (_scriptLoadPromise) return _scriptLoadPromise;
-  if (document.querySelector('script[src*="@elevenlabs/convai-widget-embed"]')) {
-    _scriptLoadPromise = Promise.resolve();
-    return _scriptLoadPromise;
-  }
-  _scriptLoadPromise = new Promise(resolve => {
-    const s = document.createElement('script');
-    s.src = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
-    s.async = true;
-    s.type = 'text/javascript';
-    s.onload  = () => resolve();
-    s.onerror = () => resolve(); // don't break the widget if CDN is blocked
-    document.head.appendChild(s);
-  });
-  return _scriptLoadPromise;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 export default {
   name: 'ElevenLabsVoiceButton',
   mixins: [configMixin],
@@ -146,10 +64,6 @@ export default {
     return {
       isConnecting: false,
       isCallActive: false,
-      widgetElement: null,
-      _transcriptTimer: null,
-      _syncedCount: 0,
-      _lastConvId: '',
     };
   },
 
@@ -159,15 +73,10 @@ export default {
       voiceAgentProvider:  'voiceAgentConfig/getVoiceAgentProvider',
       widgetColor:         'appConfig/getWidgetColor',
     }),
-
     hasElevenLabsVoiceEnabled() {
       return this.isVoiceAgentEnabled && this.voiceAgentProvider === 'elevenlabs';
     },
-
-    shouldShowButton() {
-      return this.hasElevenLabsVoiceEnabled;
-    },
-
+    shouldShowButton() { return this.hasElevenLabsVoiceEnabled; },
     buttonClasses() {
       const sizeMap = { small: 'min-h-7 min-w-7', medium: 'min-h-9 min-w-9', large: 'min-h-10 min-w-10' };
       return [
@@ -177,42 +86,36 @@ export default {
         this.isCallActive  ? 'elevenlabs-active'    : '',
       ];
     },
-
-    iconSize() {
-      return { small: 16, medium: 18, large: 22 }[this.size] || 18;
-    },
-
+    iconSize() { return { small: 16, medium: 18, large: 22 }[this.size] || 18; },
     tooltipText() {
-      if (this.isCallActive)  return this.$t('VOICE_AGENT.END_CALL');
-      if (this.isConnecting)  return this.$t('VOICE_AGENT.CONNECTING');
+      if (this.isCallActive) return this.$t('VOICE_AGENT.END_CALL');
+      if (this.isConnecting) return this.$t('VOICE_AGENT.CONNECTING');
       return this.$t('VOICE_AGENT.START_CALL');
     },
   },
 
   mounted() {
-    // Hide the official widget UI globally — only our phone icon is visible
-    installWidgetHideStyle();
-
-    // Preload the SDK so the click-to-start is snappy
-    if (this.hasElevenLabsVoiceEnabled) {
-      loadElevenLabsScript();
-    }
-
-    // Resume after hard page reload (sessionStorage flag)
-    const sessionCall = getSessionCall();
-    if (sessionCall) {
-      vLog('Found session — auto-resuming call after page reload…');
-      // Defer slightly so configMixin/store are ready
-      setTimeout(() => this._resumeCall(), 300);
-    }
-
+    window.addEventListener('message', this.onWindowMessage);
     emitter.on('end-voice-call', this.endCall);
+
+    const ch = getBroadcastChannel();
+    if (ch) {
+      ch.addEventListener('message', this.onBroadcastMessage);
+      try { ch.postMessage({ type: 'ping' }); } catch (_) {}
+    }
+
+    if (isPopupAlive()) this._syncCallActiveFromPopup();
+    this._popupSyncTimer = setTimeout(() => {
+      if (isPopupAlive() && !this.isCallActive) this._syncCallActiveFromPopup();
+    }, 600);
   },
 
   beforeUnmount() {
+    window.removeEventListener('message', this.onWindowMessage);
     emitter.off('end-voice-call', this.endCall);
-    this._stopTranscriptPoll();
-    this._removeWidget();
+    const ch = getBroadcastChannel();
+    if (ch) ch.removeEventListener('message', this.onBroadcastMessage);
+    if (this._popupSyncTimer) clearTimeout(this._popupSyncTimer);
   },
 
   methods: {
@@ -220,473 +123,208 @@ export default {
 
     handleClick() {
       if (this.isConnecting) return;
+      if (this.isCallActive && _popupRef && !_popupRef.closed) {
+        try { _popupRef.focus(); } catch (_) {}
+        return;
+      }
       this.isCallActive ? this.endCall() : this.startCall();
     },
 
-    // ── Start a new voice call ──────────────────────────────────────────
-    async startCall() {
+    // ── Open popup SYNCHRONOUSLY (preserves user-gesture, no URL secrets)
+    startCall() {
       if (!this.hasElevenLabsVoiceEnabled) return;
-
       this.isConnecting = true;
       this.setConnecting(true);
 
-      try {
-        // 1. Mic permission MUST be requested in the page context
-        if (navigator.mediaDevices?.getUserMedia) {
-          try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            stream.getTracks().forEach(t => t.stop());
-          } catch (micErr) {
-            console.error('[VOICE] Mic permission denied:', micErr?.message);
-            throw micErr;
-          }
-        }
+      const w = 380, h = 620;
+      const left = Math.max(0, Math.round((screen.availWidth  - w) / 2));
+      const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
+      const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;
 
-        // 2. Fetch short-lived signed URL (agent_id stays server-side)
-        const { data } = await API.get(
-          buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
-        );
-        const signedUrl = data?.signed_url;
-        if (!signedUrl) throw new Error('Backend returned no signed_url');
+      // CLEAN URL — no secrets. Popup will request config via postMessage.
+      const cleanUrl = `${window.location.origin}/voice-popup.html`;
+      _popupRef = window.open(cleanUrl, 'cwVoiceCall', features);
 
-        // 3. Save to session so hard refresh can reconnect
-        saveCallToSession(signedUrl);
-        try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
-
-        // 4. Load + mount the official ElevenLabs widget (off-screen)
-        await loadElevenLabsScript();
-        this._mountWidget(signedUrl);
-
-        // 5. Trigger its internal start-call button programmatically
-        //    Give the widget ~250ms to render its shadow DOM first
-        setTimeout(() => {
-          const ok = this._clickWidgetButton({ preferEnd: false });
-          if (!ok) {
-            vLog('Widget button not found — retrying once');
-            setTimeout(() => this._clickWidgetButton({ preferEnd: false }), 500);
-          }
-        }, 250);
-
-        // 6. Optimistic UI — backend poll will save transcripts
+      if (!_popupRef) {
         this.isConnecting = false;
         this.setConnecting(false);
-        this.isCallActive = true;
-        this.setActive(true);
-
-        // 7. Start polling backend for transcript turns
-        this._startTranscriptPoll();
-
-        vLog('Call started ✓');
-      } catch (error) {
-        console.error('[VOICE] startCall failed:', error?.message || error);
-        this.isConnecting = false;
-        this.setConnecting(false);
-        this.setActive(false);
-        clearSessionCall();
-        try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
-        this._removeWidget();
-        if (error?.name === 'NotAllowedError' || error?.name === 'NotFoundError') {
-          alert(this.$t('VOICE_AGENT.MICROPHONE_ACCESS'));
-        }
+        alert('Popup blocked — please allow popups for this site to start a voice call.');
+        return;
       }
+      try { _popupRef.focus(); } catch (_) {}
+
+      // Pre-build config in parallel so it's ready when popup asks
+      _pendingConfigPromise = this._buildConfig();
+
+      this.notifyParentWidgetHide(true);
+      try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
+
+      this.isConnecting = false;
+      this.setConnecting(false);
+      this.isCallActive = true;
+      this.setActive(true);
+
+      vLog('Popup opened ✓ (clean URL, config via postMessage)');
     },
 
-    // ── End the call ────────────────────────────────────────────────────
     endCall() {
-      // Click the widget's internal end button (best effort)
-      this._clickWidgetButton({ preferEnd: true });
+      // Path 1 — direct reference
+      if (_popupRef && !_popupRef.closed) {
+        try {
+          _popupRef.postMessage({ source: 'cw-widget', event: 'request-end-call' }, '*');
+        } catch (_) {}
+        setTimeout(() => {
+          if (_popupRef && !_popupRef.closed) {
+            try { _popupRef.close(); } catch (_) {}
+          }
+        }, 1500);
+      }
+      // Path 2 — broadcast channel (across-refresh end signal)
+      const ch = getBroadcastChannel();
+      if (ch) { try { ch.postMessage({ type: 'request-end-call' }); } catch (_) {} }
 
-      // Stop polling + clear state
-      this._stopTranscriptPoll();
+      this.resetCallState();
+    },
 
+    resetCallState() {
+      _popupRef = null;
       this.isCallActive = false;
       this.isConnecting = false;
       this.setActive(false);
       this.setConnecting(false);
-
-      clearSessionCall();
       try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
-
-      // Tell backend to reset auto-resolve timer
-      API.post(
-        buildConvUrl('/api/v1/widget/conversations/voice_call_ended'), {}
-      ).catch(() => {});
-
-      // Remove widget DOM (kills any lingering "rating" UI from ElevenLabs)
-      this._removeWidget();
-
-      // Close the entire chat panel so visitor doesn't see post-call UI
-      this._closeWidgetPanel();
+      this.notifyParentWidgetHide(false);
     },
 
-    // ── Close the Chatwoot widget panel (visitor-side) ──────────────────
-    // Chatwoot SDK strictly expects 'chatwoot-widget:' prefix + VALID JSON,
-    // so we ONLY send properly-formatted messages here (broken strings
-    // cause "Unexpected token" SyntaxErrors in the SDK's JSON.parse).
-    _closeWidgetPanel() {
-      // 1. Internal emitter (works for in-iframe Vue components)
-      try { emitter.emit('close-widget'); } catch (_) {}
-
-      // 2. Vuex action — flip isWidgetOpen to false
-      try { this.$store.dispatch('appConfig/setIsWidgetOpen', false); } catch (_) {}
-
-      // 3. postMessage to parent — properly-formatted Chatwoot SDK message
-      try {
-        window.parent.postMessage(
-          'chatwoot-widget:' + JSON.stringify({ event: 'toggle-bubble' }),
-          '*'
-        );
-      } catch (_) {}
-
-      // 4. Last resort — call $chatwoot on parent if accessible
-      try {
-        if (window.parent.$chatwoot && typeof window.parent.$chatwoot.toggle === 'function') {
-          window.parent.$chatwoot.toggle('close');
-        }
-      } catch (_) {}
-
-      // Mark widget as closed in localStorage so it doesn't auto-reopen
-      try { localStorage.setItem('cw_widget_open', 'false'); } catch (_) {}
-    },
-
-    // ── Resume after hard refresh ───────────────────────────────────────
-    // ElevenLabs signed URLs are single-use, so we ALWAYS fetch a fresh
-    // one on resume (not the stale one from sessionStorage). We also pull
-    // the conversation transcript from /voice_history and surface it to
-    // the agent via dynamic variables / prompt override so the new
-    // session continues the prior conversation contextually.
-    async _resumeCall() {
-      if (!this.hasElevenLabsVoiceEnabled) return;
-
-      this.isConnecting = true;
-      this.setConnecting(true);
+    _syncCallActiveFromPopup() {
+      if (this.isCallActive) return;
+      vLog('Detected alive popup via heartbeat — syncing UI to active');
       this.isCallActive = true;
+      this.isConnecting = false;
       this.setActive(true);
+      this.setConnecting(false);
       try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
+      this.notifyParentWidgetHide(true);
+    },
 
+    onBroadcastMessage(e) {
+      const m = e?.data;
+      if (!m || typeof m !== 'object') return;
+      if (m.type === 'heartbeat') {
+        if (!this.isCallActive) this._syncCallActiveFromPopup();
+      } else if (m.type === 'ended') {
+        this.resetCallState();
+      }
+    },
+
+    onWindowMessage(e) {
+      const data = e?.data;
+      if (!data || typeof data !== 'object') return;
+      if (data.source !== 'cw-voice-popup') return;
+
+      switch (data.event) {
+        case 'voice-popup-opened':
+          vLog('popup says: opened');
+          break;
+
+        case 'voice-popup-request-config':
+          vLog('popup requesting config…');
+          this._sendConfigToPopup(e.source || _popupRef);
+          break;
+
+        case 'voice-popup-connected':
+          vLog('popup says: connected ✅');
+          this.isCallActive = true;
+          this.isConnecting = false;
+          this.setActive(true);
+          this.setConnecting(false);
+          break;
+
+        case 'voice-popup-transcript':
+          vLog('popup transcript →', data.source, data.message);
+          // Nudge the conversation poll so the chat panel refreshes faster
+          try { this.$store.dispatch('conversation/fetchOldConversations'); } catch (_) {}
+          try { this.$store.dispatch('message/fetchAllMessages'); } catch (_) {}
+          break;
+
+        case 'voice-popup-error':
+          console.error('[VOICE] popup error:', data.error);
+          this.resetCallState();
+          break;
+
+        case 'voice-popup-ended':
+        case 'voice-popup-closed':
+          vLog('popup says: ended/closed');
+          this.resetCallState();
+          break;
+      }
+    },
+
+    notifyParentWidgetHide(hide) {
       try {
-        // 1. Mic permission (may already be granted from previous load,
-        //    but browser sometimes requires re-grant after iframe destroy)
-        if (navigator.mediaDevices?.getUserMedia) {
-          try {
-            const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-            s.getTracks().forEach(t => t.stop());
-          } catch (_) {
-            // Mic not granted — user will see browser prompt on next interact
-          }
-        }
+        window.parent.postMessage({
+          event: hide ? 'cw-voice-popup-opened' : 'cw-voice-popup-closed',
+        }, '*');
+      } catch (_) {}
+    },
 
-        // 2. Get a FRESH signed URL (old one is single-use)
-        const { data } = await API.get(
-          buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
-        );
-        const freshSignedUrl = data?.signed_url;
-        if (!freshSignedUrl) throw new Error('Backend returned no signed_url for resume');
+    // ── Build the secure config payload (NEVER goes through URL) ────────
+    async _buildConfig() {
+      const { data } = await API.get(
+        buildConvUrl('/api/v1/widget/conversations/voice_signed_url')
+      );
+      const signedUrl = data?.signed_url;
+      if (!signedUrl) throw new Error('Backend returned no signed_url');
 
-        // Update sessionStorage with the fresh URL
-        saveCallToSession(freshSignedUrl);
+      const ch = window.chatwootWebChannel || {};
+      const config = {
+        signedUrl,
+        baseUrl:        window.location.origin,
+        websiteToken:   WEBSITE_TOKEN || '',
+        color:          this.widgetColor || ch.widgetColor || this.color || '#1f93ff',
+        avatar:         ch.avatarUrl || '',
+        agentName:      ch.websiteName || 'AI Assistant',
+        agentRole:      'Voice Assistant',
+        brand:          ch.websiteName || '',
+        authToken:      window.authToken || '',
+        cwConversation: this.getCwConversationToken() || '',
+      };
+      _pendingConfig = config;
+      return config;
+    },
 
-        // 3. Fetch transcript history for context injection
-        let historyContext = '';
-        try {
-          const histRes = await API.get(
-            buildConvUrl('/api/v1/widget/conversations/voice_history?limit=15')
+    async _sendConfigToPopup(targetWindow) {
+      try {
+        const config = _pendingConfig
+          || (_pendingConfigPromise && await _pendingConfigPromise)
+          || await this._buildConfig();
+        if (targetWindow && !targetWindow.closed) {
+          targetWindow.postMessage(
+            { source: 'cw-widget', event: 'config', config },
+            '*'
           );
-          if (histRes.data?.has_history && histRes.data?.lines?.length) {
-            const transcript = histRes.data.lines
-              .map(l => `${l.role === 'user' ? 'Visitor' : 'You'}: ${l.content}`)
-              .join('\n');
-            historyContext = transcript;
-            vLog(`Resume with ${histRes.data.lines.length} prior turns`);
-          }
-        } catch (_) {
-          // Non-fatal — proceed without context if history fetch fails
+          vLog('Config sent to popup via postMessage ✓');
         }
-
-        // 4. Load + mount widget with the fresh URL
-        await loadElevenLabsScript();
-        this._mountWidget(freshSignedUrl, historyContext);
-
-        // 5. Trigger the widget's internal start
-        setTimeout(() => this._clickWidgetButton({ preferEnd: false }), 300);
-
-        // 6. Start transcript polling
-        this._startTranscriptPoll();
-
-        this.isConnecting = false;
-        this.setConnecting(false);
-        vLog('Resumed call ✓');
-      } catch (e) {
-        console.error('[VOICE] resume failed:', e?.message || e);
-        // Clean up — user can manually start fresh call
-        clearSessionCall();
-        this.isCallActive = false;
-        this.isConnecting = false;
-        this.setActive(false);
-        this.setConnecting(false);
-        try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
-      }
-    },
-
-    // ── Widget DOM management ───────────────────────────────────────────
-    _mountWidget(signedUrl, historyContext = '') {
-      const host = this.$refs.widgetHost;
-      if (!host) return;
-
-      // Re-use existing widget element if present
-      if (this.widgetElement) {
-        this.widgetElement.setAttribute('signed-url', signedUrl);
-        return;
-      }
-
-      const el = document.createElement('elevenlabs-convai');
-      el.setAttribute('signed-url', signedUrl);
-      el.setAttribute('data-chatwoot', 'true');
-
-      // Inject prior conversation as dynamic variable if we have history.
-      // The agent's prompt template can reference {{previous_conversation}}
-      // to use it; even without that, ElevenLabs sends it as context.
-      if (historyContext) {
-        const dynVars = JSON.stringify({
-          previous_conversation: historyContext,
-          reconnect_mode: 'true',
-        });
-        el.setAttribute('dynamic-variables', dynVars);
-        // Override first message to acknowledge the reconnect
-        el.setAttribute(
-          'override-first-message',
-          "Welcome back — looks like we got disconnected. Let me continue where we left off."
-        );
-      }
-
-      // ── Theme tokens via CSS custom properties ──────────────────────
-      // The widget reads these to color its primary button, animations, etc.
-      // Setting them on the element (and globally below) lets the widget
-      // pick up the Chatwoot widget color automatically.
-      const color = this.widgetColor || this.color || '#1f93ff';
-      [
-        '--el-color-primary',
-        '--el-primary',
-        '--elc-color-primary',
-        '--convai-color-primary',
-        '--brand-color',
-      ].forEach(v => el.style.setProperty(v, color));
-
-      host.appendChild(el);
-      this.widgetElement = el;
-
-      // ── Inject Chatwoot-styled CSS into the widget's shadow DOM ─────
-      // The widget renders inside a closed-ish Shadow DOM; we wait for it
-      // to attach, then push a <style> tag in to override branding bits.
-      this._injectShadowStyles(el, color);
-
-      // ── Watch for the widget portaling itself to <body> ─────────────
-      // ElevenLabs sometimes injects floating UI into document.body
-      // independently of our host. Apply the same theme there too.
-      this._observePortaledWidget(color);
-
-      // ── Listen for end-of-call events emitted by the widget ─────────
-      // The widget emits a custom event when its own End Call button is
-      // clicked OR the call ends naturally. We hook into every plausible
-      // event name so we close the chat panel as soon as the widget ends.
-      this._wireEndCallEvents(el);
-    },
-
-    // Multiple possible event names — different SDK versions use different ones
-    _wireEndCallEvents(el) {
-      const endHandler = (event) => {
-        vLog('widget fired end-call event:', event?.type);
-        if (this.isCallActive) {
-          this._closeWidgetPanel();
-          this.endCall();
-        }
-      };
-      [
-        'convai-call-end',
-        'convai-end',
-        'call-end',
-        'session-end',
-        'end',
-        'disconnect',
-        'elevenlabs:call-end',
-        'elevenlabs-convai:call-end',
-      ].forEach(name => {
-        try { el.addEventListener(name, endHandler); } catch (_) {}
-      });
-      this._endHandler = endHandler;
-
-      // ── Safety fallback ── poll the shadow DOM every 2s for the rating
-      // screen. Conservative — only matches phrases that are specifically
-      // post-call (won't false-trigger during normal call). Triggers our
-      // cleanup if widget ended call internally and we missed the event.
-      if (this._endedFallback) clearInterval(this._endedFallback);
-      this._endedFallback = setInterval(() => {
-        if (!this.widgetElement || !this.isCallActive) return;
-        const root = this.widgetElement.shadowRoot;
-        if (!root) return;
-        const html = (root.innerHTML || '').toLowerCase();
-        // ONLY very specific post-call markers — no false positives
-        const callEnded =
-          html.includes('how was this conversation') ||
-          html.includes('you ended the conversation') ||
-          html.includes('conversation ended');
-        if (callEnded) {
-          vLog('detected post-call rating screen — closing panel');
-          clearInterval(this._endedFallback);
-          this._endedFallback = null;
-          this._closeWidgetPanel();
-          this.endCall();
-        }
-      }, 2000);
-    },
-
-    _injectShadowStyles(el, color) {
-      const tryInject = (attempt = 0) => {
-        const root = el.shadowRoot;
-        if (!root) {
-          if (attempt < 20) setTimeout(() => tryInject(attempt + 1), 150);
-          return;
-        }
-        if (root.querySelector('style[data-cw-injected]')) return;
-
-        const style = document.createElement('style');
-        style.setAttribute('data-cw-injected', 'true');
-        style.textContent = `
-          /* ── Chatwoot brand integration ── */
-          :host, * {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
-                         Roboto, 'Helvetica Neue', Arial, sans-serif !important;
+      } catch (error) {
+        console.error('[VOICE] Failed to build/send config:', error?.message);
+        try {
+          if (targetWindow && !targetWindow.closed) {
+            targetWindow.postMessage(
+              { source: 'cw-widget', event: 'config-error', error: error?.message || 'failed' },
+              '*'
+            );
           }
-
-          /* Primary brand color — applied via common variable names */
-          :host {
-            --el-color-primary: ${color} !important;
-            --el-primary: ${color} !important;
-            --convai-color-primary: ${color} !important;
-            --brand-color: ${color} !important;
-          }
-
-          /* Hide ElevenLabs branding footer ("Powered by ElevenAgents") */
-          [class*="powered"], [class*="branding"], [class*="footer"],
-          a[href*="elevenlabs"], a[href*="elevenagents"] {
-            display: none !important;
-          }
-
-          /* Hide the post-call rating screen — we close the panel anyway */
-          [class*="rating"], [class*="feedback"], [class*="review"],
-          [class*="stars"] {
-            display: none !important;
-          }
-
-          /* Hide the fullscreen-expand arrow (top-right of widget) */
-          [class*="expand"], [class*="fullscreen"], [aria-label*="expand"i] {
-            display: none !important;
-          }
-        `;
-        root.appendChild(style);
-      };
-      tryInject();
-    },
-
-    _observePortaledWidget(color) {
-      if (this._portalObserver) return;
-      const apply = (node) => {
-        if (!node || node.nodeType !== 1) return;
-        const tag = (node.tagName || '').toLowerCase();
-        // Apply theme to any elevenlabs-convai element added anywhere
-        if (tag === 'elevenlabs-convai') {
-          [
-            '--el-color-primary', '--el-primary', '--elc-color-primary',
-            '--convai-color-primary', '--brand-color',
-          ].forEach(v => node.style.setProperty(v, color));
-          this._injectShadowStyles(node, color);
-        }
-      };
-      this._portalObserver = new MutationObserver(mutations => {
-        mutations.forEach(m => m.addedNodes.forEach(apply));
-      });
-      this._portalObserver.observe(document.body, { childList: true, subtree: true });
-    },
-
-
-    _removeWidget() {
-      if (this.widgetElement) {
-        try { this.widgetElement.remove(); } catch (_) {}
-        this.widgetElement = null;
-      }
-      if (this._portalObserver) {
-        try { this._portalObserver.disconnect(); } catch (_) {}
-        this._portalObserver = null;
-      }
-      if (this._endedFallback) {
-        clearInterval(this._endedFallback);
-        this._endedFallback = null;
-      }
-      // Also kill any portaled <elevenlabs-convai> instances on <body>
-      document.querySelectorAll('elevenlabs-convai').forEach(el => {
-        try { el.remove(); } catch (_) {}
-      });
-    },
-
-    // Heuristic — find the widget's internal Start/End button inside its
-    // shadow DOM and click it. The widget renders different button labels
-    // depending on state, so we filter by text content.
-    _clickWidgetButton({ preferEnd = false } = {}) {
-      const el = this.widgetElement;
-      if (!el) return false;
-      const root = el.shadowRoot;
-      if (!root) return false;
-
-      const buttons = Array.from(root.querySelectorAll('button'));
-      if (!buttons.length) return false;
-
-      const pick = btn => {
-        const text = (btn.textContent || '').toLowerCase();
-        if (preferEnd) return text.includes('end') || text.includes('hang') || text.includes('stop');
-        return text.includes('start') || text.includes('call') || text.includes('talk');
-      };
-      const target = buttons.find(pick) || buttons[0];
-      try { target.click(); return true; } catch (_) { return false; }
-    },
-
-    // ── Backend transcript polling ──────────────────────────────────────
-    // Backend's voice_transcript_poll endpoint queries the ElevenLabs API
-    // for the latest conversation turns and saves new ones into our DB.
-    // Works even if widget events fail or visitor disconnects abruptly.
-    _startTranscriptPoll() {
-      this._stopTranscriptPoll();
-      this._syncedCount = 0;
-      this._lastConvId  = '';
-      // First poll after 3s, then every 4s
-      this._transcriptTimer = setInterval(() => {
-        this._pollTranscript();
-      }, 4000);
-      setTimeout(() => this._pollTranscript(), 3000);
-    },
-
-    _stopTranscriptPoll() {
-      if (this._transcriptTimer) {
-        clearInterval(this._transcriptTimer);
-        this._transcriptTimer = null;
+        } catch (_) {}
       }
     },
 
-    async _pollTranscript() {
-      if (!this.isCallActive) return;
+    getCwConversationToken() {
       try {
-        const url = buildConvUrl(
-          `/api/v1/widget/conversations/voice_transcript_poll` +
-          `?synced_count=${this._syncedCount}&last_conv_id=${encodeURIComponent(this._lastConvId)}`
-        );
-        const { data } = await API.get(url);
-        if (data?.conversation_id) this._lastConvId = data.conversation_id;
-        if (typeof data?.total_count === 'number') this._syncedCount = data.total_count;
-        if (data?.turns?.length) {
-          vLog(`Saved ${data.turns.length} new transcript turn(s)`);
-        }
-      } catch (e) {
-        vLog('transcript poll failed:', e?.response?.status, e?.message);
-      }
+        const cookieMatch = document.cookie.match(/cw_conversation=([^;]+)/);
+        if (cookieMatch) return decodeURIComponent(cookieMatch[1]);
+      } catch (_) {}
+      try { return localStorage.getItem('cw_conversation') || ''; }
+      catch (_) { return ''; }
     },
   },
 };
@@ -758,11 +396,6 @@ export default {
         />
       </svg>
     </button>
-
-    <!-- The official ElevenLabs widget lives here, OFF-SCREEN. We control
-         it programmatically via its internal Start/End buttons so the
-         visitor only ever sees OUR phone icon above. -->
-    <div ref="widgetHost" class="elevenlabs-hidden-widget" aria-hidden="true" />
   </div>
 </template>
 
@@ -771,7 +404,6 @@ export default {
   position: relative;
   display: inline-flex;
 }
-
 .elevenlabs-voice-btn {
   background: transparent;
   color: var(--widget-color, #1f93ff);
@@ -783,16 +415,8 @@ export default {
 .elevenlabs-voice-btn:active:not(:disabled) {
   transform: scale(0.95);
 }
-
-.call-icon {
-  transition: transform 0.2s ease;
-}
-
-.elevenlabs-connecting {
-  opacity: 0.75;
-  cursor: wait;
-}
-
+.call-icon { transition: transform 0.2s ease; }
+.elevenlabs-connecting { opacity: 0.75; cursor: wait; }
 .elevenlabs-active {
   background: #ef4444 !important;
   color: #ffffff !important;
@@ -802,21 +426,8 @@ export default {
 .elevenlabs-active:hover {
   background: #dc2626 !important;
 }
-
 @keyframes pulse-active {
   0%,  100% { box-shadow: 0 0 0 0   rgba(239, 68, 68, 0.45); }
   50%        { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.08); }
-}
-
-/* Off-screen host for the <elevenlabs-convai> web component.
-   The element itself can paint its own UI; we tuck it out of view. */
-.elevenlabs-hidden-widget {
-  position: fixed;
-  left: -10000px;
-  top:  -10000px;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  pointer-events: none;
 }
 </style>

@@ -104,14 +104,20 @@ FROM chatwoot/chatwoot:latest
 # Copy ALL public build output
 COPY --from=node-builder /chatwoot-src/public /app/public
 
+# Voice-call popup window — standalone HTML page that hosts the ElevenLabs
+# SDK in its own browsing context (survives parent-page hard refresh).
+# Served from /voice-popup.html. Config delivered via postMessage (URL
+# stays clean — no secrets exposed in the address bar).
+COPY custom/widget/voice-popup.html /app/public/voice-popup.html
+
 # Copy floating button source so we can inject AFTER overwriting base image files
 # This file implements:
 #   • Widget state persistence across page navigation
 #   • Floating "End Call" button on the parent page during active voice call
 #   • SPA-aware navigation: link clicks become fetch-and-swap while a voice
-#     call is active so the Chatwoot iframe (and the ElevenLabs widget
-#     inside) are never destroyed — the call continues seamlessly.
+#     call is active so the Chatwoot iframe is never destroyed
 #   • Pre-chat form auto-fill from website cookies
+#   • Voice popup support: hides Chatwoot widget while popup is open (FEATURE 5)
 COPY custom/widget/sdk-floating-btn.js /tmp/cw-floating-btn.js
 
 # ── Inject into sdk.js AFTER COPY (Stage 2) ──────────────────────────────────

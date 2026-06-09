@@ -290,8 +290,60 @@
     }
   }
 
+  // ════════════════════════════════════════════════════════════════════════
+  // FEATURE 5 — Voice popup window: hide/show Chatwoot widget while open
+  // ════════════════════════════════════════════════════════════════════════
+  var WIDGET_SELECTORS = [
+    '#chatwoot_live_chat_widget',
+    '#cw-widget-holder',
+    '#woot-widget-holder',
+    '#cw-bubble-holder',
+    '.woot-widget-holder',
+    '.woot-widget-bubble',
+    '.woot--bubble-holder',
+    '.woot-elements--right',
+    '.woot-elements--left',
+  ];
+
+  function _ensureHideStyle() {
+    if (document.getElementById('cw-voice-hide-style')) return;
+    var s = document.createElement('style');
+    s.id = 'cw-voice-hide-style';
+    s.textContent =
+      '.cw-voice-hidden{display:none !important;visibility:hidden !important;' +
+      'opacity:0 !important;pointer-events:none !important;}';
+    document.head.appendChild(s);
+  }
+  function _hideChatwootWidget() {
+    _ensureHideStyle();
+    WIDGET_SELECTORS.forEach(function (sel) {
+      document.querySelectorAll(sel).forEach(function (el) {
+        el.classList.add('cw-voice-hidden');
+      });
+    });
+  }
+  function _showChatwootWidget() {
+    document.querySelectorAll('.cw-voice-hidden').forEach(function (el) {
+      el.classList.remove('cw-voice-hidden');
+    });
+  }
+
   window.addEventListener('message', function (e) {
     var data = e.data;
+
+    // Voice popup events (from widget iframe forwarding popup state)
+    if (data && typeof data === 'object') {
+      if (data.event === 'cw-voice-popup-opened') {
+        _hideChatwootWidget();
+        applyVoiceState(true, false);
+        return;
+      }
+      if (data.event === 'cw-voice-popup-closed' || data.event === 'cw-voice-popup-ended') {
+        _showChatwootWidget();
+        applyVoiceState(false, false);
+        return;
+      }
+    }
 
     // Plain object format (direct window.parent / window.top postMessage)
     if (data && typeof data === 'object' && data.event === 'voice-call-active') {
