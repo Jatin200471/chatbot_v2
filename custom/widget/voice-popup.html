@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="referrer" content="no-referrer" />
   <title>Voice Call</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -21,14 +22,13 @@
       overflow: hidden;
       -webkit-font-smoothing: antialiased;
     }
-
     body {
       display: flex;
       flex-direction: column;
       min-height: 100vh;
     }
 
-    /* ── Header bar ────────────────────────────────────────────────────── */
+    /* Header */
     .header {
       flex-shrink: 0;
       padding: 14px 20px;
@@ -56,9 +56,7 @@
     }
     .live-badge.show { display: flex; }
     .live-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
+      width: 8px; height: 8px; border-radius: 50%;
       background: #ef4444;
       animation: blink 1.4s ease-in-out infinite;
     }
@@ -67,7 +65,7 @@
       50%      { opacity: 0.35; }
     }
 
-    /* ── Main area: avatar + name + status ─────────────────────────────── */
+    /* Main */
     .main {
       flex: 1;
       display: flex;
@@ -77,19 +75,13 @@
       padding: 32px 24px;
       gap: 24px;
     }
-
     .avatar-stack {
       position: relative;
-      width: 168px;
-      height: 168px;
-      display: grid;
-      place-items: center;
+      width: 168px; height: 168px;
+      display: grid; place-items: center;
     }
-
-    /* Pulse rings around avatar (uses widget color) */
     .pulse-ring {
-      position: absolute;
-      inset: 0;
+      position: absolute; inset: 0;
       border-radius: 50%;
       border: 3px solid var(--widget-color);
       opacity: 0;
@@ -103,47 +95,29 @@
       80%  { transform: scale(1.55); opacity: 0; }
       100% { transform: scale(1.55); opacity: 0; }
     }
-
-    /* Avatar circle */
     .avatar {
-      width: 144px;
-      height: 144px;
+      width: 144px; height: 144px;
       border-radius: 50%;
       object-fit: cover;
       background: var(--widget-color-soft);
       border: 4px solid var(--widget-color);
       box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
-      position: relative;
-      z-index: 2;
+      position: relative; z-index: 2;
       transition: box-shadow 0.25s ease, transform 0.25s ease;
     }
-
-    /* When agent is speaking, avatar gets a stronger glow */
     .speaking .avatar {
       box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18),
                   0 0 0 10px var(--widget-color-soft);
       transform: scale(1.03);
     }
-    .speaking .pulse-ring {
-      animation-duration: 1.2s;
-    }
+    .speaking .pulse-ring { animation-duration: 1.2s; }
 
-    /* ── Name + status ────────────────────────────────────────────────── */
-    .info {
-      text-align: center;
-    }
+    .info { text-align: center; }
     .agent-name {
-      font-size: 22px;
-      font-weight: 700;
-      color: #0f172a;
-      margin-bottom: 4px;
-      letter-spacing: -0.2px;
+      font-size: 22px; font-weight: 700; color: #0f172a;
+      margin-bottom: 4px; letter-spacing: -0.2px;
     }
-    .agent-role {
-      font-size: 13px;
-      color: #64748b;
-      margin-bottom: 14px;
-    }
+    .agent-role { font-size: 13px; color: #64748b; margin-bottom: 14px; }
 
     .status {
       display: inline-flex;
@@ -151,42 +125,31 @@
       gap: 8px;
       padding: 6px 16px;
       border-radius: 999px;
-      font-size: 13px;
-      font-weight: 600;
+      font-size: 13px; font-weight: 600;
       transition: all 0.2s ease;
     }
     .status[data-state="connecting"] {
-      color: #b45309;
-      background: #fffbeb;
-      border: 1px solid #fde68a;
+      color: #b45309; background: #fffbeb; border: 1px solid #fde68a;
     }
     .status[data-state="connected"] {
-      color: #15803d;
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
+      color: #15803d; background: #f0fdf4; border: 1px solid #bbf7d0;
     }
     .status[data-state="ended"],
     .status[data-state="error"] {
-      color: #64748b;
-      background: #f1f5f9;
-      border: 1px solid #cbd5e1;
+      color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1;
     }
     .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
+      width: 8px; height: 8px; border-radius: 50%;
       background: currentColor;
       animation: blink 1.4s ease-in-out infinite;
     }
 
-    /* ── Action area: End Call button ─────────────────────────────────── */
+    /* End-call button */
     .actions {
       flex-shrink: 0;
       padding: 18px 24px 24px;
-      display: flex;
-      justify-content: center;
+      display: flex; justify-content: center;
     }
-
     .end-call-btn {
       display: inline-flex;
       align-items: center;
@@ -197,8 +160,7 @@
       border-radius: 999px;
       background: #ef4444;
       color: #fff;
-      font-size: 15px;
-      font-weight: 700;
+      font-size: 15px; font-weight: 700;
       letter-spacing: 0.3px;
       cursor: pointer;
       box-shadow: 0 6px 18px rgba(239, 68, 68, 0.35);
@@ -209,22 +171,14 @@
       transform: translateY(-2px);
       box-shadow: 0 8px 22px rgba(239, 68, 68, 0.45);
     }
-    .end-call-btn:active:not(:disabled) {
-      transform: translateY(0);
-    }
+    .end-call-btn:active:not(:disabled) { transform: translateY(0); }
     .end-call-btn:disabled {
-      background: #cbd5e1;
-      color: #64748b;
-      cursor: not-allowed;
-      box-shadow: none;
-      transform: none;
+      background: #cbd5e1; color: #64748b; cursor: not-allowed;
+      box-shadow: none; transform: none;
     }
-    .end-call-btn svg {
-      width: 20px;
-      height: 20px;
-    }
+    .end-call-btn svg { width: 20px; height: 20px; }
 
-    /* ── Footer ───────────────────────────────────────────────────────── */
+    /* Footer */
     .footer {
       flex-shrink: 0;
       padding: 12px 20px;
@@ -234,10 +188,7 @@
       color: #94a3b8;
       background: #fff;
     }
-    .footer strong {
-      color: #64748b;
-      font-weight: 600;
-    }
+    .footer strong { color: #64748b; font-weight: 600; }
   </style>
 </head>
 
@@ -285,116 +236,71 @@
 
   <script type="module">
     /* ================================================================= *
-     * Voice-call popup — runs the ElevenLabs ConvAI SDK in an isolated   *
-     * browsing context. Survives parent-page hard refresh / navigation.  *
+     * SECURE config delivery — popup requests config via postMessage,    *
+     * NEVER reads from URL params. This keeps signed_url / agent_id /    *
+     * auth_token / cw_conversation OUT of the URL bar, browser history,  *
+     * server logs, and referer headers.                                  *
      * ================================================================= */
 
-    // ── 1. Read config from URL params ──────────────────────────────────
-    const params       = new URLSearchParams(location.search);
-    const signedUrl    = params.get('signed_url')    || '';
-    const websiteToken = params.get('website_token') || '';
-    const apiBaseUrl   = params.get('base_url')      || location.origin;
-    const widgetColor  = params.get('color')         || '#1f93ff';
-    const avatarUrl    = params.get('avatar')        || '';
-    const agentName    = params.get('agent_name')    || 'AI Assistant';
-    const agentRole    = params.get('agent_role')    || 'Voice Assistant';
-    const brandName    = params.get('brand')         || '';
-    const authToken    = params.get('auth_token')    || '';
-    const cwConv       = params.get('cw_conversation') || '';
+    // ── DOM refs ────────────────────────────────────────────────────────
+    const $avatar     = document.getElementById('avatarImg');
+    const $agentName  = document.getElementById('agentName');
+    const $agentRole  = document.getElementById('agentRole');
+    const $brandName  = document.getElementById('brandName');
+    const $status     = document.getElementById('status');
+    const $statusText = document.getElementById('statusText');
+    const $endCallBtn = document.getElementById('endCallBtn');
+    const $liveBadge  = document.getElementById('liveBadge');
+    const $main       = document.getElementById('main');
 
-    // ── 2. Apply widget color + branding to the DOM ─────────────────────
-    document.documentElement.style.setProperty('--widget-color', widgetColor);
-    document.documentElement.style.setProperty(
-      '--widget-color-soft',
-      hexToRgba(widgetColor, 0.15)
-    );
-
-    document.getElementById('agentName').textContent = agentName;
-    document.getElementById('agentRole').textContent = agentRole;
-    if (brandName) {
-      document.getElementById('brandName').textContent = brandName;
-    }
-
-    // Avatar — use provided URL, or fall back to a colored initials circle
-    const $avatar = document.getElementById('avatarImg');
-    if (avatarUrl) {
-      $avatar.src = avatarUrl;
-      $avatar.onerror = () => { $avatar.src = makeFallbackAvatar(agentName, widgetColor); };
-    } else {
-      $avatar.src = makeFallbackAvatar(agentName, widgetColor);
-    }
-
-    // ── 3. State + DOM refs ─────────────────────────────────────────────
-    const $status      = document.getElementById('status');
-    const $statusText  = document.getElementById('statusText');
-    const $endCallBtn  = document.getElementById('endCallBtn');
-    const $liveBadge   = document.getElementById('liveBadge');
-    const $main        = document.getElementById('main');
-
+    // ── State ───────────────────────────────────────────────────────────
+    let cfg = null;             // populated by postMessage from opener
     let conversation = null;
     let isCallActive = false;
     let endedNotified = false;
+    let _heartbeatTimer = null;
+    let _configReceived = false;
 
-    function setStatus(state, text) {
-      $status.dataset.state = state;
-      $statusText.textContent = text;
-      if (state === 'connected') {
-        $liveBadge.classList.add('show');
-      } else {
-        $liveBadge.classList.remove('show');
-      }
-    }
-
-    // ── 4. Talk to the parent + opener pages ────────────────────────────
-    function postToParents(event, payload = {}) {
-      const msg = { source: 'cw-voice-popup', event, ...payload };
-      try {
-        if (window.opener && !window.opener.closed) {
-          window.opener.postMessage(msg, '*');
-          if (window.opener.parent && window.opener.parent !== window.opener) {
-            window.opener.parent.postMessage(msg, '*');
-          }
-        }
-      } catch (_) { /* opener may be cross-origin restricted */ }
-    }
-
-    function buildUrl(path) {
-      let url = apiBaseUrl + path;
-      const qs = [];
-      if (websiteToken) qs.push('website_token=' + encodeURIComponent(websiteToken));
-      if (cwConv)       qs.push('cw_conversation=' + encodeURIComponent(cwConv));
-      if (qs.length) url += (url.includes('?') ? '&' : '?') + qs.join('&');
-      return url;
-    }
-
-    function apiPost(path, body) {
-      return fetch(buildUrl(path), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authToken ? { 'X-Auth-Token': authToken } : {}),
-        },
-        credentials: 'include',
-        body: JSON.stringify(body || {}),
-      });
-    }
-
-    // ── 5. Heartbeat so the widget iframe can detect us across a parent
-    //       hard-refresh. Widget reads localStorage + BroadcastChannel.
-    const HEARTBEAT_KEY = 'cw_voice_popup_heartbeat';
     let _channel = null;
     try { _channel = new BroadcastChannel('cw-voice'); } catch (_) {}
 
+    // ── UI helpers ──────────────────────────────────────────────────────
+    function setStatus(state, text) {
+      $status.dataset.state = state;
+      $statusText.textContent = text;
+      $liveBadge.classList.toggle('show', state === 'connected');
+    }
+    function applyBranding(c) {
+      document.documentElement.style.setProperty('--widget-color', c.color);
+      document.documentElement.style.setProperty('--widget-color-soft', hexToRgba(c.color, 0.15));
+      $agentName.textContent = c.agentName;
+      $agentRole.textContent = c.agentRole || 'Voice Assistant';
+      if (c.brand) $brandName.textContent = c.brand;
+      if (c.avatar) {
+        $avatar.src = c.avatar;
+        $avatar.onerror = () => { $avatar.src = makeFallbackAvatar(c.agentName, c.color); };
+      } else {
+        $avatar.src = makeFallbackAvatar(c.agentName, c.color);
+      }
+    }
+
+    // ── Cross-window messaging ──────────────────────────────────────────
+    function postToOpener(event, payload = {}) {
+      if (!window.opener || window.opener.closed) return;
+      try {
+        window.opener.postMessage({ source: 'cw-voice-popup', event, ...payload }, '*');
+        if (window.opener.parent && window.opener.parent !== window.opener) {
+          window.opener.parent.postMessage({ source: 'cw-voice-popup', event, ...payload }, '*');
+        }
+      } catch (_) {}
+    }
+
+    // ── Heartbeat (so widget knows we're alive after parent F5) ─────────
+    const HEARTBEAT_KEY = 'cw_voice_popup_heartbeat';
     function writeHeartbeat() {
       try { localStorage.setItem(HEARTBEAT_KEY, String(Date.now())); } catch (_) {}
       if (_channel) {
-        try {
-          _channel.postMessage({
-            type: 'heartbeat',
-            timestamp: Date.now(),
-            active: isCallActive,
-          });
-        } catch (_) {}
+        try { _channel.postMessage({ type: 'heartbeat', timestamp: Date.now(), active: isCallActive }); } catch (_) {}
       }
     }
     function clearHeartbeat() {
@@ -404,49 +310,59 @@
       }
     }
 
-    writeHeartbeat();
-    const _heartbeatTimer = setInterval(writeHeartbeat, 1500);
+    // ── API helper (uses config received from opener) ──────────────────
+    function apiPost(path, body) {
+      if (!cfg) return Promise.reject(new Error('No config yet'));
+      const url = new URL(path, cfg.baseUrl);
+      if (cfg.websiteToken) url.searchParams.set('website_token', cfg.websiteToken);
+      if (cfg.cwConversation) url.searchParams.set('cw_conversation', cfg.cwConversation);
+      return fetch(url.toString(), {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(cfg.authToken ? { 'X-Auth-Token': cfg.authToken } : {}),
+        },
+        body: JSON.stringify(body || {}),
+      });
+    }
+
+    // ── Listen for the secure config from opener ────────────────────────
+    window.addEventListener('message', (e) => {
+      const d = e?.data;
+      if (!d || typeof d !== 'object') return;
+      if (d.source !== 'cw-widget') return;
+
+      if (d.event === 'config' && d.config && !_configReceived) {
+        _configReceived = true;
+        cfg = d.config;
+        applyBranding(cfg);
+        startCall();
+        return;
+      }
+      if (d.event === 'request-end-call') {
+        endCall('Call ended');
+        return;
+      }
+    });
 
     if (_channel) {
       _channel.addEventListener('message', (e) => {
         const m = e.data || {};
-        if (m.type === 'ping') {
-          writeHeartbeat();
-        } else if (m.type === 'request-end-call') {
-          endCall('Call ended');
-        }
+        if (m.type === 'ping')             writeHeartbeat();
+        else if (m.type === 'request-end-call') endCall('Call ended');
       });
     }
 
-    window.addEventListener('message', (e) => {
-      const d = e?.data;
-      if (d && typeof d === 'object' && d.source === 'cw-widget' && d.event === 'request-end-call') {
-        endCall('Call ended');
-      }
-    });
-
-    window.addEventListener('beforeunload', () => {
-      clearInterval(_heartbeatTimer);
-      clearHeartbeat();
-      if (conversation && isCallActive) {
-        try { conversation.endSession(); } catch (_) {}
-      }
-      if (!endedNotified) {
-        endedNotified = true;
-        try {
-          const url = buildUrl('/api/v1/widget/conversations/voice_call_ended');
-          navigator.sendBeacon(url, new Blob(['{}'], { type: 'application/json' }));
-        } catch (_) {}
-      }
-      postToParents('voice-popup-closed');
-    });
-
-    // ── 6. Start the ElevenLabs session ─────────────────────────────────
+    // ── Start the call (only after config arrives) ─────────────────────
     async function startCall() {
-      if (!signedUrl) {
+      if (!cfg?.signedUrl) {
         setStatus('error', 'Missing signed URL');
         return;
       }
+
+      writeHeartbeat();
+      _heartbeatTimer = setInterval(writeHeartbeat, 1500);
 
       try {
         setStatus('connecting', 'Requesting microphone…');
@@ -461,71 +377,54 @@
 
         setStatus('connecting', 'Connecting to agent…');
         conversation = await Conversation.startSession({
-          signedUrl,
+          signedUrl: cfg.signedUrl,
 
           onConnect: () => {
             isCallActive = true;
             setStatus('connected', 'Connected');
             $endCallBtn.disabled = false;
             writeHeartbeat();
-            postToParents('voice-popup-connected');
+            postToOpener('voice-popup-connected');
           },
-
-          onDisconnect: () => {
-            handleCallEnded('Call ended');
-          },
-
+          onDisconnect: () => handleCallEnded('Call ended'),
           onError: (err) => {
             const msg = (err && (err.message || err.toString())) || 'Unknown error';
             console.error('[VOICE-POPUP] error:', msg);
             setStatus('error', 'Error: ' + msg);
             $endCallBtn.disabled = true;
-            postToParents('voice-popup-error', { error: msg });
+            postToOpener('voice-popup-error', { error: msg });
           },
-
           onMessage: ({ message, source }) => {
             const text = (message || '').toString().trim();
             if (!text) return;
-            apiPost('/api/v1/widget/conversations/voice_transcript', {
-              source, content: text,
-            }).catch(e => console.warn('Transcript save failed:', e?.message));
-            postToParents('voice-popup-transcript', { source, message: text });
+            apiPost('/api/v1/widget/conversations/voice_transcript', { source, content: text })
+              .catch(e => console.warn('Transcript save failed:', e?.message));
+            postToOpener('voice-popup-transcript', { source, message: text });
           },
-
           onModeChange: (mode) => {
-            if (mode === 'speaking') $main.classList.add('speaking');
-            else                     $main.classList.remove('speaking');
+            $main.classList.toggle('speaking', mode === 'speaking');
           },
         });
       } catch (error) {
         const msg = (error && error.message) || 'unknown';
         console.error('[VOICE-POPUP] startCall failed:', msg);
-        if (error && (error.name === 'NotAllowedError' || error.name === 'NotFoundError')) {
-          setStatus('error', 'Microphone permission denied');
-        } else {
-          setStatus('error', 'Failed: ' + msg);
-        }
+        setStatus('error',
+          (error && (error.name === 'NotAllowedError' || error.name === 'NotFoundError'))
+            ? 'Microphone permission denied'
+            : 'Failed: ' + msg);
         $endCallBtn.disabled = true;
-        postToParents('voice-popup-error', { error: msg });
+        postToOpener('voice-popup-error', { error: msg });
       }
     }
 
-    // ── 7. End the call ─────────────────────────────────────────────────
+    // ── End the call ────────────────────────────────────────────────────
     async function endCall(reason) {
-      if (!conversation) {
-        handleCallEnded(reason || 'Call ended');
-        return;
-      }
+      if (!conversation) { handleCallEnded(reason || 'Call ended'); return; }
       $endCallBtn.disabled = true;
       setStatus('connecting', 'Ending call…');
-      try {
-        await conversation.endSession();
-      } catch (e) {
-        console.warn('[VOICE-POPUP] endSession threw:', e?.message);
-      }
-      setTimeout(() => {
-        if (isCallActive) handleCallEnded(reason || 'Call ended');
-      }, 1500);
+      try { await conversation.endSession(); }
+      catch (e) { console.warn('[VOICE-POPUP] endSession threw:', e?.message); }
+      setTimeout(() => { if (isCallActive) handleCallEnded(reason || 'Call ended'); }, 1500);
     }
 
     function handleCallEnded(label) {
@@ -533,24 +432,56 @@
       setStatus('ended', label || 'Call ended');
       $endCallBtn.disabled = true;
       conversation = null;
-
       if (!endedNotified) {
         endedNotified = true;
-        apiPost('/api/v1/widget/conversations/voice_call_ended', {})
-          .catch(() => {});
-        postToParents('voice-popup-ended');
+        apiPost('/api/v1/widget/conversations/voice_call_ended', {}).catch(() => {});
+        postToOpener('voice-popup-ended');
       }
-      clearInterval(_heartbeatTimer);
+      if (_heartbeatTimer) clearInterval(_heartbeatTimer);
       clearHeartbeat();
       setTimeout(() => { try { window.close(); } catch (_) {} }, 1500);
     }
 
-    // ── 8. Wire up the End Call button ──────────────────────────────────
     $endCallBtn.addEventListener('click', () => endCall('Call ended'));
 
-    // ── 9. Notify opener + kick off the call ───────────────────────────
-    postToParents('voice-popup-opened');
-    startCall();
+    // ── Cleanup on unload ───────────────────────────────────────────────
+    window.addEventListener('beforeunload', () => {
+      if (_heartbeatTimer) clearInterval(_heartbeatTimer);
+      clearHeartbeat();
+      if (conversation && isCallActive) {
+        try { conversation.endSession(); } catch (_) {}
+      }
+      if (!endedNotified && cfg) {
+        endedNotified = true;
+        try {
+          const url = new URL('/api/v1/widget/conversations/voice_call_ended', cfg.baseUrl);
+          if (cfg.websiteToken) url.searchParams.set('website_token', cfg.websiteToken);
+          if (cfg.cwConversation) url.searchParams.set('cw_conversation', cfg.cwConversation);
+          navigator.sendBeacon(url.toString(), new Blob(['{}'], { type: 'application/json' }));
+        } catch (_) {}
+      }
+      postToOpener('voice-popup-closed');
+    });
+
+    // ── Kick things off: ask opener for config ──────────────────────────
+    postToOpener('voice-popup-opened');
+    postToOpener('voice-popup-request-config');
+
+    // Re-request every 500ms for 5s, in case opener was busy
+    let retries = 0;
+    const _retryTimer = setInterval(() => {
+      if (_configReceived || retries >= 10) { clearInterval(_retryTimer); return; }
+      retries++;
+      postToOpener('voice-popup-request-config');
+    }, 500);
+
+    // Final fallback: if no config in 6s, error out
+    setTimeout(() => {
+      if (!_configReceived) {
+        setStatus('error', 'No config from opener — close and retry');
+        $endCallBtn.disabled = true;
+      }
+    }, 6000);
 
     // ── Helpers ─────────────────────────────────────────────────────────
     function hexToRgba(hex, alpha) {
@@ -563,7 +494,6 @@
       const b = parseInt(h.slice(4, 6), 16);
       return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
-
     function makeFallbackAvatar(name, color) {
       const initials = (name || 'AI')
         .split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
