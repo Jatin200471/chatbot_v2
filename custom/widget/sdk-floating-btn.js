@@ -290,16 +290,72 @@
     }
   }
 
+  // ════════════════════════════════════════════════════════════════════════
+  // FEATURE 5 — Voice popup window: hide/show Chatwoot widget while open
+  // ════════════════════════════════════════════════════════════════════════
+  //
+  // When the voice call runs in a separate popup window (see voice-popup.html),
+  // we hide the entire Chatwoot widget on the parent page so the popup is the
+  // only visible interface. When the popup closes, the widget reappears.
+
+  var WIDGET_SELECTORS = [
+    '#cw-widget-holder',        // Chatwoot widget iframe container (new)
+    '#woot-widget-holder',      // Chatwoot widget iframe container (legacy)
+    '.woot-widget-holder',
+    '.woot-widget-bubble',      // Floating bubble button
+    '.woot--bubble-holder',
+    '#cw-bubble-holder',
+  ];
+
+  function _hideChatwootWidget() {
+    WIDGET_SELECTORS.forEach(function (sel) {
+      document.querySelectorAll(sel).forEach(function (el) {
+        if (el.dataset.cwHiddenForVoice !== '1') {
+          el.dataset.cwHiddenForVoice = '1';
+          el.dataset.cwOriginalDisplay = el.style.display || '';
+          el.style.display = 'none';
+        }
+      });
+    });
+  }
+
+  function _showChatwootWidget() {
+    WIDGET_SELECTORS.forEach(function (sel) {
+      document.querySelectorAll(sel).forEach(function (el) {
+        if (el.dataset.cwHiddenForVoice === '1') {
+          el.style.display = el.dataset.cwOriginalDisplay || '';
+          delete el.dataset.cwHiddenForVoice;
+          delete el.dataset.cwOriginalDisplay;
+        }
+      });
+    });
+  }
+
   window.addEventListener('message', function (e) {
     var data = e.data;
 
-    // Plain object format (direct window.parent / window.top postMessage)
+    // ── Voice popup events (from voice-popup.html or widget iframe) ────
+    if (data && typeof data === 'object') {
+      if (data.event === 'cw-voice-popup-opened') {
+        _hideChatwootWidget();
+        // Also flip floating-button state so SPA-nav interceptor is active
+        applyVoiceState(true, false);
+        return;
+      }
+      if (data.event === 'cw-voice-popup-closed' || data.event === 'cw-voice-popup-ended') {
+        _showChatwootWidget();
+        applyVoiceState(false, false);
+        return;
+      }
+    }
+
+    // ── Plain object format (direct window.parent / window.top postMessage)
     if (data && typeof data === 'object' && data.event === 'voice-call-active') {
       applyVoiceState(data.isActive, data.autoOpen);
       return;
     }
 
-    // Prefixed string format "chatwoot-widget:{...}" (IFrameHelper channel)
+    // ── Prefixed string format "chatwoot-widget:{...}" (IFrameHelper)
     if (typeof data === 'string' && data.indexOf('chatwoot-widget:') === 0) {
       try {
         var parsed = JSON.parse(data.slice('chatwoot-widget:'.length));
