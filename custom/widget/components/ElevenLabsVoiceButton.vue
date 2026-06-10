@@ -109,14 +109,22 @@ export default {
       if (isPopupAlive() && !this.isCallActive) this._syncCallActiveFromPopup();
     }, 600);
 
-    // Backend check — survives browser storage partitioning AND covers
-    // the "user has voice call open in another tab" case. We poll every
-    // 5 seconds while idle so any active call from this visitor reflects
-    // immediately on whatever page they're currently viewing.
+    // Event-driven cross-page propagation — NO polling.
+    //
+    //   1. On page LOAD: check backend ONCE. If a call is active for this
+    //      visitor, show the red button immediately.
+    //
+    //   2. On RUNTIME: listen for BroadcastChannel events from the popup
+    //      (instant) and for `storage` events (cross-tab fallback). The
+    //      popup fires these on call-start and call-end — no polling
+    //      needed because the events arrive in real time.
+    //
+    //   3. When THIS tab becomes visible again (user clicks back to it):
+    //      check once. Cheap, runs only on actual user attention.
     this._checkBackendCallStatus();
-    this._backendStatusPoll = setInterval(() => {
-      this._checkBackendCallStatus();
-    }, 5000);
+
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
+    window.addEventListener('storage', this._onStorageEvent);
   },
 
   beforeUnmount() {
@@ -125,7 +133,8 @@ export default {
     const ch = getBroadcastChannel();
     if (ch) ch.removeEventListener('message', this.onBroadcastMessage);
     if (this._popupSyncTimer) clearTimeout(this._popupSyncTimer);
-    if (this._backendStatusPoll) clearInterval(this._backendStatusPoll);
+    document.removeEventListener('visibilitychange', this._onVisibilityChange);
+    window.removeEventListener('storage', this._onStorageEvent);
   },
 
   methods: {
@@ -283,6 +292,28 @@ export default {
         if (!this.isCallActive) this._syncCallActiveFromPopup();
       } else if (m.type === 'ended') {
         this.resetCallState();
+      }
+    },
+
+    // Page becomes visible again (tab switch back) → check once.
+    // Runs ONLY when user actually focuses this tab, not constantly.
+    _onVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        this._checkBackendCallStatus();
+      }
+    },
+
+    // Cross-tab storage event — fires INSTANTLY when another tab/window
+    // writes to the heartbeat key (popup does this on every heartbeat).
+    // True event-driven, zero polling.
+    _onStorageEvent(e) {
+      if (e.key !== 'cw_voice_popup_heartbeat') return;
+      if (e.newValue && !this.isCallActive) {
+        // Heartbeat written → call started somewhere → sync to active
+        this._checkBackendCallStatus();
+      } else if (!e.newValue && this.isCallActive) {
+        // Heartbeat cleared → call ended somewhere → reset
+        this._checkBackendCallStatus();
       }
     },
 

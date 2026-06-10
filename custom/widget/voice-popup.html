@@ -57,14 +57,13 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 6px 12px;
+      padding: 10px 14px 8px;
       border-bottom: 0.5px solid var(--border-tertiary);
-      min-height: 26px;
     }
     .popup-header .title {
-      font-size: 9.5px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
       color: var(--text-secondary);
       text-transform: uppercase;
     }
@@ -72,16 +71,15 @@
     .live-badge {
       display: none;
       align-items: center;
-      gap: 4px;
-      font-size: 9.5px;
-      font-weight: 600;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 500;
       color: #e8533a;
-      letter-spacing: 0.04em;
     }
     .live-badge.show { display: inline-flex; }
     .live-dot {
-      width: 6px;
-      height: 6px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: #e8533a;
       animation: pulse 1.4s ease-in-out infinite;
@@ -193,11 +191,9 @@
       background: currentColor;
     }
 
-    /* ── Footer: End Call button + brand line, with subtle divider ─────── */
+    /* ── Footer: just the End Call button (matches reference) ─────────── */
     .popup-footer {
-      padding: 14px 16px 12px;
-      border-top: 0.5px solid var(--border-tertiary);
-      background: #fafbfc;
+      padding: 0 16px 18px;
     }
     .end-btn {
       width: 100%;
@@ -213,8 +209,7 @@
       align-items: center;
       justify-content: center;
       gap: 7px;
-      transition: background 0.15s, transform 0.12s;
-      margin-bottom: 8px;
+      transition: background 0.15s;
     }
     .end-btn:hover:not(:disabled) { background: #c93f28; }
     .end-btn:active:not(:disabled) { transform: scale(0.98); }
@@ -225,12 +220,13 @@
     }
     .end-btn svg { width: 14px; height: 14px; }
 
+    /* Subtle brand line — kept but minimal so it doesn't dominate */
     .brand {
+      padding: 0 16px 12px;
       text-align: center;
       font-size: 10px;
       color: var(--text-tertiary);
       font-weight: 500;
-      letter-spacing: 0.02em;
     }
     .brand strong {
       color: var(--text-secondary);
@@ -271,15 +267,14 @@
         gap: 4px;
       }
       .badge-dot { width: 6px; height: 6px; }
-      .popup-footer { padding: 10px 12px; }
+      .popup-footer { padding: 0 12px 14px; }
       .end-btn {
         font-size: 12px;
         padding: 9px 0;
         gap: 6px;
         border-radius: 22px;
-        margin-bottom: 6px;
       }
-      .brand { font-size: 9px; }
+      .brand { padding: 0 12px 10px; font-size: 9px; }
     }
   </style>
 </head>
@@ -317,9 +312,10 @@
         </svg>
         End Call
       </button>
-      <div class="brand">
-        Powered by <strong id="brandName">Visual Graphx</strong>
-      </div>
+    </div>
+
+    <div class="brand">
+      Powered by <strong id="brandName">Visual Graphx</strong>
     </div>
   </div>
 
