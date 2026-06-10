@@ -135,7 +135,9 @@ export default {
       this.isConnecting = true;
       this.setConnecting(true);
 
-      const w = 380, h = 620;
+      // Compact popup so it doesn't dominate the screen — visitor can still
+      // see the Chatwoot widget chat panel alongside (live transcript).
+      const w = 320, h = 460;
       const left = Math.max(0, Math.round((screen.availWidth  - w) / 2));
       const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
       const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;
@@ -249,9 +251,13 @@ export default {
     },
 
     notifyParentWidgetHide(hide) {
+      // We DO NOT hide the Chatwoot widget while the popup is open —
+      // the visitor needs to see the live transcript flowing into the
+      // chat panel. We still send the event so the parent script can
+      // flip its 'voice-active' state for SPA navigation interception.
       try {
         window.parent.postMessage({
-          event: hide ? 'cw-voice-popup-opened' : 'cw-voice-popup-closed',
+          event: hide ? 'cw-voice-call-started' : 'cw-voice-call-ended',
         }, '*');
       } catch (_) {}
     },
@@ -269,10 +275,14 @@ export default {
         baseUrl:        window.location.origin,
         websiteToken:   WEBSITE_TOKEN || '',
         color:          this.widgetColor || ch.widgetColor || this.color || '#1f93ff',
-        avatar:         ch.avatarUrl || '',
-        agentName:      ch.websiteName || 'AI Assistant',
+        // Avatar: prefer the agent's own avatar (returned by backend),
+        // fall back to the inbox avatar.
+        avatar:         data?.avatar_url || ch.avatarUrl || '',
+        // Center label — first ASSIGNED AGENT NAME (not inbox name)
+        agentName:      data?.agent_name || ch.websiteName || 'AI Assistant',
         agentRole:      'Voice Assistant',
-        brand:          ch.websiteName || '',
+        // Footer brand — account name (e.g. "Visual Graphx"), not inbox name
+        brand:          data?.brand_name || ch.websiteName || 'Voice Assistant',
         authToken:      window.authToken || '',
         cwConversation: this.getCwConversationToken() || '',
       };

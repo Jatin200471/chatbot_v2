@@ -160,6 +160,17 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     # 2. PUBLIC agent (no API key):
     #    → Return the standard WebSocket URL directly from backend.
     #    → Agent_id still flows through backend only, not stored in frontend.
+    # Resolve the visible agent name + brand name that the voice popup will
+    # display. Agent name = first inbox agent (or admin fallback). Brand
+    # name = the Chatwoot account name (e.g. "Visual Graphx").
+    first_agent = @inbox.inbox_members.order(:id).first&.user
+    first_agent ||= @inbox.account.account_users
+                          .where(role: :administrator).order(:id).first&.user
+    agent_display_name = first_agent&.available_name.presence ||
+                         first_agent&.name.presence ||
+                         @inbox.name
+    brand_display_name = @inbox.account.name.presence || @inbox.name
+
     if api_key.present?
       # Private agent — fetch signed URL from ElevenLabs
       uri = URI("https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=#{agent_id}")
@@ -172,14 +183,24 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
 
       if res.is_a?(Net::HTTPSuccess)
         body = JSON.parse(res.body)
-        render json: { signed_url: body['signed_url'] }
+        render json: {
+          signed_url:    body['signed_url'],
+          agent_name:    agent_display_name,
+          brand_name:    brand_display_name,
+          avatar_url:    first_agent&.avatar_url
+        }
       else
         Rails.logger.error "[VOICE-AGENT] ElevenLabs signed-url request failed: #{res.code} #{res.body}"
         render json: { error: "ElevenLabs API error: #{res.code} — check Agent ID and API Key in inbox settings" }, status: :unprocessable_entity
       end
     else
       # Public agent — return direct WebSocket URL (agent_id comes from backend, not frontend)
-      render json: { signed_url: "wss://api.elevenlabs.io/v1/convai/conversation?agent_id=#{agent_id}" }
+      render json: {
+        signed_url:    "wss://api.elevenlabs.io/v1/convai/conversation?agent_id=#{agent_id}",
+        agent_name:    agent_display_name,
+        brand_name:    brand_display_name,
+        avatar_url:    first_agent&.avatar_url
+      }
     end
   rescue StandardError => e
     Rails.logger.error "[VOICE-AGENT] signed-url exception: #{e.class} #{e.message}"

@@ -336,14 +336,17 @@
     var data = e.data;
 
     // Voice popup events (from widget iframe forwarding popup state).
-    // Flips floating-button state so SPA-nav interceptor stays active.
+    // The Chatwoot widget stays visible during the call so the visitor
+    // can watch the live transcript flow into the chat panel.
+    // We still flip 'voice-active' state so the SPA-nav interceptor
+    // intercepts link clicks during the call.
     if (data && typeof data === 'object') {
-      if (data.event === 'cw-voice-popup-opened') {
-        _hideChatwootWidget();
+      if (data.event === 'cw-voice-call-started' || data.event === 'cw-voice-popup-opened') {
         applyVoiceState(true, false);
         return;
       }
-      if (data.event === 'cw-voice-popup-closed' || data.event === 'cw-voice-popup-ended') {
+      if (data.event === 'cw-voice-call-ended' || data.event === 'cw-voice-popup-closed' || data.event === 'cw-voice-popup-ended') {
+        // Restore any hidden elements left over from older builds
         _showChatwootWidget();
         applyVoiceState(false, false);
         return;
