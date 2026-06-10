@@ -407,6 +407,42 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     render json: { lines: [], conversation_id: nil, has_history: false, error: e.message }
   end
 
+  # Heartbeat from the voice-call popup. Records the timestamp on the
+  # visitor's conversation custom_attributes so the widget iframe can detect
+  # an active call after a parent-page hard refresh — browser storage
+  # partitioning means localStorage / BroadcastChannel may NOT bridge the
+  # popup ↔ iframe boundary, so we use the backend as the source of truth.
+  def voice_heartbeat
+    conv = conversation || build_conversation_for_voice
+    attrs = conv.custom_attributes || {}
+    attrs['voice_heartbeat_at'] = Time.current.iso8601
+    conv.update_columns(custom_attributes: attrs)
+    render json: { ok: true }
+  rescue StandardError => e
+    Rails.logger.warn "[VOICE-AGENT] voice_heartbeat failed: #{e.message}"
+    render json: { ok: false, error: e.message }
+  end
+
+  # Returns whether a voice call is currently active for this visitor.
+  # 'Active' = heartbeat received in the last 15 seconds. Used by the
+  # widget iframe on mount to show the active-call UI after a hard refresh.
+  def voice_call_active
+    conv = conversation
+    return render json: { active: false } if conv.nil?
+
+    heartbeat = conv.custom_attributes&.dig('voice_heartbeat_at')
+    return render json: { active: false } if heartbeat.blank?
+
+    last = Time.parse(heartbeat) rescue nil
+    return render json: { active: false } if last.nil?
+
+    active = (Time.current - last) < 15.seconds
+    render json: { active: active, last_heartbeat: heartbeat }
+  rescue StandardError => e
+    Rails.logger.warn "[VOICE-AGENT] voice_call_active failed: #{e.message}"
+    render json: { active: false, error: e.message }
+  end
+
   def set_custom_attributes
     conversation.update!(custom_attributes: permitted_params[:custom_attributes])
   end

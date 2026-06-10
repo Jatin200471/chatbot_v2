@@ -108,6 +108,12 @@ export default {
     this._popupSyncTimer = setTimeout(() => {
       if (isPopupAlive() && !this.isCallActive) this._syncCallActiveFromPopup();
     }, 600);
+
+    // Backend check — survives browser storage partitioning. After a
+    // parent-page hard refresh, localStorage / BroadcastChannel may not
+    // bridge iframe ↔ popup, so we ask the server "is there an active
+    // call right now?" — if yes, sync the UI to active state.
+    this._checkBackendCallStatus();
   },
 
   beforeUnmount() {
@@ -141,10 +147,11 @@ export default {
       // it fills the screen comfortably.
       const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
-      // Compact desktop popup; mobile popup is essentially a full tab so
-      // window dimensions don't matter there (the browser fullscreens it).
-      const w = isMobile ? 360 : 320;
-      const h = isMobile ? 640 : 380;
+      // Ultra-compact popup — height reduced from 9 → 5 ratio (440 → ~300
+      // accounting for browser chrome). All internal elements scaled
+      // proportionally so layout still fits inside the smaller frame.
+      const w = isMobile ? 360 : 300;
+      const h = isMobile ? 640 : 340;
       const left = Math.max(0, Math.round((screen.availWidth  - w) / 2));
       const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
       const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;
@@ -208,6 +215,22 @@ export default {
       this.setConnecting(false);
       try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
       this.notifyParentWidgetHide(true);
+    },
+
+    // Backend-driven call detection — works across browser storage
+    // partitioning (iframe-vs-popup localStorage isolation).
+    async _checkBackendCallStatus() {
+      try {
+        const { data } = await API.get(
+          buildConvUrl('/api/v1/widget/conversations/voice_call_active')
+        );
+        if (data?.active && !this.isCallActive) {
+          vLog('Backend reports active call — syncing UI');
+          this._syncCallActiveFromPopup();
+        }
+      } catch (e) {
+        vLog('voice_call_active check failed:', e?.message);
+      }
     },
 
     onBroadcastMessage(e) {
