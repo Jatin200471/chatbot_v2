@@ -438,8 +438,14 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       written << "conversation##{conv.id}"
     end
 
-    Rails.logger.info "[VOICE-HEARTBEAT] visitor=#{@contact&.id} saved to #{written.join(', ')} at #{ts}"
-    render json: { ok: written.any?, written: written, contact_id: @contact&.id, timestamp: ts }
+    Rails.logger.info "[VOICE-HEARTBEAT] contact=#{@contact&.id} contact_inbox=#{@contact_inbox&.id} saved=#{written.join(',')} at #{ts}"
+    render json: {
+      ok: written.any?,
+      written: written,
+      contact_id: @contact&.id,
+      contact_inbox_id: @contact_inbox&.id,
+      timestamp: ts
+    }
   rescue StandardError => e
     Rails.logger.warn "[VOICE-AGENT] voice_heartbeat failed: #{e.message}"
     render json: { ok: false, error: e.message }
@@ -492,8 +498,14 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       end
     end
 
-    Rails.logger.info "[VOICE-CALL-ACTIVE] visitor=#{@contact&.id} active=#{active} source=#{source}"
-    render json: { active: active, source: source, last_heartbeat: heartbeat }
+    Rails.logger.info "[VOICE-CALL-ACTIVE] contact=#{@contact&.id} contact_inbox=#{@contact_inbox&.id} active=#{active} source=#{source}"
+    render json: {
+      active: active,
+      source: source,
+      contact_id: @contact&.id,
+      contact_inbox_id: @contact_inbox&.id,
+      last_heartbeat: heartbeat
+    }
   rescue StandardError => e
     Rails.logger.warn "[VOICE-AGENT] voice_call_active failed: #{e.message}"
     render json: { active: false, error: e.message }

@@ -111,17 +111,20 @@ export default {
 
     // Event-driven cross-page propagation — NO polling.
     //
-    //   1. On page LOAD: check backend ONCE. If a call is active for this
-    //      visitor, show the red button immediately.
+    //   1. On page LOAD: check backend with RETRY. After hard refresh the
+    //      widget's auth (cw_conversation cookie) may not be ready until
+    //      a few hundred ms after mount, so we retry at 0ms / 1s / 3s.
+    //      Once active is found, retries stop.
     //
     //   2. On RUNTIME: listen for BroadcastChannel events from the popup
-    //      (instant) and for `storage` events (cross-tab fallback). The
-    //      popup fires these on call-start and call-end — no polling
-    //      needed because the events arrive in real time.
+    //      (instant) and for `storage` events (cross-tab fallback).
     //
-    //   3. When THIS tab becomes visible again (user clicks back to it):
-    //      check once. Cheap, runs only on actual user attention.
+    //   3. When THIS tab becomes visible again (tab switch): check once.
+    this._checkAttempt = 0;
     this._checkBackendCallStatus();
+    this._mountRetry1 = setTimeout(() => this._checkBackendCallStatus(), 1000);
+    this._mountRetry2 = setTimeout(() => this._checkBackendCallStatus(), 3000);
+    this._mountRetry3 = setTimeout(() => this._checkBackendCallStatus(), 6000);
 
     document.addEventListener('visibilitychange', this._onVisibilityChange);
     window.addEventListener('storage', this._onStorageEvent);
@@ -133,6 +136,9 @@ export default {
     const ch = getBroadcastChannel();
     if (ch) ch.removeEventListener('message', this.onBroadcastMessage);
     if (this._popupSyncTimer) clearTimeout(this._popupSyncTimer);
+    if (this._mountRetry1) clearTimeout(this._mountRetry1);
+    if (this._mountRetry2) clearTimeout(this._mountRetry2);
+    if (this._mountRetry3) clearTimeout(this._mountRetry3);
     document.removeEventListener('visibilitychange', this._onVisibilityChange);
     window.removeEventListener('storage', this._onStorageEvent);
   },
@@ -263,9 +269,14 @@ export default {
         const popupHere = _popupRef && !_popupRef.closed;
 
         // Always log so the user can debug the chain end-to-end.
+        // Compare contact_id with the popup's heartbeat log — if they
+        // differ, the visitor identity is splitting across tabs.
         console.log('[VOICE-WIDGET] 🔍 status check →', {
           active: data?.active,
           source: data?.source,
+          contact_id: data?.contact_id,
+          contact_inbox_id: data?.contact_inbox_id,
+          last_heartbeat: data?.last_heartbeat,
           uiActive: this.isCallActive,
           popupHere,
         });
