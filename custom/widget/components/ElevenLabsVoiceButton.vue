@@ -172,12 +172,11 @@ export default {
       // it fills the screen comfortably.
       const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
-      // Compact popup — matches user-provided reference design.
-      // Desktop card is 280px wide; we add ~24px for browser chrome.
-      // Height ~340 leaves room for header + avatar + name + role +
-      // status + button + brand line + browser title bar.
-      const w = isMobile ? 240 : 304;
-      const h = isMobile ? 540 : 360;
+      // Window size — generous enough that NOTHING gets cut off regardless
+      // of browser chrome (Edge URL bar, Chrome dev-tools, etc.).
+      // 320×500 leaves ~80px margin below the End Call button + brand line.
+      const w = isMobile ? 280 : 320;
+      const h = isMobile ? 580 : 500;
       const left = Math.max(0, Math.round((screen.availWidth  - w) / 2));
       const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
       const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;

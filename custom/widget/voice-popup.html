@@ -35,7 +35,12 @@
       align-items: center;
       justify-content: center;
       min-height: 100vh;
-      padding: 12px;
+      padding: 16px;
+    }
+    /* Safety net — guarantee card never overflows window */
+    .popup {
+      max-height: calc(100vh - 32px);
+      overflow-y: auto;
     }
 
     /* ── Desktop popup card ────────────────────────────────────────────── */
