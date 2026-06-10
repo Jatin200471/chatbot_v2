@@ -126,6 +126,23 @@ export default {
     this._mountRetry2 = setTimeout(() => this._checkBackendCallStatus(), 3000);
     this._mountRetry3 = setTimeout(() => this._checkBackendCallStatus(), 6000);
 
+    // Hard-refresh fix: poll backend every 2s for 15s after mount.
+    // Covers timing gaps between popup's 5s backend-heartbeat and our retries.
+    this._activeCheckInterval = setInterval(() => {
+      if (this.isCallActive) {
+        clearInterval(this._activeCheckInterval);
+        this._activeCheckInterval = null;
+      } else {
+        this._checkBackendCallStatus();
+      }
+    }, 2000);
+    this._activeCheckTimeout = setTimeout(() => {
+      if (this._activeCheckInterval) {
+        clearInterval(this._activeCheckInterval);
+        this._activeCheckInterval = null;
+      }
+    }, 15000);
+
     document.addEventListener('visibilitychange', this._onVisibilityChange);
     window.addEventListener('storage', this._onStorageEvent);
   },
@@ -139,6 +156,8 @@ export default {
     if (this._mountRetry1) clearTimeout(this._mountRetry1);
     if (this._mountRetry2) clearTimeout(this._mountRetry2);
     if (this._mountRetry3) clearTimeout(this._mountRetry3);
+    if (this._activeCheckInterval) clearInterval(this._activeCheckInterval);
+    if (this._activeCheckTimeout) clearTimeout(this._activeCheckTimeout);
     document.removeEventListener('visibilitychange', this._onVisibilityChange);
     window.removeEventListener('storage', this._onStorageEvent);
   },
@@ -190,8 +209,8 @@ export default {
       // Compact popup — card is 240px wide, ~310px tall content.
       // Window 280×420 leaves ~40px buffer on all sides accounting for
       // browser chrome (Edge title bar + address bar = ~85px height).
-      const w = isMobile ? 220 : 280;
-      const h = isMobile ? 460 : 420;
+      const w = isMobile ? 200 : 260;
+      const h = isMobile ? 400 : 370;
       const left = Math.max(0, Math.round((screen.availWidth  - w) / 2));
       const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
       const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;
