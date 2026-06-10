@@ -35,7 +35,7 @@ services:
 
   rails:
     image: ghcr.io/jatinn71/chatwoot-custom:latest
-    pull_policy: never
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       postgres:
@@ -109,7 +109,7 @@ services:
 
   sidekiq:
     image: ghcr.io/jatinn71/chatwoot-custom:latest
-    pull_policy: never
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       postgres:
