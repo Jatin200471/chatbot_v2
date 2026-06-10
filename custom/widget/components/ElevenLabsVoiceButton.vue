@@ -216,7 +216,9 @@ export default {
       const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
       const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;
 
-      const cleanUrl = `${window.location.origin}/voice-popup.html`;
+      // Include website_token in URL so popup has it even before config message arrives.
+      const _wt = WEBSITE_TOKEN || '';
+      const cleanUrl = `${window.location.origin}/voice-popup.html?v=2${_wt ? '&wt=' + encodeURIComponent(_wt) : ''}`;
       _popupRef = window.open(cleanUrl, 'cwVoiceCall', features);
 
       if (!_popupRef) {

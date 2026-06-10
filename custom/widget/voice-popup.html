@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="referrer" content="no-referrer" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Voice Call</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -289,6 +292,10 @@
     const $liveBadge  = document.getElementById('liveBadge');
     const $body       = document.getElementById('popupBody');
 
+    // Read website_token from URL query param as early fallback
+    const _urlParams = new URLSearchParams(window.location.search);
+    const _urlWebsiteToken = _urlParams.get('wt') || '';
+
     let cfg = null;
     let conversation = null;
     let isCallActive = false;
@@ -346,10 +353,12 @@
     }
 
     function apiPost(path, body) {
-      if (!cfg) return Promise.reject(new Error('No config yet'));
-      const url = new URL(path, cfg.baseUrl);
-      if (cfg.websiteToken)   url.searchParams.set('website_token', cfg.websiteToken);
-      if (cfg.cwConversation) url.searchParams.set('cw_conversation', cfg.cwConversation);
+      const baseUrl = (cfg && cfg.baseUrl) || window.location.origin;
+      const wt = (cfg && cfg.websiteToken) || _urlWebsiteToken;
+      if (!wt && !cfg) return Promise.reject(new Error('No config yet'));
+      const url = new URL(path, baseUrl);
+      if (wt)                  url.searchParams.set('website_token', wt);
+      if (cfg && cfg.cwConversation) url.searchParams.set('cw_conversation', cfg.cwConversation);
       return fetch(url.toString(), {
         method: 'POST',
         credentials: 'include',
