@@ -416,6 +416,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     ts = Time.current.iso8601
     written = []
 
+    # Save to Contact (has additional_attributes JSONB column)
     if @contact
       attrs = @contact.additional_attributes || {}
       attrs['voice_heartbeat_at'] = ts
@@ -423,13 +424,9 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       written << 'contact'
     end
 
-    if @contact_inbox
-      attrs = @contact_inbox.additional_attributes || {}
-      attrs['voice_heartbeat_at'] = ts
-      @contact_inbox.update_columns(additional_attributes: attrs)
-      written << 'contact_inbox'
-    end
+    # NOTE: ContactInbox does NOT have additional_attributes — skip it
 
+    # Save to Conversation custom_attributes
     conv = conversation || (@contact_inbox && @contact_inbox.conversations.order(updated_at: :desc).first)
     if conv
       attrs = conv.custom_attributes || {}
@@ -438,7 +435,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       written << "conversation##{conv.id}"
     end
 
-    Rails.logger.info "[VOICE-HEARTBEAT] contact=#{@contact&.id} contact_inbox=#{@contact_inbox&.id} saved=#{written.join(',')} at #{ts}"
+    Rails.logger.info "[VOICE-HEARTBEAT] contact=#{@contact&.id} saved=#{written.join(',')} at #{ts}"
     render json: {
       ok: written.any?,
       written: written,
@@ -497,34 +494,22 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     end
 
     # ── Path B: no session (hard-refresh / cookie stripped) ──────────────
-    # Scan ALL contact_inboxes for this inbox. Safe because each inbox
-    # belongs to one account and each heartbeat is visitor-specific.
+    # ContactInbox does NOT have additional_attributes — only scan
+    # conversations and contacts (both have the right columns).
     if !active && @web_widget
       inbox = @web_widget.inbox
 
-      # B1: scan contact_inbox attributes across the whole inbox
-      inbox.contact_inboxes.find_each do |ci|
-        hb = ci.additional_attributes&.dig('voice_heartbeat_at')
+      # B1: scan recent conversations for this inbox
+      inbox.conversations.where('updated_at > ?', Time.current - 30.seconds).find_each do |conv|
+        hb = conv.custom_attributes&.dig('voice_heartbeat_at')
         next if hb.blank?
         ts = (Time.parse(hb) rescue nil)
         next if ts.nil? || ts < cutoff
-        active = true; source = "contact_inbox##{ci.id}(fallback)"; heartbeat = hb
+        active = true; source = "conversation##{conv.id}(fallback)"; heartbeat = hb
         break
       end
 
-      # B2: scan recent conversations in this inbox
-      if !active
-        inbox.conversations.where('updated_at > ?', Time.current - 30.seconds).find_each do |conv|
-          hb = conv.custom_attributes&.dig('voice_heartbeat_at')
-          next if hb.blank?
-          ts = (Time.parse(hb) rescue nil)
-          next if ts.nil? || ts < cutoff
-          active = true; source = "conversation##{conv.id}(fallback)"; heartbeat = hb
-          break
-        end
-      end
-
-      # B3: scan contacts' additional_attributes
+      # B2: scan contacts with recent updates
       if !active
         inbox.contacts.where('updated_at > ?', Time.current - 30.seconds).find_each do |c|
           hb = c.additional_attributes&.dig('voice_heartbeat_at')
