@@ -1,4 +1,3 @@
-
 name: Build & Push Docker Image
 
 on:
@@ -21,6 +20,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Set lowercase owner
+        id: owner
+        run: echo "name=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -32,15 +35,12 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/chatwoot-custom
+          images: ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom
           tags: |
             type=ref,event=branch
             type=ref,event=tag
             type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
-      - name: Set lowercase owner
-        id: owner
-        run: echo "name=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -58,9 +58,11 @@ jobs:
           cache-to: |
             type=gha,mode=max
             type=registry,ref=ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom:buildcache,mode=max
+
       - name: Image size report
+        if: always()
         run: |
-          SIZE=$(docker manifest inspect ghcr.io/${{ github.repository_owner }}/chatwoot-custom:latest \
+          SIZE=$(docker manifest inspect ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom:latest \
             | python3 -c "import sys,json; m=json.load(sys.stdin); print(round(sum(l['size'] for l in m.get('layers',[])) / 1024**2, 1))" 2>/dev/null || echo "N/A")
           echo "### Build Complete" >> $GITHUB_STEP_SUMMARY
           echo "| | |" >> $GITHUB_STEP_SUMMARY
@@ -69,5 +71,5 @@ jobs:
           echo "| Tags | \`${{ steps.meta.outputs.tags }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ghcr.io/${{ github.repository_owner }}/chatwoot-custom:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom:latest" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
