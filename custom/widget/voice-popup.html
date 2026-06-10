@@ -9,23 +9,21 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
-      --widget-color: #1f93ff;
-      --widget-color-soft: rgba(31, 147, 255, 0.12);
-      --widget-color-strong: rgba(31, 147, 255, 0.32);
+      --widget-color: #3b8fe8;
+      --widget-color-soft: rgba(66, 153, 225, 0.22);
+      --widget-color-strong: rgba(66, 153, 225, 0.40);
 
       --text-primary: #0f172a;
-      --text-secondary: #475569;
+      --text-secondary: #64748b;
       --text-tertiary: #94a3b8;
-      --bg-primary: #ffffff;
-      --bg-surface: #fafbfc;
-      --border-subtle: #eef2f6;
+      --border-tertiary: rgba(15, 23, 42, 0.10);
     }
 
     html, body {
       height: 100%;
       font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI',
                    Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background: var(--bg-surface);
+      background: #f1f5f9;
       color: var(--text-primary);
       overflow: hidden;
       -webkit-font-smoothing: antialiased;
@@ -34,363 +32,294 @@
 
     body {
       display: flex;
-      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       min-height: 100vh;
-      background:
-        radial-gradient(ellipse 100% 60% at 50% 0%,
-          var(--widget-color-soft) 0%,
-          transparent 70%),
-        linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-surface) 100%);
+      padding: 12px;
     }
 
-    /* ── Header (compact) ──────────────────────────────────────────────── */
-    .header {
-      flex-shrink: 0;
-      height: 32px;
-      padding: 0 12px;
+    /* ── Desktop popup card ────────────────────────────────────────────── */
+    .popup {
+      width: 280px;
+      background: #fff;
+      border-radius: 18px;
+      border: 0.5px solid var(--border-tertiary);
+      overflow: hidden;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.10);
+    }
+
+    .popup-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      background: rgba(255, 255, 255, 0.7);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      border-bottom: 1px solid var(--border-subtle);
+      padding: 10px 14px 8px;
+      border-bottom: 0.5px solid var(--border-tertiary);
     }
-    .header-title {
-      font-size: 9px;
-      font-weight: 700;
-      color: var(--text-tertiary);
-      letter-spacing: 1.2px;
+    .popup-header .title {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
       text-transform: uppercase;
     }
+
     .live-badge {
       display: none;
       align-items: center;
-      gap: 4px;
-      font-size: 8.5px;
-      font-weight: 700;
-      color: #dc2626;
-      letter-spacing: 0.5px;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 500;
+      color: #e8533a;
     }
     .live-badge.show { display: inline-flex; }
     .live-dot {
-      width: 5px;
-      height: 5px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
-      background: #ef4444;
-      box-shadow: 0 0 0 2.5px rgba(239, 68, 68, 0.18);
-      animation: live-blink 1.4s ease-in-out infinite;
+      background: #e8533a;
+      animation: pulse 1.4s ease-in-out infinite;
     }
-    @keyframes live-blink {
+    @keyframes pulse {
       0%, 100% { opacity: 1; transform: scale(1); }
-      50%      { opacity: 0.4; transform: scale(0.88); }
+      50%      { opacity: 0.5; transform: scale(0.8); }
     }
 
-    /* ── Main stage ────────────────────────────────────────────────────── */
-    .main {
-      flex: 1;
+    /* ── Body ──────────────────────────────────────────────────────────── */
+    .popup-body {
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
-      padding: 10px 16px 6px;
-      gap: 8px;
-      min-height: 0;
+      padding: 22px 16px 18px;
     }
 
-    .avatar-stack {
+    .avatar-wrap {
       position: relative;
-      width: 72px;
-      height: 72px;
-      display: grid;
-      place-items: center;
-      flex-shrink: 0;
+      width: 110px;
+      height: 110px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 14px;
     }
-
-    /* Pulse rings — adopt widget brand color */
-    .pulse-ring {
+    .avatar-ring {
       position: absolute;
-      inset: 0;
       border-radius: 50%;
-      border: 1.25px solid var(--widget-color);
-      opacity: 0;
-      pointer-events: none;
-      animation: pulse-out 2.6s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+      border: 1.5px solid var(--widget-color-soft);
     }
-    .pulse-ring:nth-child(2) { animation-delay: 0.9s; }
-    .pulse-ring:nth-child(3) { animation-delay: 1.8s; }
-    @keyframes pulse-out {
-      0%   { transform: scale(1);    opacity: 0.5; }
-      85%  { transform: scale(1.3);  opacity: 0; }
-      100% { transform: scale(1.3);  opacity: 0; }
+    .ring1 { width: 110px; height: 110px; }
+    .ring2 {
+      width: 88px;
+      height: 88px;
+      border-color: var(--widget-color-strong);
     }
 
-    /* Avatar — soft halo + crisp ring */
+    /* Avatar circle — image or fallback initials */
     .avatar {
-      width: 58px;
-      height: 58px;
+      width: 68px;
+      height: 68px;
       border-radius: 50%;
+      border: 2.5px solid var(--widget-color);
       object-fit: cover;
       background: var(--widget-color-soft);
-      box-shadow:
-        0 0 0 1.5px var(--bg-primary),
-        0 0 0 3px var(--widget-color),
-        0 4px 14px rgba(15, 23, 42, 0.14);
       position: relative;
-      z-index: 2;
-      transition: box-shadow 280ms ease, transform 280ms ease;
+      z-index: 1;
+      overflow: hidden;
+      transition: transform 240ms ease, box-shadow 240ms ease;
     }
     .speaking .avatar {
       transform: scale(1.04);
-      box-shadow:
-        0 0 0 1.5px var(--bg-primary),
-        0 0 0 3px var(--widget-color),
-        0 0 0 7px var(--widget-color-soft),
-        0 4px 14px rgba(15, 23, 42, 0.14);
+      box-shadow: 0 0 0 6px var(--widget-color-soft);
     }
-    .speaking .pulse-ring { animation-duration: 1.3s; }
+    .speaking .ring2 { animation: pulse-ring 1.6s ease-in-out infinite; }
+    .speaking .ring1 { animation: pulse-ring 1.6s ease-in-out infinite 0.4s; }
+    @keyframes pulse-ring {
+      0%, 100% { opacity: 0.6; transform: scale(1); }
+      50%      { opacity: 1;   transform: scale(1.04); }
+    }
 
-    /* ── Identity block ────────────────────────────────────────────────── */
-    .info {
-      text-align: center;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2px;
-    }
-    .agent-name {
-      font-size: 14px;
-      font-weight: 700;
+    .name {
+      font-size: 15px;
+      font-weight: 500;
       color: var(--text-primary);
-      letter-spacing: -0.2px;
-      line-height: 1.2;
+      margin-bottom: 3px;
       max-width: 240px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      text-align: center;
     }
-    .agent-role {
-      font-size: 9.5px;
-      color: var(--text-tertiary);
-      letter-spacing: 0.2px;
-      font-weight: 500;
+    .role {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 11px;
     }
 
-    /* Status pill */
-    .status {
-      display: inline-flex;
+    .connected-badge {
+      display: flex;
       align-items: center;
       gap: 5px;
-      padding: 3px 9px;
-      border-radius: 999px;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.1px;
-      transition: all 240ms ease;
-      margin-top: 1px;
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 11px;
+      font-weight: 500;
     }
-    .status[data-state="connecting"] {
-      color: #b45309;
+    .connected-badge[data-state="connecting"] {
       background: #fffbeb;
-      border: 1px solid #fde68a;
+      border: 0.5px solid #fde68a;
+      color: #b45309;
     }
-    .status[data-state="connected"] {
-      color: #15803d;
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
+    .connected-badge[data-state="connected"] {
+      background: #edfaf3;
+      border: 0.5px solid #a3e9c0;
+      color: #1b7a47;
     }
-    .status[data-state="ended"],
-    .status[data-state="error"] {
-      color: var(--text-secondary);
+    .connected-badge[data-state="ended"],
+    .connected-badge[data-state="error"] {
       background: #f1f5f9;
-      border: 1px solid #e2e8f0;
+      border: 0.5px solid #cbd5e1;
+      color: #64748b;
     }
-    .status-dot {
-      width: 6px;
-      height: 6px;
+    .badge-dot {
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: currentColor;
-      box-shadow: 0 0 0 2.5px rgba(0, 0, 0, 0.04);
-      animation: live-blink 1.4s ease-in-out infinite;
     }
 
-    /* ── Action area ───────────────────────────────────────────────────── */
-    .actions {
-      flex-shrink: 0;
-      padding: 4px 16px 10px;
-      display: flex;
-      justify-content: center;
+    /* ── Footer with End Call button ───────────────────────────────────── */
+    .popup-footer {
+      padding: 0 16px 18px;
     }
-    .end-call-btn {
-      display: inline-flex;
+    .end-btn {
+      width: 100%;
+      background: #e8533a;
+      border: none;
+      border-radius: 26px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 11px 0;
+      cursor: pointer;
+      display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      min-width: 124px;
-      padding: 7px 18px;
-      border: none;
-      border-radius: 999px;
-      background: linear-gradient(180deg, #f87171 0%, #ef4444 100%);
-      color: #fff;
-      font-size: 11.5px;
-      font-weight: 700;
-      letter-spacing: 0.2px;
-      cursor: pointer;
-      box-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.25) inset,
-        0 3px 10px rgba(239, 68, 68, 0.36),
-        0 1px 2px rgba(239, 68, 68, 0.28);
-      transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+      gap: 7px;
+      transition: background 0.15s, transform 0.12s;
     }
-    .end-call-btn:hover:not(:disabled) {
-      transform: translateY(-1.5px);
-      filter: brightness(1.05);
-      box-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.25) inset,
-        0 6px 16px rgba(239, 68, 68, 0.45),
-        0 1px 3px rgba(239, 68, 68, 0.3);
-    }
-    .end-call-btn:active:not(:disabled) {
-      transform: translateY(0);
-      filter: brightness(0.96);
-    }
-    .end-call-btn:disabled {
+    .end-btn:hover:not(:disabled) { background: #c93f28; }
+    .end-btn:active:not(:disabled) { transform: scale(0.98); }
+    .end-btn:disabled {
       background: #cbd5e1;
       color: #64748b;
       cursor: not-allowed;
-      box-shadow: none;
-      transform: none;
-      filter: none;
     }
-    .end-call-btn svg {
-      width: 11px;
-      height: 11px;
-      flex-shrink: 0;
-    }
+    .end-btn svg { width: 14px; height: 14px; }
 
-    /* ── Footer ────────────────────────────────────────────────────────── */
-    .footer {
-      flex-shrink: 0;
-      height: 22px;
-      padding: 0 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-top: 1px solid var(--border-subtle);
-      background: rgba(255, 255, 255, 0.5);
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
-      font-size: 9px;
+    /* ── Brand line ────────────────────────────────────────────────────── */
+    .brand {
+      padding: 0 16px 12px;
+      text-align: center;
+      font-size: 10px;
       color: var(--text-tertiary);
       font-weight: 500;
-      letter-spacing: 0.2px;
     }
-    .footer strong {
+    .brand strong {
       color: var(--text-secondary);
       font-weight: 600;
-      margin-left: 3px;
     }
 
     /* ════════════════════════════════════════════════════════════════════ *
-     *  Responsive — tighten everything on very small windows and mobile     *
+     *  MOBILE — when window width ≤ 480px the popup downscales to 200px    *
      * ════════════════════════════════════════════════════════════════════ */
-
-    /* When height is short (laptop popup or tight mobile) */
-    @media (max-height: 420px) {
-      .main { padding: 10px 20px 6px; gap: 8px; }
-      .avatar-stack { width: 88px; height: 88px; }
-      .avatar { width: 72px; height: 72px; }
-      .agent-name { font-size: 15px; }
-      .agent-role { font-size: 10.5px; }
-      .status { padding: 3px 10px; font-size: 10.5px; margin-top: 0; }
-      .actions { padding: 4px 20px 10px; }
-      .end-call-btn { padding: 8px 18px; font-size: 12px; }
-      .footer { height: 24px; font-size: 9.5px; }
-    }
-
-    /* When width is narrow (mobile portrait, very small popup) */
-    @media (max-width: 360px) {
-      .header { padding: 0 14px; height: 38px; }
-      .main { padding: 14px 16px 8px; }
-      .avatar-stack { width: 96px; height: 96px; }
-      .avatar { width: 78px; height: 78px; }
-      .agent-name { font-size: 15px; max-width: 220px; }
-      .end-call-btn { min-width: 132px; padding: 8px 18px; }
-      .footer { padding: 0 12px; }
-    }
-
-    /* Mobile-fullscreen fallback (when popup opens as full-page tab on phone) */
-    @media (max-width: 480px) and (min-height: 600px) {
-      .main {
-        padding: 40px 24px 20px;
-        gap: 22px;
+    @media (max-width: 480px) {
+      .popup {
+        width: 200px;
+        border-radius: 16px;
       }
-      .avatar-stack { width: 156px; height: 156px; }
-      .avatar { width: 128px; height: 128px; }
-      .agent-name { font-size: 22px; }
-      .agent-role { font-size: 13px; }
-      .status { font-size: 13px; padding: 6px 14px; }
-      .end-call-btn {
-        min-width: 200px;
-        padding: 14px 32px;
-        font-size: 15px;
+      .popup-header { padding: 8px 11px 6px; }
+      .popup-header .title { font-size: 10px; }
+      .live-badge { font-size: 10px; }
+      .live-dot { width: 6px; height: 6px; }
+
+      .popup-body { padding: 16px 12px 14px; }
+      .avatar-wrap {
+        width: 80px;
+        height: 80px;
+        margin-bottom: 10px;
       }
-      .end-call-btn svg { width: 18px; height: 18px; }
-      .actions { padding: 20px 24px 32px; }
-      .footer { height: 38px; font-size: 11px; }
+      .ring1 { width: 80px; height: 80px; }
+      .ring2 { width: 64px; height: 64px; }
+      .avatar {
+        width: 50px;
+        height: 50px;
+        border-width: 2px;
+      }
+      .name { font-size: 13px; margin-bottom: 2px; }
+      .role { font-size: 11px; margin-bottom: 9px; }
+      .connected-badge {
+        padding: 3px 10px;
+        font-size: 10px;
+        gap: 4px;
+      }
+      .badge-dot { width: 6px; height: 6px; }
+      .popup-footer { padding: 0 12px 14px; }
+      .end-btn {
+        font-size: 12px;
+        padding: 9px 0;
+        gap: 6px;
+        border-radius: 22px;
+      }
+      .brand { padding: 0 12px 10px; font-size: 9px; }
     }
   </style>
 </head>
 
 <body>
-  <div class="header">
-    <span class="header-title">Voice Call</span>
-    <div class="live-badge" id="liveBadge">
-      <span class="live-dot"></span>
-      LIVE
-    </div>
-  </div>
-
-  <div class="main" id="main">
-    <div class="avatar-stack">
-      <div class="pulse-ring"></div>
-      <div class="pulse-ring"></div>
-      <div class="pulse-ring"></div>
-      <img class="avatar" id="avatarImg" alt="Agent" />
+  <div class="popup">
+    <div class="popup-header">
+      <span class="title">Voice Call</span>
+      <span class="live-badge" id="liveBadge">
+        <span class="live-dot"></span>
+        LIVE
+      </span>
     </div>
 
-    <div class="info">
-      <div class="agent-name" id="agentName">AI Assistant</div>
-      <div class="agent-role" id="agentRole">Voice Assistant</div>
-      <div class="status" id="status" data-state="connecting">
-        <span class="status-dot"></span>
+    <div class="popup-body" id="popupBody">
+      <div class="avatar-wrap">
+        <div class="avatar-ring ring1"></div>
+        <div class="avatar-ring ring2"></div>
+        <img class="avatar" id="avatarImg" alt="Agent" />
+      </div>
+      <div class="name" id="agentName">AI Assistant</div>
+      <div class="role" id="agentRole">Voice Assistant</div>
+      <div class="connected-badge" id="status" data-state="connecting">
+        <span class="badge-dot"></span>
         <span id="statusText">Connecting…</span>
       </div>
     </div>
-  </div>
 
-  <div class="actions">
-    <button class="end-call-btn" id="endCallBtn" disabled>
-      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d="M3.5 14.5c5.5-5 11.5-5 17 0 .8.7.9 2 0 2.7l-2.1 1.6c-.5.4-1.2.4-1.7 0l-2-1.7
-                 a1.5 1.5 0 0 1-.5-1.1V14a9.8 9.8 0 0 0-4.4 0v0c0 .4-.2.8-.5 1.1l-2 1.6c-.5.4-1.2.4-1.7 0
-                 L3.5 15c-.5-.6-.4-1.7 0-2.5Z" transform="rotate(135 12 12)" />
-      </svg>
-      End Call
-    </button>
-  </div>
+    <div class="popup-footer">
+      <button class="end-btn" id="endCallBtn" disabled aria-label="End call">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M3.5 14.5c5.5-5 11.5-5 17 0 .8.7.9 2 0 2.7l-2.1 1.6c-.5.4-1.2.4-1.7 0l-2-1.7
+                   a1.5 1.5 0 0 1-.5-1.1V14a9.8 9.8 0 0 0-4.4 0v0c0 .4-.2.8-.5 1.1l-2 1.6c-.5.4-1.2.4-1.7 0
+                   L3.5 15c-.5-.6-.4-1.7 0-2.5Z" transform="rotate(135 12 12)" />
+        </svg>
+        End Call
+      </button>
+    </div>
 
-  <div class="footer">
-    Powered by <strong id="brandName">Visual Graphx</strong>
+    <div class="brand">
+      Powered by <strong id="brandName">Visual Graphx</strong>
+    </div>
   </div>
 
   <script type="module">
     /* ================================================================= *
-     * Secure voice-call popup.                                           *
+     * Secure voice-call popup — matches user-provided reference design.  *
      * - Config delivered via postMessage (URL stays clean — no secrets). *
-     * - ElevenLabs @11labs/client SDK runs here (proven audio path).     *
-     * - Each transcript turn POSTed to backend → widget chat shows it    *
-     *   live via its existing message-polling loop.                      *
+     * - ElevenLabs @11labs/client SDK runs here.                         *
+     * - Heartbeat to backend so widget on other pages can detect call.   *
      * ================================================================= */
 
     const $avatar     = document.getElementById('avatarImg');
@@ -401,13 +330,14 @@
     const $statusText = document.getElementById('statusText');
     const $endCallBtn = document.getElementById('endCallBtn');
     const $liveBadge  = document.getElementById('liveBadge');
-    const $main       = document.getElementById('main');
+    const $body       = document.getElementById('popupBody');
 
     let cfg = null;
     let conversation = null;
     let isCallActive = false;
     let endedNotified = false;
     let _heartbeatTimer = null;
+    let _backendHeartbeatTimer = null;
     let _configReceived = false;
 
     let _channel = null;
@@ -420,8 +350,8 @@
     }
     function applyBranding(c) {
       document.documentElement.style.setProperty('--widget-color', c.color);
-      document.documentElement.style.setProperty('--widget-color-soft', hexToRgba(c.color, 0.12));
-      document.documentElement.style.setProperty('--widget-color-strong', hexToRgba(c.color, 0.32));
+      document.documentElement.style.setProperty('--widget-color-soft', hexToRgba(c.color, 0.22));
+      document.documentElement.style.setProperty('--widget-color-strong', hexToRgba(c.color, 0.40));
       $agentName.textContent = c.agentName;
       $agentRole.textContent = c.agentRole || 'Voice Assistant';
       if (c.brand) $brandName.textContent = c.brand;
@@ -443,18 +373,23 @@
       } catch (_) {}
     }
 
+    // Local (same-tab) heartbeat for instant cross-iframe sync
     const HEARTBEAT_KEY = 'cw_voice_popup_heartbeat';
-    let _backendHeartbeatTimer = null;
-
     function writeHeartbeat() {
       try { localStorage.setItem(HEARTBEAT_KEY, String(Date.now())); } catch (_) {}
       if (_channel) {
         try { _channel.postMessage({ type: 'heartbeat', timestamp: Date.now(), active: isCallActive }); } catch (_) {}
       }
     }
+    function clearHeartbeat() {
+      try { localStorage.removeItem(HEARTBEAT_KEY); } catch (_) {}
+      if (_channel) {
+        try { _channel.postMessage({ type: 'ended', timestamp: Date.now() }); } catch (_) {}
+      }
+    }
 
-    // Backend heartbeat — bridges the storage partitioning gap so the
-    // widget iframe can detect an active call after a parent hard refresh.
+    // Backend heartbeat — bridges browser storage partitioning so the
+    // widget iframe (in any tab) can detect an active call.
     function sendBackendHeartbeat() {
       if (!isCallActive) return;
       apiPost('/api/v1/widget/conversations/voice_heartbeat', {}).catch(() => {});
@@ -468,12 +403,6 @@
       if (_backendHeartbeatTimer) {
         clearInterval(_backendHeartbeatTimer);
         _backendHeartbeatTimer = null;
-      }
-    }
-    function clearHeartbeat() {
-      try { localStorage.removeItem(HEARTBEAT_KEY); } catch (_) {}
-      if (_channel) {
-        try { _channel.postMessage({ type: 'ended', timestamp: Date.now() }); } catch (_) {}
       }
     }
 
@@ -493,6 +422,7 @@
       });
     }
 
+    // Receive config from opener
     window.addEventListener('message', (e) => {
       const d = e?.data;
       if (!d || typeof d !== 'object') return;
@@ -529,16 +459,16 @@
       _heartbeatTimer = setInterval(writeHeartbeat, 1500);
 
       try {
-        setStatus('connecting', 'Requesting microphone…');
+        setStatus('connecting', 'Requesting mic…');
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         stream.getTracks().forEach(t => t.stop());
 
-        setStatus('connecting', 'Loading voice engine…');
+        setStatus('connecting', 'Loading…');
         const mod = await import('https://esm.sh/@11labs/client');
         const Conversation = mod.Conversation;
         if (!Conversation) throw new Error('SDK did not expose Conversation');
 
-        setStatus('connecting', 'Connecting to agent…');
+        setStatus('connecting', 'Connecting…');
         conversation = await Conversation.startSession({
           signedUrl: cfg.signedUrl,
 
@@ -547,7 +477,7 @@
             setStatus('connected', 'Connected');
             $endCallBtn.disabled = false;
             writeHeartbeat();
-            startBackendHeartbeat();   // ← survives parent hard refresh
+            startBackendHeartbeat();
             postToOpener('voice-popup-connected');
           },
 
@@ -556,7 +486,7 @@
           onError: (err) => {
             const msg = (err && (err.message || err.toString())) || 'Unknown error';
             console.error('[VOICE-POPUP] error:', msg);
-            setStatus('error', 'Error: ' + msg);
+            setStatus('error', 'Error');
             $endCallBtn.disabled = true;
             postToOpener('voice-popup-error', { error: msg });
           },
@@ -564,17 +494,15 @@
           onMessage: ({ message, source }) => {
             const text = (message || '').toString().trim();
             if (!text) return;
-            console.log(`[VOICE-POPUP] 🎙️ transcript [${source}]:`, text);
-
+            console.log(`[VOICE-POPUP] [${source}]:`, text);
             apiPost('/api/v1/widget/conversations/voice_transcript', {
               source, content: text,
             }).catch(e => console.warn('Transcript save failed:', e?.message));
-
             postToOpener('voice-popup-transcript', { source, message: text });
           },
 
           onModeChange: (mode) => {
-            $main.classList.toggle('speaking', mode === 'speaking');
+            $body.classList.toggle('speaking', mode === 'speaking');
           },
         });
       } catch (error) {
@@ -582,8 +510,8 @@
         console.error('[VOICE-POPUP] startCall failed:', msg);
         setStatus('error',
           (error && (error.name === 'NotAllowedError' || error.name === 'NotFoundError'))
-            ? 'Microphone permission denied'
-            : 'Failed: ' + msg);
+            ? 'Mic denied'
+            : 'Failed');
         $endCallBtn.disabled = true;
         postToOpener('voice-popup-error', { error: msg });
       }
@@ -592,7 +520,7 @@
     async function endCall(reason) {
       if (!conversation) { handleCallEnded(reason || 'Call ended'); return; }
       $endCallBtn.disabled = true;
-      setStatus('connecting', 'Ending call…');
+      setStatus('connecting', 'Ending…');
       try { await conversation.endSession(); }
       catch (e) { console.warn('[VOICE-POPUP] endSession threw:', e?.message); }
       setTimeout(() => { if (isCallActive) handleCallEnded(reason || 'Call ended'); }, 1500);
@@ -619,6 +547,7 @@
     window.addEventListener('beforeunload', () => {
       if (_heartbeatTimer) clearInterval(_heartbeatTimer);
       clearHeartbeat();
+      stopBackendHeartbeat();
       if (conversation && isCallActive) {
         try { conversation.endSession(); } catch (_) {}
       }
@@ -644,14 +573,14 @@
     }, 500);
     setTimeout(() => {
       if (!_configReceived) {
-        setStatus('error', 'No config from opener — close and retry');
+        setStatus('error', 'No config');
         $endCallBtn.disabled = true;
       }
     }, 6000);
 
     function hexToRgba(hex, alpha) {
       const m = (hex || '').replace('#', '').match(/^([0-9a-f]{6}|[0-9a-f]{3})$/i);
-      if (!m) return `rgba(31, 147, 255, ${alpha})`;
+      if (!m) return `rgba(66, 153, 225, ${alpha})`;
       let h = m[1];
       if (h.length === 3) h = h.split('').map(c => c + c).join('');
       const r = parseInt(h.slice(0, 2), 16);
@@ -667,13 +596,13 @@
            <defs>
              <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
                <stop offset="0%" stop-color="${color}" stop-opacity="1"/>
-               <stop offset="100%" stop-color="${color}" stop-opacity="0.85"/>
+               <stop offset="100%" stop-color="${color}" stop-opacity="0.82"/>
              </linearGradient>
            </defs>
            <circle cx="50" cy="50" r="50" fill="url(#g)"/>
            <text x="50" y="62" text-anchor="middle"
                  font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif"
-                 font-size="38" font-weight="700" fill="white">${initials}</text>
+                 font-size="36" font-weight="600" fill="white">${initials}</text>
          </svg>`;
       return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
     }

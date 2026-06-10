@@ -109,11 +109,14 @@ export default {
       if (isPopupAlive() && !this.isCallActive) this._syncCallActiveFromPopup();
     }, 600);
 
-    // Backend check — survives browser storage partitioning. After a
-    // parent-page hard refresh, localStorage / BroadcastChannel may not
-    // bridge iframe ↔ popup, so we ask the server "is there an active
-    // call right now?" — if yes, sync the UI to active state.
+    // Backend check — survives browser storage partitioning AND covers
+    // the "user has voice call open in another tab" case. We poll every
+    // 5 seconds while idle so any active call from this visitor reflects
+    // immediately on whatever page they're currently viewing.
     this._checkBackendCallStatus();
+    this._backendStatusPoll = setInterval(() => {
+      this._checkBackendCallStatus();
+    }, 5000);
   },
 
   beforeUnmount() {
@@ -122,6 +125,7 @@ export default {
     const ch = getBroadcastChannel();
     if (ch) ch.removeEventListener('message', this.onBroadcastMessage);
     if (this._popupSyncTimer) clearTimeout(this._popupSyncTimer);
+    if (this._backendStatusPoll) clearInterval(this._backendStatusPoll);
   },
 
   methods: {
@@ -136,8 +140,29 @@ export default {
       this.isCallActive ? this.endCall() : this.startCall();
     },
 
-    startCall() {
+    async startCall() {
       if (!this.hasElevenLabsVoiceEnabled) return;
+
+      // Guard — if backend says a call is already active for this visitor
+      // (e.g. they have the popup open on another page/tab), focus that
+      // instead of starting a SECOND call.
+      try {
+        const { data } = await API.get(
+          buildConvUrl('/api/v1/widget/conversations/voice_call_active')
+        );
+        if (data?.active) {
+          vLog('Call already active for this visitor — refusing duplicate');
+          this._syncCallActiveFromPopup();
+          // Try to focus the existing popup if we have its reference
+          if (_popupRef && !_popupRef.closed) {
+            try { _popupRef.focus(); } catch (_) {}
+          } else {
+            alert('You already have a voice call open in another tab. Please end it there before starting a new one.');
+          }
+          return;
+        }
+      } catch (_) { /* network blip — proceed with call */ }
+
       this.isConnecting = true;
       this.setConnecting(true);
 
@@ -147,11 +172,12 @@ export default {
       // it fills the screen comfortably.
       const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
-      // Ultra-compact popup — height reduced from 9 → 5 ratio (440 → ~300
-      // accounting for browser chrome). All internal elements scaled
-      // proportionally so layout still fits inside the smaller frame.
-      const w = isMobile ? 360 : 300;
-      const h = isMobile ? 640 : 340;
+      // Compact popup — matches user-provided reference design.
+      // Desktop card is 280px wide; we add ~24px for browser chrome.
+      // Height ~340 leaves room for header + avatar + name + role +
+      // status + button + brand line + browser title bar.
+      const w = isMobile ? 240 : 304;
+      const h = isMobile ? 540 : 360;
       const left = Math.max(0, Math.round((screen.availWidth  - w) / 2));
       const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
       const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;
@@ -218,15 +244,24 @@ export default {
     },
 
     // Backend-driven call detection — works across browser storage
-    // partitioning (iframe-vs-popup localStorage isolation).
+    // partitioning (iframe-vs-popup localStorage isolation) AND across
+    // tabs (same visitor, different page → same backend state).
     async _checkBackendCallStatus() {
       try {
         const { data } = await API.get(
           buildConvUrl('/api/v1/widget/conversations/voice_call_active')
         );
+        const popupHere = _popupRef && !_popupRef.closed;
+
         if (data?.active && !this.isCallActive) {
-          vLog('Backend reports active call — syncing UI');
+          // Backend says active, widget shows idle → sync to active
+          vLog('Backend reports active call — syncing UI to active');
           this._syncCallActiveFromPopup();
+        } else if (!data?.active && this.isCallActive && !popupHere) {
+          // Backend says inactive AND we don't own the popup → call
+          // ended elsewhere (other tab) → reset our UI to idle
+          vLog('Backend reports inactive call — resetting UI');
+          this.resetCallState();
         }
       } catch (e) {
         vLog('voice_call_active check failed:', e?.message);
