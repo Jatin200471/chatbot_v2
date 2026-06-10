@@ -12,7 +12,6 @@
       --widget-color: #3b8fe8;
       --widget-color-soft: rgba(66, 153, 225, 0.22);
       --widget-color-strong: rgba(66, 153, 225, 0.40);
-
       --text-primary: #0f172a;
       --text-secondary: #64748b;
       --text-tertiary: #94a3b8;
@@ -20,6 +19,7 @@
     }
 
     html, body {
+      width: 100%;
       height: 100%;
       font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI',
                    Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -27,39 +27,39 @@
       color: var(--text-primary);
       overflow: hidden;
       -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
     }
 
     body {
       display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 10px;
+      align-items: stretch;
+      justify-content: stretch;
     }
 
-    /* ── Desktop popup card (compact sizes) ────────────────────────────── */
+    /* Card fills entire window */
     .popup {
-      width: 240px;
+      width: 100vw;
+      height: 100vh;
       background: #fff;
-      border-radius: 16px;
-      border: 0.5px solid var(--border-tertiary);
+      border-radius: 0;
+      border: none;
       overflow: hidden;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.10);
-      max-height: calc(100vh - 20px);
+      display: flex;
+      flex-direction: column;
     }
 
+    /* ── Header ── */
     .popup-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 8px 12px 7px;
+      padding: 10px 14px 9px;
       border-bottom: 0.5px solid var(--border-tertiary);
+      flex-shrink: 0;
     }
     .popup-header .title {
       font-size: 11px;
-      font-weight: 500;
-      letter-spacing: 0.06em;
+      font-weight: 600;
+      letter-spacing: 0.07em;
       color: var(--text-secondary);
       text-transform: uppercase;
     }
@@ -69,7 +69,7 @@
       align-items: center;
       gap: 5px;
       font-size: 11px;
-      font-weight: 500;
+      font-weight: 600;
       color: #e8533a;
     }
     .live-badge.show { display: inline-flex; }
@@ -82,43 +82,48 @@
     }
     @keyframes pulse {
       0%, 100% { opacity: 1; transform: scale(1); }
-      50%      { opacity: 0.5; transform: scale(0.8); }
+      50%       { opacity: 0.5; transform: scale(0.8); }
     }
 
-    /* ── Body ──────────────────────────────────────────────────────────── */
+    /* ── Body — fills remaining space ── */
     .popup-body {
+      flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 14px 12px 12px;
+      justify-content: center;
+      padding: 12px 16px 8px;
+      min-height: 0;
     }
 
+    /* Avatar scales with available space using vmin */
     .avatar-wrap {
       position: relative;
-      width: 90px;
-      height: 90px;
+      width: min(38vmin, 120px);
+      height: min(38vmin, 120px);
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 10px;
+      margin-bottom: min(3vmin, 14px);
+      flex-shrink: 0;
     }
     .avatar-ring {
       position: absolute;
       border-radius: 50%;
       border: 1.5px solid var(--widget-color-soft);
     }
-    .ring1 { width: 90px; height: 90px; }
+    .ring1 { width: 100%; height: 100%; }
     .ring2 {
-      width: 72px;
-      height: 72px;
+      width: 80%;
+      height: 80%;
       border-color: var(--widget-color-strong);
     }
 
     .avatar {
-      width: 56px;
-      height: 56px;
+      width: 62%;
+      height: 62%;
       border-radius: 50%;
-      border: 2.5px solid var(--widget-color);
+      border: 2px solid var(--widget-color);
       object-fit: cover;
       background: var(--widget-color-soft);
       position: relative;
@@ -128,30 +133,30 @@
     }
     .speaking .avatar {
       transform: scale(1.04);
-      box-shadow: 0 0 0 6px var(--widget-color-soft);
+      box-shadow: 0 0 0 5px var(--widget-color-soft);
     }
     .speaking .ring2 { animation: pulse-ring 1.6s ease-in-out infinite; }
     .speaking .ring1 { animation: pulse-ring 1.6s ease-in-out infinite 0.4s; }
     @keyframes pulse-ring {
       0%, 100% { opacity: 0.6; transform: scale(1); }
-      50%      { opacity: 1;   transform: scale(1.04); }
+      50%       { opacity: 1;   transform: scale(1.04); }
     }
 
     .name {
-      font-size: 13px;
-      font-weight: 500;
+      font-size: clamp(12px, 4vmin, 16px);
+      font-weight: 600;
       color: var(--text-primary);
       margin-bottom: 2px;
-      max-width: 210px;
+      max-width: 90%;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       text-align: center;
     }
     .role {
-      font-size: 11px;
+      font-size: clamp(10px, 3vmin, 12px);
       color: var(--text-secondary);
-      margin-bottom: 9px;
+      margin-bottom: min(3vmin, 12px);
     }
 
     .connected-badge {
@@ -160,7 +165,7 @@
       gap: 5px;
       border-radius: 20px;
       padding: 4px 12px;
-      font-size: 11px;
+      font-size: clamp(9px, 2.8vmin, 11px);
       font-weight: 500;
     }
     .connected-badge[data-state="connecting"] {
@@ -180,30 +185,32 @@
       color: #64748b;
     }
     .badge-dot {
-      width: 7px;
-      height: 7px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: currentColor;
+      flex-shrink: 0;
     }
 
-    /* ── Footer ────────────────────────────────────────────────────────── */
+    /* ── Footer ── */
     .popup-footer {
-      padding: 0 12px 14px;
+      padding: 0 14px 10px;
+      flex-shrink: 0;
     }
     .end-btn {
       width: 100%;
       background: #e8533a;
       border: none;
-      border-radius: 22px;
+      border-radius: 24px;
       color: #fff;
-      font-size: 12px;
-      font-weight: 500;
-      padding: 9px 0;
+      font-size: clamp(11px, 3.5vmin, 13px);
+      font-weight: 600;
+      padding: clamp(8px, 2.5vmin, 11px) 0;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 7px;
+      gap: 6px;
       transition: background 0.15s;
     }
     .end-btn:hover:not(:disabled) { background: #c93f28; }
@@ -213,64 +220,20 @@
       color: #64748b;
       cursor: not-allowed;
     }
-    .end-btn svg { width: 14px; height: 14px; }
+    .end-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
 
-    /* ── Brand line ────────────────────────────────────────────────────── */
+    /* ── Brand line — always visible ── */
     .brand {
-      padding: 0 12px 10px;
+      padding: 0 14px 10px;
       text-align: center;
-      font-size: 10px;
-      color: var(--text-tertiary);
+      font-size: clamp(9px, 2.5vmin, 10px);
+      color: var(--text-secondary);
       font-weight: 500;
+      flex-shrink: 0;
     }
     .brand strong {
-      color: var(--text-secondary);
-      font-weight: 600;
-    }
-
-    /* ════════════════════════════════════════════════════════════════════ *
-     *  MOBILE — ultra-compact 170px popup                                  *
-     * ════════════════════════════════════════════════════════════════════ */
-    @media (max-width: 480px) {
-      .popup {
-        width: 170px;                     /* was 200 */
-        border-radius: 12px;
-      }
-      .popup-header { padding: 6px 9px 4px; }
-      .popup-header .title { font-size: 8.5px; }
-      .live-badge { font-size: 8.5px; }
-      .live-dot { width: 5px; height: 5px; }
-
-      .popup-body { padding: 12px 9px 10px; }
-      .avatar-wrap {
-        width: 64px;                      /* was 80 */
-        height: 64px;
-        margin-bottom: 8px;
-      }
-      .ring1 { width: 64px; height: 64px; }
-      .ring2 { width: 50px; height: 50px; }
-      .avatar {
-        width: 40px;                      /* was 50 */
-        height: 40px;
-        border-width: 1.5px;
-      }
-      .name { font-size: 11px; margin-bottom: 2px; }
-      .role { font-size: 9.5px; margin-bottom: 7px; }
-      .connected-badge {
-        padding: 2px 8px;
-        font-size: 9px;
-        gap: 3px;
-      }
-      .badge-dot { width: 5px; height: 5px; }
-      .popup-footer { padding: 0 9px 10px; }
-      .end-btn {
-        font-size: 10.5px;
-        padding: 7px 0;
-        gap: 5px;
-        border-radius: 18px;
-      }
-      .end-btn svg { width: 10px; height: 10px; }
-      .brand { padding: 0 9px 8px; font-size: 8px; }
+      color: var(--text-primary);
+      font-weight: 700;
     }
   </style>
 </head>
@@ -316,13 +279,6 @@
   </div>
 
   <script type="module">
-    /* ================================================================= *
-     * Secure voice-call popup — compact UI.                              *
-     * - Config delivered via postMessage (URL stays clean — no secrets). *
-     * - ElevenLabs @11labs/client SDK runs here.                         *
-     * - Heartbeat to backend so widget on other pages can detect call.   *
-     * ================================================================= */
-
     const $avatar     = document.getElementById('avatarImg');
     const $agentName  = document.getElementById('agentName');
     const $agentRole  = document.getElementById('agentRole');
@@ -349,6 +305,7 @@
       $statusText.textContent = text;
       $liveBadge.classList.toggle('show', state === 'connected');
     }
+
     function applyBranding(c) {
       document.documentElement.style.setProperty('--widget-color', c.color);
       document.documentElement.style.setProperty('--widget-color-soft', hexToRgba(c.color, 0.22));
@@ -388,25 +345,6 @@
       }
     }
 
-    function sendBackendHeartbeat() {
-      if (!isCallActive) return;
-      apiPost('/api/v1/widget/conversations/voice_heartbeat', {})
-        .then(r => r.json().catch(() => null))
-        .then(d => console.log('[VOICE-POPUP] 💓 heartbeat →', d))
-        .catch(e => console.warn('[VOICE-POPUP] 💓 heartbeat FAILED:', e?.message));
-    }
-    function startBackendHeartbeat() {
-      if (_backendHeartbeatTimer) return;
-      sendBackendHeartbeat();
-      _backendHeartbeatTimer = setInterval(sendBackendHeartbeat, 5000);
-    }
-    function stopBackendHeartbeat() {
-      if (_backendHeartbeatTimer) {
-        clearInterval(_backendHeartbeatTimer);
-        _backendHeartbeatTimer = null;
-      }
-    }
-
     function apiPost(path, body) {
       if (!cfg) return Promise.reject(new Error('No config yet'));
       const url = new URL(path, cfg.baseUrl);
@@ -421,6 +359,26 @@
         },
         body: JSON.stringify(body || {}),
       });
+    }
+
+    function sendBackendHeartbeat() {
+      if (!isCallActive || !cfg) return;
+      apiPost('/api/v1/widget/conversations/voice_heartbeat', {})
+        .then(r => r.json().catch(() => null))
+        .then(d => console.log('[VOICE-POPUP] 💓 heartbeat →', d))
+        .catch(e => console.warn('[VOICE-POPUP] 💓 heartbeat FAILED:', e?.message));
+    }
+    function startBackendHeartbeat() {
+      if (_backendHeartbeatTimer) return;
+      sendBackendHeartbeat();
+      // Send every 3s (was 5s) — tighter window so widget status check always finds active record
+      _backendHeartbeatTimer = setInterval(sendBackendHeartbeat, 3000);
+    }
+    function stopBackendHeartbeat() {
+      if (_backendHeartbeatTimer) {
+        clearInterval(_backendHeartbeatTimer);
+        _backendHeartbeatTimer = null;
+      }
     }
 
     window.addEventListener('message', (e) => {
@@ -494,7 +452,6 @@
           onMessage: ({ message, source }) => {
             const text = (message || '').toString().trim();
             if (!text) return;
-            console.log(`[VOICE-POPUP] [${source}]:`, text);
             apiPost('/api/v1/widget/conversations/voice_transcript', {
               source, content: text,
             }).catch(e => console.warn('Transcript save failed:', e?.message));
