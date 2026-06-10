@@ -172,11 +172,12 @@ export default {
       // it fills the screen comfortably.
       const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
-      // Window size — generous enough that NOTHING gets cut off regardless
-      // of browser chrome (Edge URL bar, Chrome dev-tools, etc.).
-      // 320×500 leaves ~80px margin below the End Call button + brand line.
-      const w = isMobile ? 280 : 320;
-      const h = isMobile ? 580 : 500;
+      // Window matches the user-provided reference proportions:
+      // ~280px wide card + 24px chrome buffer = 304px window,
+      // ~380px tall content + browser chrome = 440px window.
+      // Mobile narrower card.
+      const w = isMobile ? 240 : 304;
+      const h = isMobile ? 500 : 440;
       const left = Math.max(0, Math.round((screen.availWidth  - w) / 2));
       const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
       const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;
@@ -252,18 +253,26 @@ export default {
         );
         const popupHere = _popupRef && !_popupRef.closed;
 
+        // Always log so the user can debug the chain end-to-end.
+        console.log('[VOICE-WIDGET] 🔍 status check →', {
+          active: data?.active,
+          source: data?.source,
+          uiActive: this.isCallActive,
+          popupHere,
+        });
+
         if (data?.active && !this.isCallActive) {
           // Backend says active, widget shows idle → sync to active
-          vLog('Backend reports active call — syncing UI to active');
+          console.log('[VOICE-WIDGET] ✅ syncing UI to ACTIVE (backend says call running)');
           this._syncCallActiveFromPopup();
         } else if (!data?.active && this.isCallActive && !popupHere) {
           // Backend says inactive AND we don't own the popup → call
           // ended elsewhere (other tab) → reset our UI to idle
-          vLog('Backend reports inactive call — resetting UI');
+          console.log('[VOICE-WIDGET] 🛑 resetting UI to IDLE (backend says call ended)');
           this.resetCallState();
         }
       } catch (e) {
-        vLog('voice_call_active check failed:', e?.message);
+        console.warn('[VOICE-WIDGET] voice_call_active check failed:', e?.message);
       }
     },
 

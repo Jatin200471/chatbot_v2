@@ -407,39 +407,75 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     render json: { lines: [], conversation_id: nil, has_history: false, error: e.message }
   end
 
-  # Heartbeat from the voice-call popup. Stored on the CONTACT (not on a
-  # specific conversation) so the widget iframe loaded on ANY page or tab
-  # for the same visitor finds the same heartbeat. Conversation lookup
-  # can be flaky across fresh tabs (the cw_conversation cookie may not
-  # have propagated yet), but @contact is set on every widget request
-  # via the source_id JWT — making this the most reliable storage point.
+  # Heartbeat from the voice-call popup. We write the timestamp to BOTH
+  # the contact's additional_attributes AND the conversation's
+  # custom_attributes. The widget checks both — whichever survives the
+  # cross-page lookup wins. Belt + suspenders against cookie partitioning.
   def voice_heartbeat
-    return render json: { ok: false, error: 'no contact' } if @contact.nil?
+    ts = Time.current.iso8601
+    written = []
 
-    attrs = @contact.additional_attributes || {}
-    attrs['voice_heartbeat_at'] = Time.current.iso8601
-    @contact.update_columns(additional_attributes: attrs)
-    render json: { ok: true }
+    if @contact
+      attrs = @contact.additional_attributes || {}
+      attrs['voice_heartbeat_at'] = ts
+      @contact.update_columns(additional_attributes: attrs)
+      written << 'contact'
+    end
+
+    conv = conversation || (@contact_inbox && @contact_inbox.conversations.order(updated_at: :desc).first)
+    if conv
+      attrs = conv.custom_attributes || {}
+      attrs['voice_heartbeat_at'] = ts
+      conv.update_columns(custom_attributes: attrs)
+      written << "conversation##{conv.id}"
+    end
+
+    Rails.logger.info "[VOICE-HEARTBEAT] saved to #{written.join(', ')} at #{ts}"
+    render json: { ok: written.any?, written: written, timestamp: ts }
   rescue StandardError => e
     Rails.logger.warn "[VOICE-AGENT] voice_heartbeat failed: #{e.message}"
     render json: { ok: false, error: e.message }
   end
 
   # Returns whether a voice call is currently active for this visitor.
-  # 'Active' = heartbeat received in the last 15 seconds. Reading from
-  # the CONTACT means every tab/page for the same visitor gets the same
-  # answer (the conversation might be different per tab in edge cases).
+  # Checks BOTH contact and conversation custom_attributes so a fresh tab
+  # whose contact_inbox lookup differs from another tab's still finds the
+  # heartbeat via the conversation.
   def voice_call_active
-    return render json: { active: false } if @contact.nil?
+    active = false
+    source = nil
+    heartbeat = nil
 
-    heartbeat = @contact.additional_attributes&.dig('voice_heartbeat_at')
-    return render json: { active: false } if heartbeat.blank?
+    # Source 1: contact-level heartbeat (works across all tabs of visitor)
+    if @contact
+      hb = @contact.additional_attributes&.dig('voice_heartbeat_at')
+      if hb.present?
+        last = Time.parse(hb) rescue nil
+        if last && (Time.current - last) < 15.seconds
+          active = true
+          source = 'contact'
+          heartbeat = hb
+        end
+      end
+    end
 
-    last = Time.parse(heartbeat) rescue nil
-    return render json: { active: false } if last.nil?
+    # Source 2: most-recent conversation heartbeat (fallback)
+    if !active
+      conv = conversation || (@contact_inbox && @contact_inbox.conversations.order(updated_at: :desc).first)
+      if conv
+        hb = conv.custom_attributes&.dig('voice_heartbeat_at')
+        if hb.present?
+          last = Time.parse(hb) rescue nil
+          if last && (Time.current - last) < 15.seconds
+            active = true
+            source = "conversation##{conv.id}"
+            heartbeat = hb
+          end
+        end
+      end
+    end
 
-    active = (Time.current - last) < 15.seconds
-    render json: { active: active, last_heartbeat: heartbeat }
+    render json: { active: active, source: source, last_heartbeat: heartbeat }
   rescue StandardError => e
     Rails.logger.warn "[VOICE-AGENT] voice_call_active failed: #{e.message}"
     render json: { active: false, error: e.message }
