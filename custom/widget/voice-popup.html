@@ -35,33 +35,29 @@
       align-items: center;
       justify-content: center;
       min-height: 100vh;
-      padding: 16px;
-    }
-    /* Safety net — guarantee card never overflows window */
-    .popup {
-      max-height: calc(100vh - 32px);
-      overflow-y: auto;
+      padding: 10px;
     }
 
-    /* ── Desktop popup card ────────────────────────────────────────────── */
+    /* ── Desktop popup card (compact) ──────────────────────────────────── */
     .popup {
-      width: 280px;
+      width: 240px;                       /* was 280 */
       background: #fff;
-      border-radius: 18px;
+      border-radius: 14px;                /* was 18 */
       border: 0.5px solid var(--border-tertiary);
       overflow: hidden;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.10);
+      box-shadow: 0 3px 16px rgba(0, 0, 0, 0.10);
+      max-height: calc(100vh - 20px);
     }
 
     .popup-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 10px 14px 8px;
+      padding: 7px 11px 5px;              /* was 10 14 8 */
       border-bottom: 0.5px solid var(--border-tertiary);
     }
     .popup-header .title {
-      font-size: 11px;
+      font-size: 9.5px;                   /* was 11 */
       font-weight: 500;
       letter-spacing: 0.06em;
       color: var(--text-secondary);
@@ -71,15 +67,15 @@
     .live-badge {
       display: none;
       align-items: center;
-      gap: 5px;
-      font-size: 11px;
+      gap: 4px;                           /* was 5 */
+      font-size: 9.5px;                   /* was 11 */
       font-weight: 500;
       color: #e8533a;
     }
     .live-badge.show { display: inline-flex; }
     .live-dot {
-      width: 7px;
-      height: 7px;
+      width: 6px;                         /* was 7 */
+      height: 6px;
       border-radius: 50%;
       background: #e8533a;
       animation: pulse 1.4s ease-in-out infinite;
@@ -89,41 +85,41 @@
       50%      { opacity: 0.5; transform: scale(0.8); }
     }
 
-    /* ── Body ──────────────────────────────────────────────────────────── */
+    /* ── Body (compact) ────────────────────────────────────────────────── */
     .popup-body {
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 22px 16px 18px;
+      padding: 16px 12px 12px;            /* was 22 16 18 */
     }
 
     .avatar-wrap {
       position: relative;
-      width: 110px;
-      height: 110px;
+      width: 86px;                        /* was 110 */
+      height: 86px;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 14px;
+      margin-bottom: 10px;                /* was 14 */
     }
     .avatar-ring {
       position: absolute;
       border-radius: 50%;
-      border: 1.5px solid var(--widget-color-soft);
+      border: 1.25px solid var(--widget-color-soft);
     }
-    .ring1 { width: 110px; height: 110px; }
+    .ring1 { width: 86px; height: 86px; } /* was 110 */
     .ring2 {
-      width: 88px;
-      height: 88px;
+      width: 68px;                        /* was 88 */
+      height: 68px;
       border-color: var(--widget-color-strong);
     }
 
-    /* Avatar circle — image or fallback initials */
+    /* Avatar circle */
     .avatar {
-      width: 68px;
-      height: 68px;
+      width: 54px;                        /* was 68 */
+      height: 54px;
       border-radius: 50%;
-      border: 2.5px solid var(--widget-color);
+      border: 2px solid var(--widget-color);  /* was 2.5 */
       object-fit: cover;
       background: var(--widget-color-soft);
       position: relative;
@@ -133,7 +129,7 @@
     }
     .speaking .avatar {
       transform: scale(1.04);
-      box-shadow: 0 0 0 6px var(--widget-color-soft);
+      box-shadow: 0 0 0 5px var(--widget-color-soft);  /* was 6 */
     }
     .speaking .ring2 { animation: pulse-ring 1.6s ease-in-out infinite; }
     .speaking .ring1 { animation: pulse-ring 1.6s ease-in-out infinite 0.4s; }
@@ -143,29 +139,29 @@
     }
 
     .name {
-      font-size: 15px;
+      font-size: 13px;                    /* was 15 */
       font-weight: 500;
       color: var(--text-primary);
-      margin-bottom: 3px;
-      max-width: 240px;
+      margin-bottom: 2px;                 /* was 3 */
+      max-width: 210px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       text-align: center;
     }
     .role {
-      font-size: 12px;
+      font-size: 10.5px;                  /* was 12 */
       color: var(--text-secondary);
-      margin-bottom: 11px;
+      margin-bottom: 8px;                 /* was 11 */
     }
 
     .connected-badge {
       display: flex;
       align-items: center;
-      gap: 5px;
-      border-radius: 20px;
-      padding: 4px 12px;
-      font-size: 11px;
+      gap: 4px;                           /* was 5 */
+      border-radius: 18px;                /* was 20 */
+      padding: 3px 10px;                  /* was 4 12 */
+      font-size: 9.5px;                   /* was 11 */
       font-weight: 500;
     }
     .connected-badge[data-state="connecting"] {
@@ -185,30 +181,30 @@
       color: #64748b;
     }
     .badge-dot {
-      width: 7px;
-      height: 7px;
+      width: 6px;                         /* was 7 */
+      height: 6px;
       border-radius: 50%;
       background: currentColor;
     }
 
-    /* ── Footer: just the End Call button (matches reference) ─────────── */
+    /* ── Footer (compact) ──────────────────────────────────────────────── */
     .popup-footer {
-      padding: 0 16px 18px;
+      padding: 0 12px 12px;               /* was 0 16 18 */
     }
     .end-btn {
       width: 100%;
       background: #e8533a;
       border: none;
-      border-radius: 26px;
+      border-radius: 20px;                /* was 26 */
       color: #fff;
-      font-size: 13px;
+      font-size: 11.5px;                  /* was 13 */
       font-weight: 500;
-      padding: 11px 0;
+      padding: 8px 0;                     /* was 11 */
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 7px;
+      gap: 6px;                           /* was 7 */
       transition: background 0.15s;
     }
     .end-btn:hover:not(:disabled) { background: #c93f28; }
@@ -218,13 +214,13 @@
       color: #64748b;
       cursor: not-allowed;
     }
-    .end-btn svg { width: 14px; height: 14px; }
+    .end-btn svg { width: 12px; height: 12px; }  /* was 14 */
 
-    /* Subtle brand line — kept but minimal so it doesn't dominate */
+    /* ── Brand line (compact) ──────────────────────────────────────────── */
     .brand {
-      padding: 0 16px 12px;
+      padding: 0 12px 8px;                /* was 0 16 12 */
       text-align: center;
-      font-size: 10px;
+      font-size: 8.5px;                   /* was 10 */
       color: var(--text-tertiary);
       font-weight: 500;
     }
@@ -234,47 +230,48 @@
     }
 
     /* ════════════════════════════════════════════════════════════════════ *
-     *  MOBILE — when window width ≤ 480px the popup downscales to 200px    *
+     *  MOBILE — ultra-compact 170px popup                                  *
      * ════════════════════════════════════════════════════════════════════ */
     @media (max-width: 480px) {
       .popup {
-        width: 200px;
-        border-radius: 16px;
+        width: 170px;                     /* was 200 */
+        border-radius: 12px;
       }
-      .popup-header { padding: 8px 11px 6px; }
-      .popup-header .title { font-size: 10px; }
-      .live-badge { font-size: 10px; }
-      .live-dot { width: 6px; height: 6px; }
+      .popup-header { padding: 6px 9px 4px; }
+      .popup-header .title { font-size: 8.5px; }
+      .live-badge { font-size: 8.5px; }
+      .live-dot { width: 5px; height: 5px; }
 
-      .popup-body { padding: 16px 12px 14px; }
+      .popup-body { padding: 12px 9px 10px; }
       .avatar-wrap {
-        width: 80px;
-        height: 80px;
-        margin-bottom: 10px;
+        width: 64px;                      /* was 80 */
+        height: 64px;
+        margin-bottom: 8px;
       }
-      .ring1 { width: 80px; height: 80px; }
-      .ring2 { width: 64px; height: 64px; }
+      .ring1 { width: 64px; height: 64px; }
+      .ring2 { width: 50px; height: 50px; }
       .avatar {
-        width: 50px;
-        height: 50px;
-        border-width: 2px;
+        width: 40px;                      /* was 50 */
+        height: 40px;
+        border-width: 1.5px;
       }
-      .name { font-size: 13px; margin-bottom: 2px; }
-      .role { font-size: 11px; margin-bottom: 9px; }
+      .name { font-size: 11px; margin-bottom: 2px; }
+      .role { font-size: 9.5px; margin-bottom: 7px; }
       .connected-badge {
-        padding: 3px 10px;
-        font-size: 10px;
-        gap: 4px;
+        padding: 2px 8px;
+        font-size: 9px;
+        gap: 3px;
       }
-      .badge-dot { width: 6px; height: 6px; }
-      .popup-footer { padding: 0 12px 14px; }
+      .badge-dot { width: 5px; height: 5px; }
+      .popup-footer { padding: 0 9px 10px; }
       .end-btn {
-        font-size: 12px;
-        padding: 9px 0;
-        gap: 6px;
-        border-radius: 22px;
+        font-size: 10.5px;
+        padding: 7px 0;
+        gap: 5px;
+        border-radius: 18px;
       }
-      .brand { padding: 0 12px 10px; font-size: 9px; }
+      .end-btn svg { width: 10px; height: 10px; }
+      .brand { padding: 0 9px 8px; font-size: 8px; }
     }
   </style>
 </head>
@@ -321,7 +318,7 @@
 
   <script type="module">
     /* ================================================================= *
-     * Secure voice-call popup — matches user-provided reference design.  *
+     * Secure voice-call popup — compact UI.                              *
      * - Config delivered via postMessage (URL stays clean — no secrets). *
      * - ElevenLabs @11labs/client SDK runs here.                         *
      * - Heartbeat to backend so widget on other pages can detect call.   *
@@ -378,7 +375,6 @@
       } catch (_) {}
     }
 
-    // Local (same-tab) heartbeat for instant cross-iframe sync
     const HEARTBEAT_KEY = 'cw_voice_popup_heartbeat';
     function writeHeartbeat() {
       try { localStorage.setItem(HEARTBEAT_KEY, String(Date.now())); } catch (_) {}
@@ -393,8 +389,6 @@
       }
     }
 
-    // Backend heartbeat — bridges browser storage partitioning so the
-    // widget iframe (in any tab) can detect an active call.
     function sendBackendHeartbeat() {
       if (!isCallActive) return;
       apiPost('/api/v1/widget/conversations/voice_heartbeat', {})
@@ -430,7 +424,6 @@
       });
     }
 
-    // Receive config from opener
     window.addEventListener('message', (e) => {
       const d = e?.data;
       if (!d || typeof d !== 'object') return;
