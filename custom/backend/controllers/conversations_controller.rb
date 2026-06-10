@@ -452,59 +452,98 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   end
 
   # Returns whether a voice call is currently active for this visitor.
-  # Checks contact AND ALL conversations of the contact_inbox so a fresh
-  # tab whose lookup differs from another's still finds the heartbeat
-  # wherever it was saved.
+  #
+  # HARD-REFRESH RESILIENCE:
+  #   After a hard refresh the widget re-mounts and may send this request
+  #   WITHOUT a valid cw_conversation token (withCredentials:false + cookie
+  #   partitioning). That makes @contact / @contact_inbox nil.  We therefore
+  #   fall back to scanning ALL contact_inboxes for the inbox identified by
+  #   website_token so we can still find the heartbeat the popup wrote.
   def voice_call_active
-    active = false
-    source = nil
+    active   = false
+    source   = nil
     heartbeat = nil
-    cutoff = Time.current - 15.seconds
+    cutoff   = Time.current - 20.seconds   # 20s window — popup heartbeats every 3s
 
-    # Source 1: contact-level heartbeat (most reliable across tabs)
+    # ── Path A: we have a contact session (normal case) ──────────────────
     if @contact
+      # A1: contact-level heartbeat
       hb = @contact.additional_attributes&.dig('voice_heartbeat_at')
-      last = (Time.parse(hb) rescue nil) if hb.present?
-      if last && last >= cutoff
-        active = true
-        source = 'contact'
-        heartbeat = hb
+      ts = (Time.parse(hb) rescue nil) if hb.present?
+      if ts && ts >= cutoff
+        active = true; source = 'contact'; heartbeat = hb
+      end
+
+      # A2: conversations of this contact_inbox
+      if !active && @contact_inbox
+        @contact_inbox.conversations.find_each do |conv|
+          hb = conv.custom_attributes&.dig('voice_heartbeat_at')
+          next if hb.blank?
+          ts = (Time.parse(hb) rescue nil)
+          next if ts.nil? || ts < cutoff
+          active = true; source = "conversation##{conv.id}"; heartbeat = hb
+          break
+        end
+      end
+
+      # A3: contact_inbox attributes
+      if !active && @contact_inbox
+        hb = @contact_inbox.additional_attributes&.dig('voice_heartbeat_at')
+        ts = (Time.parse(hb) rescue nil) if hb.present?
+        if ts && ts >= cutoff
+          active = true; source = 'contact_inbox'; heartbeat = hb
+        end
       end
     end
 
-    # Source 2: scan ALL conversations of the contact_inbox — find ANY
-    # with a fresh heartbeat. Belt + suspenders.
-    if !active && @contact_inbox
-      @contact_inbox.conversations.find_each do |conv|
-        hb = conv.custom_attributes&.dig('voice_heartbeat_at')
+    # ── Path B: no session (hard-refresh / cookie stripped) ──────────────
+    # Scan ALL contact_inboxes for this inbox. Safe because each inbox
+    # belongs to one account and each heartbeat is visitor-specific.
+    if !active && @web_widget
+      inbox = @web_widget.inbox
+
+      # B1: scan contact_inbox attributes across the whole inbox
+      inbox.contact_inboxes.find_each do |ci|
+        hb = ci.additional_attributes&.dig('voice_heartbeat_at')
         next if hb.blank?
-        last = (Time.parse(hb) rescue nil)
-        next if last.nil? || last < cutoff
-        active = true
-        source = "conversation##{conv.id}"
-        heartbeat = hb
+        ts = (Time.parse(hb) rescue nil)
+        next if ts.nil? || ts < cutoff
+        active = true; source = "contact_inbox##{ci.id}(fallback)"; heartbeat = hb
         break
       end
-    end
 
-    # Source 3: contact_inbox.additional_attributes — last-resort cache
-    if !active && @contact_inbox
-      hb = @contact_inbox.additional_attributes&.dig('voice_heartbeat_at')
-      last = (Time.parse(hb) rescue nil) if hb.present?
-      if last && last >= cutoff
-        active = true
-        source = 'contact_inbox'
-        heartbeat = hb
+      # B2: scan recent conversations in this inbox
+      if !active
+        inbox.conversations.where('updated_at > ?', Time.current - 30.seconds).find_each do |conv|
+          hb = conv.custom_attributes&.dig('voice_heartbeat_at')
+          next if hb.blank?
+          ts = (Time.parse(hb) rescue nil)
+          next if ts.nil? || ts < cutoff
+          active = true; source = "conversation##{conv.id}(fallback)"; heartbeat = hb
+          break
+        end
+      end
+
+      # B3: scan contacts' additional_attributes
+      if !active
+        inbox.contacts.where('updated_at > ?', Time.current - 30.seconds).find_each do |c|
+          hb = c.additional_attributes&.dig('voice_heartbeat_at')
+          next if hb.blank?
+          ts = (Time.parse(hb) rescue nil)
+          next if ts.nil? || ts < cutoff
+          active = true; source = "contact##{c.id}(fallback)"; heartbeat = hb
+          break
+        end
       end
     end
 
-    Rails.logger.info "[VOICE-CALL-ACTIVE] contact=#{@contact&.id} contact_inbox=#{@contact_inbox&.id} active=#{active} source=#{source}"
+    Rails.logger.info "[VOICE-CALL-ACTIVE] contact=#{@contact&.id} ci=#{@contact_inbox&.id} active=#{active} source=#{source}"
     render json: {
-      active: active,
-      source: source,
-      contact_id: @contact&.id,
+      active:           active,
+      source:           source,
+      contact_id:       @contact&.id,
       contact_inbox_id: @contact_inbox&.id,
-      last_heartbeat: heartbeat
+      last_heartbeat:   heartbeat
     }
   rescue StandardError => e
     Rails.logger.warn "[VOICE-AGENT] voice_call_active failed: #{e.message}"
