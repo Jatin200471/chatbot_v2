@@ -135,11 +135,16 @@ export default {
       this.isConnecting = true;
       this.setConnecting(true);
 
-      // Compact popup so it doesn't dominate the screen — visitor can still
-      // see the Chatwoot widget chat panel alongside (live transcript).
-      // 340×440 gives the avatar + name + button breathing room without
-      // pushing the End Call button off-screen on shorter laptops.
-      const w = 340, h = 440;
+      // Detect mobile — popups behave poorly on phones (open as full tab).
+      // On mobile we still open the same URL, but the popup CSS has a
+      // dedicated mobile-fullscreen media query that scales the UI up so
+      // it fills the screen comfortably.
+      const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+      // Compact desktop popup; mobile popup is essentially a full tab so
+      // window dimensions don't matter there (the browser fullscreens it).
+      const w = isMobile ? 360 : 320;
+      const h = isMobile ? 640 : 380;
       const left = Math.max(0, Math.round((screen.availWidth  - w) / 2));
       const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
       const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;

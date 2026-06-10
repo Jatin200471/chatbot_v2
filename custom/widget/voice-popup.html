@@ -46,8 +46,8 @@
     /* ── Header ────────────────────────────────────────────────────────── */
     .header {
       flex-shrink: 0;
-      height: 44px;
-      padding: 0 18px;
+      height: 40px;
+      padding: 0 16px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -57,7 +57,7 @@
       border-bottom: 1px solid var(--border-subtle);
     }
     .header-title {
-      font-size: 10.5px;
+      font-size: 10px;
       font-weight: 700;
       color: var(--text-tertiary);
       letter-spacing: 1.4px;
@@ -93,16 +93,18 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 24px 24px 14px;
-      gap: 18px;
+      padding: 16px 20px 10px;
+      gap: 12px;
+      min-height: 0;          /* let it shrink so End Call stays visible */
     }
 
     .avatar-stack {
       position: relative;
-      width: 132px;
-      height: 132px;
+      width: 104px;
+      height: 104px;
       display: grid;
       place-items: center;
+      flex-shrink: 0;
     }
 
     /* Pulse rings — adopt widget brand color */
@@ -110,7 +112,7 @@
       position: absolute;
       inset: 0;
       border-radius: 50%;
-      border: 2px solid var(--widget-color);
+      border: 1.5px solid var(--widget-color);
       opacity: 0;
       pointer-events: none;
       animation: pulse-out 2.6s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
@@ -118,22 +120,22 @@
     .pulse-ring:nth-child(2) { animation-delay: 0.9s; }
     .pulse-ring:nth-child(3) { animation-delay: 1.8s; }
     @keyframes pulse-out {
-      0%   { transform: scale(1);    opacity: 0.55; }
-      85%  { transform: scale(1.45); opacity: 0; }
-      100% { transform: scale(1.45); opacity: 0; }
+      0%   { transform: scale(1);    opacity: 0.5; }
+      85%  { transform: scale(1.35); opacity: 0; }
+      100% { transform: scale(1.35); opacity: 0; }
     }
 
     /* Avatar — soft halo + crisp ring */
     .avatar {
-      width: 108px;
-      height: 108px;
+      width: 84px;
+      height: 84px;
       border-radius: 50%;
       object-fit: cover;
       background: var(--widget-color-soft);
       box-shadow:
-        0 0 0 3px var(--bg-primary),
-        0 0 0 5px var(--widget-color),
-        0 12px 28px rgba(15, 23, 42, 0.16);
+        0 0 0 2px var(--bg-primary),
+        0 0 0 4px var(--widget-color),
+        0 8px 22px rgba(15, 23, 42, 0.14);
       position: relative;
       z-index: 2;
       transition: box-shadow 280ms ease, transform 280ms ease;
@@ -141,10 +143,10 @@
     .speaking .avatar {
       transform: scale(1.04);
       box-shadow:
-        0 0 0 3px var(--bg-primary),
-        0 0 0 5px var(--widget-color),
-        0 0 0 13px var(--widget-color-soft),
-        0 12px 28px rgba(15, 23, 42, 0.16);
+        0 0 0 2px var(--bg-primary),
+        0 0 0 4px var(--widget-color),
+        0 0 0 10px var(--widget-color-soft),
+        0 8px 22px rgba(15, 23, 42, 0.14);
     }
     .speaking .pulse-ring { animation-duration: 1.3s; }
 
@@ -154,10 +156,10 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
     }
     .agent-name {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 700;
       color: var(--text-primary);
       letter-spacing: -0.2px;
@@ -168,7 +170,7 @@
       white-space: nowrap;
     }
     .agent-role {
-      font-size: 11.5px;
+      font-size: 11px;
       color: var(--text-tertiary);
       letter-spacing: 0.2px;
       font-weight: 500;
@@ -178,14 +180,14 @@
     .status {
       display: inline-flex;
       align-items: center;
-      gap: 7px;
-      padding: 5px 13px;
+      gap: 6px;
+      padding: 4px 11px;
       border-radius: 999px;
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 600;
       letter-spacing: 0.1px;
       transition: all 240ms ease;
-      margin-top: 4px;
+      margin-top: 2px;
     }
     .status[data-state="connecting"] {
       color: #b45309;
@@ -215,7 +217,7 @@
     /* ── Action area ───────────────────────────────────────────────────── */
     .actions {
       flex-shrink: 0;
-      padding: 8px 24px 18px;
+      padding: 6px 20px 14px;
       display: flex;
       justify-content: center;
     }
@@ -223,21 +225,21 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 9px;
-      min-width: 168px;
-      padding: 11px 24px;
+      gap: 7px;
+      min-width: 148px;
+      padding: 9px 22px;
       border: none;
       border-radius: 999px;
       background: linear-gradient(180deg, #f87171 0%, #ef4444 100%);
       color: #fff;
-      font-size: 13.5px;
+      font-size: 12.5px;
       font-weight: 700;
       letter-spacing: 0.2px;
       cursor: pointer;
       box-shadow:
         0 1px 0 rgba(255, 255, 255, 0.25) inset,
-        0 5px 14px rgba(239, 68, 68, 0.42),
-        0 1px 3px rgba(239, 68, 68, 0.35);
+        0 4px 12px rgba(239, 68, 68, 0.38),
+        0 1px 3px rgba(239, 68, 68, 0.3);
       transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
     }
     .end-call-btn:hover:not(:disabled) {
@@ -245,8 +247,8 @@
       filter: brightness(1.05);
       box-shadow:
         0 1px 0 rgba(255, 255, 255, 0.25) inset,
-        0 8px 20px rgba(239, 68, 68, 0.48),
-        0 1px 3px rgba(239, 68, 68, 0.35);
+        0 6px 16px rgba(239, 68, 68, 0.45),
+        0 1px 3px rgba(239, 68, 68, 0.3);
     }
     .end-call-btn:active:not(:disabled) {
       transform: translateY(0);
@@ -261,16 +263,16 @@
       filter: none;
     }
     .end-call-btn svg {
-      width: 15px;
-      height: 15px;
+      width: 13px;
+      height: 13px;
       flex-shrink: 0;
     }
 
     /* ── Footer ────────────────────────────────────────────────────────── */
     .footer {
       flex-shrink: 0;
-      height: 34px;
-      padding: 0 16px;
+      height: 28px;
+      padding: 0 14px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -278,7 +280,7 @@
       background: rgba(255, 255, 255, 0.5);
       backdrop-filter: blur(6px);
       -webkit-backdrop-filter: blur(6px);
-      font-size: 10.5px;
+      font-size: 10px;
       color: var(--text-tertiary);
       font-weight: 500;
       letter-spacing: 0.2px;
@@ -287,6 +289,55 @@
       color: var(--text-secondary);
       font-weight: 600;
       margin-left: 4px;
+    }
+
+    /* ════════════════════════════════════════════════════════════════════ *
+     *  Responsive — tighten everything on very small windows and mobile     *
+     * ════════════════════════════════════════════════════════════════════ */
+
+    /* When height is short (laptop popup or tight mobile) */
+    @media (max-height: 420px) {
+      .main { padding: 10px 20px 6px; gap: 8px; }
+      .avatar-stack { width: 88px; height: 88px; }
+      .avatar { width: 72px; height: 72px; }
+      .agent-name { font-size: 15px; }
+      .agent-role { font-size: 10.5px; }
+      .status { padding: 3px 10px; font-size: 10.5px; margin-top: 0; }
+      .actions { padding: 4px 20px 10px; }
+      .end-call-btn { padding: 8px 18px; font-size: 12px; }
+      .footer { height: 24px; font-size: 9.5px; }
+    }
+
+    /* When width is narrow (mobile portrait, very small popup) */
+    @media (max-width: 360px) {
+      .header { padding: 0 14px; height: 38px; }
+      .main { padding: 14px 16px 8px; }
+      .avatar-stack { width: 96px; height: 96px; }
+      .avatar { width: 78px; height: 78px; }
+      .agent-name { font-size: 15px; max-width: 220px; }
+      .end-call-btn { min-width: 132px; padding: 8px 18px; }
+      .footer { padding: 0 12px; }
+    }
+
+    /* Mobile-fullscreen fallback (when popup opens as full-page tab on phone) */
+    @media (max-width: 480px) and (min-height: 600px) {
+      .main {
+        padding: 40px 24px 20px;
+        gap: 22px;
+      }
+      .avatar-stack { width: 156px; height: 156px; }
+      .avatar { width: 128px; height: 128px; }
+      .agent-name { font-size: 22px; }
+      .agent-role { font-size: 13px; }
+      .status { font-size: 13px; padding: 6px 14px; }
+      .end-call-btn {
+        min-width: 200px;
+        padding: 14px 32px;
+        font-size: 15px;
+      }
+      .end-call-btn svg { width: 18px; height: 18px; }
+      .actions { padding: 20px 24px 32px; }
+      .footer { height: 38px; font-size: 11px; }
     }
   </style>
 </head>
