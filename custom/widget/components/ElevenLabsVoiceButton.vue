@@ -181,12 +181,12 @@ export default {
       // it fills the screen comfortably.
       const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
-      // Window matches the user-provided reference proportions:
-      // ~280px wide card + 24px chrome buffer = 304px window,
-      // ~380px tall content + browser chrome = 440px window.
-      // Mobile narrower card.
-      const w = isMobile ? 240 : 304;
-      const h = isMobile ? 500 : 440;
+      // Window big enough that the 280px card has breathing room on all
+      // sides (matches the spacious reference render). Browser chrome
+      // (title bar + URL bar in Edge) eats ~85px from the height, so we
+      // give 600px total to ensure End Call button always fully visible.
+      const w = isMobile ? 320 : 360;
+      const h = isMobile ? 620 : 600;
       const left = Math.max(0, Math.round((screen.availWidth  - w) / 2));
       const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
       const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;

@@ -407,10 +407,11 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     render json: { lines: [], conversation_id: nil, has_history: false, error: e.message }
   end
 
-  # Heartbeat from the voice-call popup. We write the timestamp to BOTH
-  # the contact's additional_attributes AND the conversation's
-  # custom_attributes. The widget checks both — whichever survives the
-  # cross-page lookup wins. Belt + suspenders against cookie partitioning.
+  # Heartbeat from the voice-call popup. Writes the timestamp to THREE
+  # storage locations so the widget on any tab/page can find it:
+  #   1. @contact.additional_attributes
+  #   2. @contact_inbox.additional_attributes
+  #   3. most-recent conversation's custom_attributes
   def voice_heartbeat
     ts = Time.current.iso8601
     written = []
@@ -422,6 +423,13 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       written << 'contact'
     end
 
+    if @contact_inbox
+      attrs = @contact_inbox.additional_attributes || {}
+      attrs['voice_heartbeat_at'] = ts
+      @contact_inbox.update_columns(additional_attributes: attrs)
+      written << 'contact_inbox'
+    end
+
     conv = conversation || (@contact_inbox && @contact_inbox.conversations.order(updated_at: :desc).first)
     if conv
       attrs = conv.custom_attributes || {}
@@ -430,51 +438,61 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       written << "conversation##{conv.id}"
     end
 
-    Rails.logger.info "[VOICE-HEARTBEAT] saved to #{written.join(', ')} at #{ts}"
-    render json: { ok: written.any?, written: written, timestamp: ts }
+    Rails.logger.info "[VOICE-HEARTBEAT] visitor=#{@contact&.id} saved to #{written.join(', ')} at #{ts}"
+    render json: { ok: written.any?, written: written, contact_id: @contact&.id, timestamp: ts }
   rescue StandardError => e
     Rails.logger.warn "[VOICE-AGENT] voice_heartbeat failed: #{e.message}"
     render json: { ok: false, error: e.message }
   end
 
   # Returns whether a voice call is currently active for this visitor.
-  # Checks BOTH contact and conversation custom_attributes so a fresh tab
-  # whose contact_inbox lookup differs from another tab's still finds the
-  # heartbeat via the conversation.
+  # Checks contact AND ALL conversations of the contact_inbox so a fresh
+  # tab whose lookup differs from another's still finds the heartbeat
+  # wherever it was saved.
   def voice_call_active
     active = false
     source = nil
     heartbeat = nil
+    cutoff = Time.current - 15.seconds
 
-    # Source 1: contact-level heartbeat (works across all tabs of visitor)
+    # Source 1: contact-level heartbeat (most reliable across tabs)
     if @contact
       hb = @contact.additional_attributes&.dig('voice_heartbeat_at')
-      if hb.present?
-        last = Time.parse(hb) rescue nil
-        if last && (Time.current - last) < 15.seconds
-          active = true
-          source = 'contact'
-          heartbeat = hb
-        end
+      last = (Time.parse(hb) rescue nil) if hb.present?
+      if last && last >= cutoff
+        active = true
+        source = 'contact'
+        heartbeat = hb
       end
     end
 
-    # Source 2: most-recent conversation heartbeat (fallback)
-    if !active
-      conv = conversation || (@contact_inbox && @contact_inbox.conversations.order(updated_at: :desc).first)
-      if conv
+    # Source 2: scan ALL conversations of the contact_inbox — find ANY
+    # with a fresh heartbeat. Belt + suspenders.
+    if !active && @contact_inbox
+      @contact_inbox.conversations.find_each do |conv|
         hb = conv.custom_attributes&.dig('voice_heartbeat_at')
-        if hb.present?
-          last = Time.parse(hb) rescue nil
-          if last && (Time.current - last) < 15.seconds
-            active = true
-            source = "conversation##{conv.id}"
-            heartbeat = hb
-          end
-        end
+        next if hb.blank?
+        last = (Time.parse(hb) rescue nil)
+        next if last.nil? || last < cutoff
+        active = true
+        source = "conversation##{conv.id}"
+        heartbeat = hb
+        break
       end
     end
 
+    # Source 3: contact_inbox.additional_attributes — last-resort cache
+    if !active && @contact_inbox
+      hb = @contact_inbox.additional_attributes&.dig('voice_heartbeat_at')
+      last = (Time.parse(hb) rescue nil) if hb.present?
+      if last && last >= cutoff
+        active = true
+        source = 'contact_inbox'
+        heartbeat = hb
+      end
+    end
+
+    Rails.logger.info "[VOICE-CALL-ACTIVE] visitor=#{@contact&.id} active=#{active} source=#{source}"
     render json: { active: active, source: source, last_heartbeat: heartbeat }
   rescue StandardError => e
     Rails.logger.warn "[VOICE-AGENT] voice_call_active failed: #{e.message}"
