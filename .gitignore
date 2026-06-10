@@ -18,7 +18,6 @@ agents/state/
 custom/widget/assets/vite/
 
 # Dev-only files — not needed in production repo
-
 *.pptx
 
 # Logs

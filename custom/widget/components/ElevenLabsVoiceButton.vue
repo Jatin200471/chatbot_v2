@@ -137,7 +137,9 @@ export default {
 
       // Compact popup so it doesn't dominate the screen — visitor can still
       // see the Chatwoot widget chat panel alongside (live transcript).
-      const w = 320, h = 460;
+      // 340×440 gives the avatar + name + button breathing room without
+      // pushing the End Call button off-screen on shorter laptops.
+      const w = 340, h = 440;
       const left = Math.max(0, Math.round((screen.availWidth  - w) / 2));
       const top  = Math.max(0, Math.round((screen.availHeight - h) / 2));
       const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;
