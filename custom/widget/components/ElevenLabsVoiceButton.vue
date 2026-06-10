@@ -181,9 +181,10 @@ export default {
       // (e.g. they have the popup open on another page/tab), focus that
       // instead of starting a SECOND call.
       try {
-        const { data } = await API.get(
-          buildConvUrl('/api/v1/widget/conversations/voice_call_active')
-        );
+        const cwConv = this.getCwConversationToken();
+        let guardUrl = buildConvUrl('/api/v1/widget/conversations/voice_call_active');
+        if (cwConv) guardUrl += `&cw_conversation=${encodeURIComponent(cwConv)}`;
+        const { data } = await API.get(guardUrl);
         if (data?.active) {
           vLog('Call already active for this visitor — refusing duplicate');
           this._syncCallActiveFromPopup();
@@ -281,9 +282,13 @@ export default {
     // tabs (same visitor, different page → same backend state).
     async _checkBackendCallStatus() {
       try {
-        const { data } = await API.get(
-          buildConvUrl('/api/v1/widget/conversations/voice_call_active')
-        );
+        // MUST include cw_conversation so backend can identify the contact.
+        // withCredentials:false means cookies are not sent → we pass the
+        // token explicitly as a query param on every status-check request.
+        const cwConv = this.getCwConversationToken();
+        let url = buildConvUrl('/api/v1/widget/conversations/voice_call_active');
+        if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
+        const { data } = await API.get(url);
         const popupHere = _popupRef && !_popupRef.closed;
 
         // Always log so the user can debug the chain end-to-end.
