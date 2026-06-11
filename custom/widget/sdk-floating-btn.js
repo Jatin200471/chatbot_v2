@@ -371,11 +371,6 @@
   });
 
   // ── FALLBACK: localStorage polling ───────────────────────────────────────
-  // App.vue writes 'cw_voice_active' to localStorage as a reliable bridge.
-  //
-  // IMMEDIATE check on page load — don't wait for first interval tick.
-  // This ensures the End Call button and SPA intercept are active instantly
-  // when user navigates to a new page during an ongoing voice call.
   (function checkVoiceNow() {
     try {
       var lsActive = localStorage.getItem('cw_voice_active') === '1';
@@ -383,7 +378,6 @@
     } catch (_) {}
   })();
 
-  // Then poll every 300ms to catch changes quickly.
   setInterval(function () {
     try {
       var lsActive = localStorage.getItem('cw_voice_active') === '1';
@@ -392,6 +386,50 @@
       }
     } catch (_) {}
   }, 300);
+
+  // ── POPUP WATCHDOG — simple logic: popup closed → deactivate ─────────────
+  // Every 3s check if the voice popup window is still open.
+  // window.open('', 'cwVoiceCall') returns the existing named window if open,
+  // or a NEW blank window if not. We detect which case it is by checking
+  // the URL — our popup has /voice-popup.html, a new blank has about:blank.
+  // If popup is gone → clear localStorage + tell widget to deactivate.
+  setInterval(function () {
+    if (!window._cwVoiceActive) return; // only check when call seems active
+    try {
+      var w = window.open('', 'cwVoiceCall');
+      if (!w || w.closed) {
+        // popup is definitively closed
+        _popupGone();
+        return;
+      }
+      var href = '';
+      try { href = w.location.href; } catch (_) {}
+      if (href === 'about:blank' || href === '') {
+        // we accidentally opened a blank window — close it, popup is gone
+        try { w.close(); } catch (_) {}
+        _popupGone();
+      }
+      // else: popup is open and has a URL — call is active, do nothing
+    } catch (_) {}
+  }, 3000);
+
+  function _popupGone() {
+    if (!window._cwVoiceActive) return;
+    console.log('[CW-SDK] popup watchdog: popup closed — deactivating');
+    try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
+    applyVoiceState(false, false);
+    // Tell the widget iframe to reset its button too
+    var iframe = document.getElementById('chatwoot_live_chat_widget') ||
+                 document.querySelector('iframe[title*="chat"], iframe[src*="widget"]');
+    if (iframe && iframe.contentWindow) {
+      try {
+        iframe.contentWindow.postMessage(
+          { source: 'cw-sdk', event: 'voice-popup-closed' }, '*'
+        );
+      } catch (_) {}
+    }
+    window.postMessage({ event: 'cw-voice-call-ended' }, '*');
+  }
 
   // ── Warn user before navigating away during active voice call ────────────
   // Catches programmatic navigations (location.href, form submit, etc.) that
