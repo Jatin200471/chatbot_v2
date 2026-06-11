@@ -69,6 +69,40 @@ else
   failed << "4:endingCallFlag(a<1e4 not found)"
 end
 
+# ── PATCH 5: Reduce startup polling — only 2 checks instead of 4+interval ────
+# Old: immediate + 1s + 3s + 6s retries + interval every 2s for 15s = ~9 calls
+# New: immediate + 3s retry only. Interval removed from mount — keepAlive handles ongoing
+old_polling = 'this._checkAttempt=0,this._checkBackendCallStatus(),this._mountRetry1=setTimeout(()=>this._checkBackendCallStatus(),1e3),this._mountRetry2=setTimeout(()=>this._checkBackendCallStatus(),3e3),this._mountRetry3=setTimeout(()=>this._checkBackendCallStatus(),6e3),this._activeCheckInterval=setInterval(()=>{this.isCallActive?(clearInterval(this._activeCheckInterval),this._activeCheckInterval=null):this._checkBackendCallStatus()},2e3),this._activeCheckTimeout=setTimeout(()=>{this._activeCheckInterval&&(clearInterval(this._activeCheckInterval),this._activeCheckInterval=null)},15e3)'
+new_polling = 'this._checkAttempt=0,this._checkBackendCallStatus(),this._mountRetry2=setTimeout(()=>{this.isCallActive||this._checkBackendCallStatus()},3e3)'
+if content.include?(old_polling)
+  content = content.sub(old_polling, new_polling); applied << "5:reduceStartupPolling"
+elsif !content.include?('_mountRetry1') && !content.include?('_activeCheckInterval=setInterval')
+  applied << "5:reduceStartupPolling(already)"
+else
+  failed << "5:reduceStartupPolling"
+end
+
+# ── PATCH 6: resetCallState — restart 1 delayed check (detect new call) ──────
+# After ending a call, do one check at 5s so a new popup call is detected
+old_reset_end = 'this.notifyParentWidgetHide(!1)}'
+new_reset_end = 'this.notifyParentWidgetHide(!1);setTimeout(()=>{this.isCallActive||this._checkBackendCallStatus()},5000)}'
+# Only replace INSIDE resetCallState (first occurrence after resetCallState{)
+rst_idx = content.index('resetCallState(){')
+if rst_idx
+  chunk = content[rst_idx, 500]
+  if chunk.include?(old_reset_end) && !chunk.include?('setTimeout(()=>{this.isCallActive||this._checkBackendCallStatus()')
+    first = content.index(old_reset_end, rst_idx)
+    content[first, old_reset_end.length] = new_reset_end
+    applied << "6:resetRestartCheck"
+  elsif chunk.include?('setTimeout(()=>{this.isCallActive||this._checkBackendCallStatus()')
+    applied << "6:resetRestartCheck(already)"
+  else
+    failed << "6:resetRestartCheck(notifyParentWidgetHide not found)"
+  end
+else
+  failed << "6:resetRestartCheck(resetCallState not found)"
+end
+
 File.write(JS_FILE, content)
 puts "Applied: #{applied.join(', ')}"
 puts "Failed:  #{failed.empty? ? 'none' : failed.join(', ')}"
