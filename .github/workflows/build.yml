@@ -42,6 +42,17 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
+      # Minify only on version tags (production releases).
+      # Branch pushes skip minification — saves ~3 min per dev build.
+      - name: Set build flags
+        id: flags
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "minify=true" >> $GITHUB_OUTPUT
+          else
+            echo "minify=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -52,6 +63,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             CACHEBUST=${{ github.run_number }}
+            MINIFY=${{ steps.flags.outputs.minify }}
           cache-from: |
             type=gha
             type=registry,ref=ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom:buildcache
