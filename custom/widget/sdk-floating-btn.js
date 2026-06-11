@@ -89,12 +89,15 @@
   function fixIframeAudioPermission() {
     var iframes = document.querySelectorAll('iframe');
     iframes.forEach(function(f) {
-      var allow = f.getAttribute('allow') || '';
-      var needs = ['microphone', 'autoplay', 'camera'];
-      var missing = needs.filter(function(p) { return !allow.includes(p); });
-      if (missing.length > 0) {
-        f.setAttribute('allow', (allow + '; ' + missing.join('; ')).trim());
-      }
+      if (!f || !f.getAttribute) return;
+      try {
+        var allow = f.getAttribute('allow') || '';
+        var needs = ['microphone', 'autoplay', 'camera'];
+        var missing = needs.filter(function(p) { return !allow.includes(p); });
+        if (missing.length > 0) {
+          f.setAttribute('allow', (allow + '; ' + missing.join('; ')).trim());
+        }
+      } catch (_) {}
     });
   }
 
@@ -346,16 +349,6 @@
       window._cwVoiceActive = false;
       applyVoiceState(false, false);
       _showChatwootWidget();
-    }
-  });
-
-  // ── Warn user before navigating away during active voice call ────────────
-  // Catches programmatic navigations (location.href, form submit, etc.) that
-  // our click intercept cannot handle.
-  window.addEventListener('beforeunload', function (e) {
-    if (window._cwVoiceActive) {
-      e.preventDefault();
-      e.returnValue = 'A voice call is active. Leaving will end your call.';
     }
   });
 
