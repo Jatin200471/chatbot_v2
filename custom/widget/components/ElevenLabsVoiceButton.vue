@@ -229,6 +229,7 @@ export default {
     },
 
     endCall() {
+      // 1. Try direct popup message (works only on the page that opened it)
       if (_popupRef && !_popupRef.closed) {
         try {
           _popupRef.postMessage({ source: 'cw-widget', event: 'request-end-call' }, '*');
@@ -239,8 +240,21 @@ export default {
           }
         }, 1500);
       }
+
+      // 2. BroadcastChannel (same-origin tabs only — best-effort)
       const ch = getBroadcastChannel();
       if (ch) { try { ch.postMessage({ type: 'request-end-call' }); } catch (_) {} }
+
+      // 3. ALWAYS hit backend — this is the ONLY reliable cross-page channel.
+      //    Backend sets voice_ended_at → popup heartbeat sees end_requested
+      //    → popup self-terminates. Works even after hard refresh on any page.
+      try {
+        const cwConv = this.getCwConversationToken();
+        let url = buildConvUrl('/api/v1/widget/conversations/voice_call_ended');
+        if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
+        API.post(url, {}).catch(() => {});
+      } catch (_) {}
+
       this.resetCallState();
     },
 
@@ -275,6 +289,8 @@ export default {
     _startKeepAlive() {
       if (this._keepAliveInterval) return; // already running
       console.log('[VOICE-WIDGET] keepAlive started');
+      // Poll every 3s — matches popup heartbeat cadence.
+      // Detects popup close (any cause: End Call, X button, tab crash) within ~3s.
       this._keepAliveInterval = setInterval(async () => {
         if (!this.isCallActive) {
           clearInterval(this._keepAliveInterval);
@@ -291,6 +307,7 @@ export default {
             this.resetCallState();
           } else if (data.last_heartbeat) {
             const age = Date.now() - new Date(data.last_heartbeat).getTime();
+            // Heartbeat older than 8s → popup is dead (heartbeat every 3s)
             if (age > 8000) {
               console.log('[VOICE-WIDGET] keepAlive: heartbeat ' + Math.round(age/1000) + 's stale — popup dead, resetting');
               this.resetCallState();
@@ -299,7 +316,7 @@ export default {
         } catch (e) {
           console.warn('[VOICE-WIDGET] keepAlive poll failed:', e?.message);
         }
-      }, 5000);
+      }, 3000);
     },
 
     // Backend-driven call detection — works across browser storage

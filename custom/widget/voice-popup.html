@@ -195,18 +195,35 @@
       flex-shrink: 0;
     }
 
-    /* ── Footer — close hint only ── */
+    /* ── Footer ── */
     .popup-footer {
       padding: 0 14px 10px;
       flex-shrink: 0;
-      text-align: center;
     }
-    .close-hint {
-      font-size: clamp(10px, 3vmin, 12px);
-      color: var(--text-secondary);
-      margin-bottom: 6px;
+    .end-btn {
+      width: 100%;
+      background: #e8533a;
+      border: none;
+      border-radius: 24px;
+      color: #fff;
+      font-size: clamp(11px, 3.5vmin, 13px);
+      font-weight: 600;
+      padding: clamp(8px, 2.5vmin, 11px) 0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.15s;
     }
-    .close-hint strong { color: var(--text-primary); }
+    .end-btn:hover:not(:disabled) { background: #c93f28; }
+    .end-btn:active:not(:disabled) { transform: scale(0.98); }
+    .end-btn:disabled {
+      background: #cbd5e1;
+      color: #64748b;
+      cursor: not-allowed;
+    }
+    .end-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
 
     /* ── Brand line — always visible ── */
     .brand {
@@ -249,7 +266,14 @@
     </div>
 
     <div class="popup-footer">
-      <p class="close-hint">Close this tab to end the call</p>
+      <button class="end-btn" id="endCallBtn" disabled aria-label="End call">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M3.5 14.5c5.5-5 11.5-5 17 0 .8.7.9 2 0 2.7l-2.1 1.6c-.5.4-1.2.4-1.7 0l-2-1.7
+                   a1.5 1.5 0 0 1-.5-1.1V14a9.8 9.8 0 0 0-4.4 0v0c0 .4-.2.8-.5 1.1l-2 1.6c-.5.4-1.2.4-1.7 0
+                   L3.5 15c-.5-.6-.4-1.7 0-2.5Z" transform="rotate(135 12 12)" />
+        </svg>
+        End Call
+      </button>
     </div>
 
     <div class="brand">
@@ -264,6 +288,7 @@
     const $brandName  = document.getElementById('brandName');
     const $status     = document.getElementById('status');
     const $statusText = document.getElementById('statusText');
+    const $endCallBtn = document.getElementById('endCallBtn');
     const $liveBadge  = document.getElementById('liveBadge');
     const $body       = document.getElementById('popupBody');
 
@@ -424,6 +449,7 @@
           onConnect: () => {
             isCallActive = true;
             setStatus('connected', 'Connected');
+            $endCallBtn.disabled = false;
             writeHeartbeat();
             startBackendHeartbeat();
             postToOpener('voice-popup-connected');
@@ -435,7 +461,7 @@
             const msg = (err && (err.message || err.toString())) || 'Unknown error';
             console.error('[VOICE-POPUP] error:', msg);
             setStatus('error', 'Error');
-
+            $endCallBtn.disabled = true;
             postToOpener('voice-popup-error', { error: msg });
           },
 
@@ -459,12 +485,14 @@
           (error && (error.name === 'NotAllowedError' || error.name === 'NotFoundError'))
             ? 'Mic denied'
             : 'Failed');
+        $endCallBtn.disabled = true;
         postToOpener('voice-popup-error', { error: msg });
       }
     }
 
     async function endCall(reason) {
       if (!conversation) { handleCallEnded(reason || 'Call ended'); return; }
+      $endCallBtn.disabled = true;
       setStatus('connecting', 'Ending…');
       try { await conversation.endSession(); }
       catch (e) { console.warn('[VOICE-POPUP] endSession threw:', e?.message); }
@@ -474,6 +502,7 @@
     function handleCallEnded(label) {
       isCallActive = false;
       setStatus('ended', label || 'Call ended');
+      $endCallBtn.disabled = true;
       conversation = null;
       if (!endedNotified) {
         endedNotified = true;
@@ -486,6 +515,8 @@
       setTimeout(() => { try { window.close(); } catch (_) {} }, 1200);
     }
 
+    // End Call button → call endCall(); same flow as remote-end via request-end-call
+    $endCallBtn.addEventListener('click', () => endCall('Call ended'));
 
     window.addEventListener('beforeunload', () => {
       if (_heartbeatTimer) clearInterval(_heartbeatTimer);
