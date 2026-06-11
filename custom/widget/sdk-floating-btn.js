@@ -329,85 +329,12 @@
     });
   }
 
-  // ── CALL WATCHDOG ─────────────────────────────────────────────────────────
-  // When call active: poll backend every 2s.
-  // Popup close → sendBeacon clears heartbeat → we detect → widget deactivates.
-  // Token extracted from widget iframe src URL (always reliable, no chatwootSettings needed).
-  //
-  // NOTE: localStorage polling is intentionally NOT used here.
-  // Widget iframe (chatwoot origin) and parent page (customer origin) have
-  // PARTITIONED localStorage — they cannot share data. A poller on the parent
-  // page would always see cw_voice_active=null and reset state every 300ms.
-
-  var _watchdogTimer = null;
-  var _watchdogBase  = '';
-  var _watchdogToken = '';
-
-  function _getIframeEndpoint() {
-    if (_watchdogBase && _watchdogToken) return true;
-    try {
-      var iframe = document.getElementById('chatwoot_live_chat_widget') ||
-                   document.querySelector('iframe[src*="widget"]');
-      if (!iframe || !iframe.src) return false;
-      var u = new URL(iframe.src);
-      _watchdogBase  = u.origin;
-      _watchdogToken = u.searchParams.get('website_token') || '';
-      if (!_watchdogToken) {
-        var cs = window.chatwootSettings || {};
-        _watchdogToken = cs.websiteToken || cs.website_token || '';
-      }
-      return !!(_watchdogBase && _watchdogToken);
-    } catch (_) { return false; }
-  }
-
-  function _startWatchdog() {
-    if (_watchdogTimer) return;
-    if (!_getIframeEndpoint()) {
-      setTimeout(function () { if (window._cwVoiceActive) _startWatchdog(); }, 1000);
-      return;
-    }
-    console.log('[CW-SDK] watchdog started — base=' + _watchdogBase);
-    _watchdogTimer = setInterval(function () {
-      if (!window._cwVoiceActive) { _stopWatchdog(); return; }
-      fetch(_watchdogBase + '/api/v1/widget/conversations/voice_call_active?website_token=' + encodeURIComponent(_watchdogToken), {
-        credentials: 'include'
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
-          if (!window._cwVoiceActive) return;
-          var gone = !d || !d.active;
-          if (!gone && d.last_heartbeat) {
-            gone = (Date.now() - new Date(d.last_heartbeat).getTime()) > 8000;
-          }
-          if (gone) {
-            console.log('[CW-SDK] watchdog: popup gone — deactivating');
-            _cwDeactivate();
-          }
-        })
-        .catch(function () {});
-    }, 2000);
-  }
-
-  function _stopWatchdog() {
-    if (_watchdogTimer) { clearInterval(_watchdogTimer); _watchdogTimer = null; }
-  }
-
-  function _cwDeactivate() {
-    if (!window._cwVoiceActive) return; // already deactivated — prevent loops
-    _stopWatchdog();
-    window._cwVoiceActive = false;
-    applyVoiceState(false, false);
-    _showChatwootWidget();
-    // Tell widget iframe to reset its voice button UI immediately
-    // source MUST be 'cw-voice-popup' — widget's onWindowMessage filters on this exact value
-    var iframe = document.getElementById('chatwoot_live_chat_widget') ||
-                 document.querySelector('iframe[src*="widget"]');
-    if (iframe && iframe.contentWindow) {
-      try { iframe.contentWindow.postMessage({ source: 'cw-voice-popup', event: 'voice-popup-closed' }, '*'); } catch (_) {}
-    }
-  }
-
-  // Unified message listener — starts/stops watchdog + handles deactivation
+  // ── Voice call state tracking on parent page ─────────────────────────────
+  // Only flips _cwVoiceActive flag for SPA-nav interception. The actual call
+  // lifecycle (start/end detection, popup sync) lives in the widget iframe's
+  // keepAlive — that runs on the chatwoot origin so there's no CORS issue.
+  // We deliberately do NOT fetch from the parent page: customer.com origin
+  // hitting chatwoot.com without CORS allowance would be blocked.
   window.addEventListener('message', function (e) {
     var data = e.data;
     if (!data || typeof data !== 'object') return;
@@ -415,13 +342,11 @@
     if (ev === 'cw-voice-call-started' || ev === 'cw-voice-popup-opened') {
       window._cwVoiceActive = true;
       applyVoiceState(true, false);
-      _startWatchdog();
     } else if (ev === 'cw-voice-call-ended' || ev === 'voice-popup-ended' || ev === 'cw-voice-popup-ended') {
-      // Widget iframe or popup itself signalled end — deactivate
-      // Note: popup sends 'voice-popup-ended', widget iframe sends 'cw-voice-call-ended'
-      _cwDeactivate();
+      window._cwVoiceActive = false;
+      applyVoiceState(false, false);
+      _showChatwootWidget();
     }
-    // 'voice-popup-closed' NOT listed here — that's what we send TO the iframe.
   });
 
   // ── Warn user before navigating away during active voice call ────────────
