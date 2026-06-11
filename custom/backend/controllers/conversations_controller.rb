@@ -371,41 +371,24 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       end
     end
 
-    # Inbox-wide cleanup: clear ALL heartbeats and set voice_ended_at signal.
-    # voice_ended_at lets the popup detect (via heartbeat response) that another
-    # tab/page requested the call to end — popup then terminates itself.
+    # Set voice_ended_at ONLY on THIS contact/conversation.
+    # This signals the popup (via heartbeat response) to self-terminate.
+    # We deliberately do NOT do inbox-wide cleanup — that would terminate
+    # other users' active calls running on the same inbox.
     begin
-      inbox = @web_widget&.inbox
       ended_ts = Time.current.iso8601
-      if inbox
-        Contact.joins(:contact_inboxes)
-               .where('contact_inboxes.inbox_id = ?', inbox.id)
-               .where("additional_attributes->>'voice_heartbeat_at' IS NOT NULL")
-               .limit(10)
-               .each do |c|
-          attrs = c.additional_attributes || {}
-          attrs.delete('voice_heartbeat_at')
-          attrs['voice_ended_at'] = ended_ts
-          c.update_columns(additional_attributes: attrs, updated_at: Time.current)
-        end
-        # Also set on inbox-level contact if no heartbeat contact found
-        if @contact
-          attrs = @contact.additional_attributes || {}
-          attrs['voice_ended_at'] = ended_ts
-          @contact.update_columns(additional_attributes: attrs, updated_at: Time.current)
-        end
-        Conversation.where(inbox_id: inbox.id)
-                    .where("custom_attributes->>'voice_heartbeat_at' IS NOT NULL")
-                    .limit(10)
-                    .each do |cv|
-          attrs = cv.custom_attributes || {}
-          attrs.delete('voice_heartbeat_at')
-          attrs['voice_ended_at'] = ended_ts
-          cv.update_columns(custom_attributes: attrs, updated_at: Time.current)
-        end
+      if @contact
+        attrs = @contact.additional_attributes || {}
+        attrs['voice_ended_at'] = ended_ts
+        @contact.update_columns(additional_attributes: attrs, updated_at: Time.current)
+      end
+      if conv
+        attrs = conv.custom_attributes || {}
+        attrs['voice_ended_at'] = ended_ts
+        conv.update_columns(custom_attributes: attrs, updated_at: Time.current)
       end
     rescue StandardError => _e
-      # non-critical cleanup — ignore errors
+      # non-critical — ignore errors
     end
 
     Rails.logger.info "[VOICE-AGENT] voice_call_ended: conv #{conv&.id} contact=#{@contact&.id} heartbeats cleared + ended_at set"

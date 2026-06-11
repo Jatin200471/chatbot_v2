@@ -110,38 +110,14 @@ export default {
     }, 600);
 
     // Event-driven cross-page propagation — NO polling.
-    //
-    //   1. On page LOAD: check backend with RETRY. After hard refresh the
-    //      widget's auth (cw_conversation cookie) may not be ready until
-    //      a few hundred ms after mount, so we retry at 0ms / 1s / 3s.
-    //      Once active is found, retries stop.
-    //
-    //   2. On RUNTIME: listen for BroadcastChannel events from the popup
-    //      (instant) and for `storage` events (cross-tab fallback).
-    //
-    //   3. When THIS tab becomes visible again (tab switch): check once.
+    // On mount: check backend twice (immediate + 3s retry).
+    // If call is active, _syncCallActiveFromPopup() starts the keepAlive interval
+    // which polls every 5s indefinitely — no need for aggressive startup polling.
     this._checkAttempt = 0;
     this._checkBackendCallStatus();
-    this._mountRetry1 = setTimeout(() => this._checkBackendCallStatus(), 1000);
-    this._mountRetry2 = setTimeout(() => this._checkBackendCallStatus(), 3000);
-    this._mountRetry3 = setTimeout(() => this._checkBackendCallStatus(), 6000);
-
-    // Hard-refresh fix: poll backend every 2s for 15s after mount.
-    // Covers timing gaps between popup's 5s backend-heartbeat and our retries.
-    this._activeCheckInterval = setInterval(() => {
-      if (this.isCallActive) {
-        clearInterval(this._activeCheckInterval);
-        this._activeCheckInterval = null;
-      } else {
-        this._checkBackendCallStatus();
-      }
-    }, 2000);
-    this._activeCheckTimeout = setTimeout(() => {
-      if (this._activeCheckInterval) {
-        clearInterval(this._activeCheckInterval);
-        this._activeCheckInterval = null;
-      }
-    }, 15000);
+    this._mountRetry2 = setTimeout(() => {
+      if (!this.isCallActive) this._checkBackendCallStatus();
+    }, 3000);
 
     document.addEventListener('visibilitychange', this._onVisibilityChange);
     window.addEventListener('storage', this._onStorageEvent);
@@ -153,11 +129,8 @@ export default {
     const ch = getBroadcastChannel();
     if (ch) ch.removeEventListener('message', this.onBroadcastMessage);
     if (this._popupSyncTimer) clearTimeout(this._popupSyncTimer);
-    if (this._mountRetry1) clearTimeout(this._mountRetry1);
     if (this._mountRetry2) clearTimeout(this._mountRetry2);
-    if (this._mountRetry3) clearTimeout(this._mountRetry3);
-    if (this._activeCheckInterval) clearInterval(this._activeCheckInterval);
-    if (this._activeCheckTimeout) clearTimeout(this._activeCheckTimeout);
+    if (this._keepAliveInterval) { clearInterval(this._keepAliveInterval); this._keepAliveInterval = null; }
     document.removeEventListener('visibilitychange', this._onVisibilityChange);
     window.removeEventListener('storage', this._onStorageEvent);
   },
@@ -231,7 +204,7 @@ export default {
 
       // Include website_token in URL so popup has it even before config message arrives.
       const _wt = WEBSITE_TOKEN || '';
-      const cleanUrl = `${window.location.origin}/voice-popup.html?v=2${_wt ? '&wt=' + encodeURIComponent(_wt) : ''}`;
+      const cleanUrl = `${window.location.origin}/voice-popup.html?v=3${_wt ? '&wt=' + encodeURIComponent(_wt) : ''}`;
       _popupRef = window.open(cleanUrl, 'cwVoiceCall', features);
 
       if (!_popupRef) {
@@ -277,6 +250,10 @@ export default {
       this.isConnecting = false;
       this.setActive(false);
       this.setConnecting(false);
+      if (this._keepAliveInterval) {
+        clearInterval(this._keepAliveInterval);
+        this._keepAliveInterval = null;
+      }
       try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
       this.notifyParentWidgetHide(false);
     },
@@ -290,6 +267,39 @@ export default {
       this.setConnecting(false);
       try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
       this.notifyParentWidgetHide(true);
+      // Start keepAlive: poll every 5s so we detect popup close on ANY page/tab.
+      // Stops automatically when resetCallState() is called.
+      this._startKeepAlive();
+    },
+
+    _startKeepAlive() {
+      if (this._keepAliveInterval) return; // already running
+      console.log('[VOICE-WIDGET] keepAlive started');
+      this._keepAliveInterval = setInterval(async () => {
+        if (!this.isCallActive) {
+          clearInterval(this._keepAliveInterval);
+          this._keepAliveInterval = null;
+          return;
+        }
+        try {
+          const cwConv = this.getCwConversationToken();
+          let url = buildConvUrl('/api/v1/widget/conversations/voice_call_active');
+          if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
+          const { data } = await API.get(url);
+          if (!data?.active) {
+            console.log('[VOICE-WIDGET] keepAlive: backend says inactive — resetting');
+            this.resetCallState();
+          } else if (data.last_heartbeat) {
+            const age = Date.now() - new Date(data.last_heartbeat).getTime();
+            if (age > 8000) {
+              console.log('[VOICE-WIDGET] keepAlive: heartbeat ' + Math.round(age/1000) + 's stale — popup dead, resetting');
+              this.resetCallState();
+            }
+          }
+        } catch (e) {
+          console.warn('[VOICE-WIDGET] keepAlive poll failed:', e?.message);
+        }
+      }, 5000);
     },
 
     // Backend-driven call detection — works across browser storage
