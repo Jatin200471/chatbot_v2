@@ -37,5 +37,15 @@ bundle exec rails db:migrate
 echo "Migrations complete."
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── AUTO-PATCH JS ────────────────────────────────────────────────────────────
+# Re-apply voice call JS patches after every restart.
+# The compiled JS filename may change between image updates — patch_master.rb
+# auto-detects the right file via grep for VOICE-WIDGET/ElevenLabs strings.
+if [ -f /app/patch_master.rb ]; then
+  echo "Applying voice call JS patches..."
+  ruby /app/patch_master.rb && echo "JS patches applied." || echo "JS patch failed (non-fatal)."
+fi
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Execute the main process of the container
 exec "$@"
