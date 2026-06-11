@@ -144,10 +144,13 @@ RUN SDK_FILE="/app/public/packs/js/sdk.js" && \
     echo "=== Stage 2 injection verified OK ==="
 
 # ── Auto-migrate entrypoint ───────────────────────────────────────────────────
-# Replaces the default entrypoint with one that runs db:migrate automatically
-# on every container start — no manual migration steps needed on ECS deploy.
 COPY custom/backend/entrypoints/rails.sh /app/docker/entrypoints/rails.sh
 RUN chmod +x /app/docker/entrypoints/rails.sh
+
+# ── JS patch script — baked into image, run on every container start ──────────
+# patch_master.rb auto-detects the correct Messages-*.js file and applies
+# voice call keepAlive + endCall fixes that cannot be done in Vue source.
+COPY patch_master.rb /app/patch_master.rb
 
 # ── Backend Patches: ElevenLabs Integration ────────────────────────────────
 # These files have custom code for ElevenLabs voice agent
