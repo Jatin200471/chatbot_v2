@@ -387,49 +387,77 @@
     } catch (_) {}
   }, 300);
 
-  // ── POPUP WATCHDOG — simple logic: popup closed → deactivate ─────────────
-  // Every 3s check if the voice popup window is still open.
-  // window.open('', 'cwVoiceCall') returns the existing named window if open,
-  // or a NEW blank window if not. We detect which case it is by checking
-  // the URL — our popup has /voice-popup.html, a new blank has about:blank.
-  // If popup is gone → clear localStorage + tell widget to deactivate.
-  setInterval(function () {
-    if (!window._cwVoiceActive) return; // only check when call seems active
+  // ── POPUP WATCHDOG — instant local check, no network request ────────────────
+  // Logic: popup opened with name 'cwVoiceCall'. Every 500ms check if it's still
+  // open using window.open('', 'cwVoiceCall').
+  //
+  //   - Popup open  → w.location.href throws SecurityError (cross-origin content)
+  //   - Popup closed → w.location.href === 'about:blank' (blank window opened)
+  //
+  // This is INSTANT (no server call) and works across page navigations because
+  // the popup name is global within the browsing context group.
+
+  var _watchdogTimer = null;
+
+  function _isVoicePopupOpen() {
     try {
       var w = window.open('', 'cwVoiceCall');
-      if (!w || w.closed) {
-        // popup is definitively closed
-        _popupGone();
-        return;
+      if (!w || w.closed) return false;
+      try {
+        var href = w.location.href;
+        // 'about:blank' = we just opened a new blank window = popup is gone
+        if (!href || href === 'about:blank') {
+          try { w.close(); } catch (_) {}
+          return false;
+        }
+        // has a URL and same-origin readable = our popup
+        return href.indexOf('voice-popup') !== -1;
+      } catch (secErr) {
+        // SecurityError = window has cross-origin content loaded = popup IS open
+        return true;
       }
-      var href = '';
-      try { href = w.location.href; } catch (_) {}
-      if (href === 'about:blank' || href === '') {
-        // we accidentally opened a blank window — close it, popup is gone
-        try { w.close(); } catch (_) {}
-        _popupGone();
-      }
-      // else: popup is open and has a URL — call is active, do nothing
-    } catch (_) {}
-  }, 3000);
+    } catch (_) {
+      return false;
+    }
+  }
 
-  function _popupGone() {
-    if (!window._cwVoiceActive) return;
-    console.log('[CW-SDK] popup watchdog: popup closed — deactivating');
-    try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
+  function _startWatchdog() {
+    if (_watchdogTimer) return;
+    console.log('[CW-SDK] popup watchdog started');
+    _watchdogTimer = setInterval(function () {
+      if (!window._cwVoiceActive) { _stopWatchdog(); return; }
+      if (!_isVoicePopupOpen()) {
+        console.log('[CW-SDK] popup closed — deactivating immediately');
+        _deactivate();
+      }
+    }, 500);
+  }
+
+  function _stopWatchdog() {
+    if (_watchdogTimer) { clearInterval(_watchdogTimer); _watchdogTimer = null; }
+  }
+
+  function _deactivate() {
+    _stopWatchdog();
     applyVoiceState(false, false);
-    // Tell the widget iframe to reset its button too
+    window.postMessage({ event: 'cw-voice-call-ended' }, '*');
+    // Tell widget iframe to reset its voice button
     var iframe = document.getElementById('chatwoot_live_chat_widget') ||
-                 document.querySelector('iframe[title*="chat"], iframe[src*="widget"]');
+                 document.querySelector('iframe[src*="widget"]');
     if (iframe && iframe.contentWindow) {
       try {
-        iframe.contentWindow.postMessage(
-          { source: 'cw-sdk', event: 'voice-popup-closed' }, '*'
-        );
+        iframe.contentWindow.postMessage({ source: 'cw-sdk', event: 'voice-popup-closed' }, '*');
       } catch (_) {}
     }
-    window.postMessage({ event: 'cw-voice-call-ended' }, '*');
   }
+
+  // Hook into applyVoiceState — start/stop watchdog with call state
+  var _origApply = applyVoiceState;
+  applyVoiceState = function (isActive, autoOpen) {
+    _origApply(isActive, autoOpen);
+    if (isActive) _startWatchdog();
+    else _stopWatchdog();
+  };
 
   // ── Warn user before navigating away during active voice call ────────────
   // Catches programmatic navigations (location.href, form submit, etc.) that
