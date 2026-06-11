@@ -374,8 +374,15 @@
       if (!isCallActive || !cfg) return;
       apiPost('/api/v1/widget/conversations/voice_heartbeat', {})
         .then(r => r.json().catch(() => null))
-        .then(d => console.log('[VOICE-POPUP] 💓 heartbeat →', d))
-        .catch(e => console.warn('[VOICE-POPUP] 💓 heartbeat FAILED:', e?.message));
+        .then(d => {
+          console.log('[VOICE-POPUP] heartbeat ->', d);
+          // Another tab/page clicked "End Call" in the widget — stop this popup too
+          if (d && d.end_requested) {
+            console.log('[VOICE-POPUP] END_REQUESTED from backend — ending call now');
+            handleCallEnded('Remote end requested');
+          }
+        })
+        .catch(e => console.warn('[VOICE-POPUP] heartbeat FAILED:', e?.message));
     }
     function startBackendHeartbeat() {
       if (_backendHeartbeatTimer) return;

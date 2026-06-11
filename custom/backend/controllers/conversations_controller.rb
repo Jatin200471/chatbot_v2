@@ -371,11 +371,12 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       end
     end
 
-    # Inbox-wide cleanup: clear ALL heartbeats in this inbox.
-    # This runs even when there's no session (popup sends call_ended without cookie).
-    # Ensures stale heartbeats from anonymous contacts are always cleared.
+    # Inbox-wide cleanup: clear ALL heartbeats and set voice_ended_at signal.
+    # voice_ended_at lets the popup detect (via heartbeat response) that another
+    # tab/page requested the call to end — popup then terminates itself.
     begin
       inbox = @web_widget&.inbox
+      ended_ts = Time.current.iso8601
       if inbox
         Contact.joins(:contact_inboxes)
                .where('contact_inboxes.inbox_id = ?', inbox.id)
@@ -384,7 +385,14 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
                .each do |c|
           attrs = c.additional_attributes || {}
           attrs.delete('voice_heartbeat_at')
+          attrs['voice_ended_at'] = ended_ts
           c.update_columns(additional_attributes: attrs, updated_at: Time.current)
+        end
+        # Also set on inbox-level contact if no heartbeat contact found
+        if @contact
+          attrs = @contact.additional_attributes || {}
+          attrs['voice_ended_at'] = ended_ts
+          @contact.update_columns(additional_attributes: attrs, updated_at: Time.current)
         end
         Conversation.where(inbox_id: inbox.id)
                     .where("custom_attributes->>'voice_heartbeat_at' IS NOT NULL")
@@ -392,6 +400,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
                     .each do |cv|
           attrs = cv.custom_attributes || {}
           attrs.delete('voice_heartbeat_at')
+          attrs['voice_ended_at'] = ended_ts
           cv.update_columns(custom_attributes: attrs, updated_at: Time.current)
         end
       end
@@ -399,7 +408,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       # non-critical cleanup — ignore errors
     end
 
-    Rails.logger.info "[VOICE-AGENT] voice_call_ended: conv #{conv&.id} contact=#{@contact&.id} heartbeats cleared"
+    Rails.logger.info "[VOICE-AGENT] voice_call_ended: conv #{conv&.id} contact=#{@contact&.id} heartbeats cleared + ended_at set"
 
     head :ok
   rescue StandardError => e
@@ -458,11 +467,35 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   def voice_heartbeat
     ts = Time.current.iso8601
     written = []
+    end_requested = false
+    end_cutoff = Time.current - 30.seconds
+
+    # Check if another tab/page requested end via voice_ended_at signal (30s window)
+    if @contact
+      ended_at_str = @contact.additional_attributes&.dig('voice_ended_at')
+      if ended_at_str.present?
+        ended_ts = (Time.parse(ended_at_str) rescue nil)
+        end_requested = true if ended_ts && ended_ts >= end_cutoff
+      end
+    end
+
+    # If end was requested, clear the ended_at flag and skip writing heartbeat
+    if end_requested
+      if @contact
+        attrs = @contact.additional_attributes || {}
+        attrs.delete('voice_ended_at')
+        @contact.update_columns(additional_attributes: attrs)
+      end
+      Rails.logger.info "[VOICE-HEARTBEAT] contact=#{@contact&.id} END_REQUESTED — signaling popup to stop"
+      render json: { ok: false, end_requested: true }
+      return
+    end
 
     # Save to Contact (has additional_attributes JSONB column)
     if @contact
       attrs = @contact.additional_attributes || {}
       attrs['voice_heartbeat_at'] = ts
+      attrs.delete('voice_ended_at')
       @contact.update_columns(additional_attributes: attrs)
       written << 'contact'
     end
