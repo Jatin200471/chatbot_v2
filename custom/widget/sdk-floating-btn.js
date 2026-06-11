@@ -248,6 +248,9 @@
 
         // Step 6 — NOW update URL (MutationObserver doesn't watch URL changes)
         history.pushState({}, document.title, href);
+
+        // Step 7 — fire popstate so SPA frameworks/routers re-render content
+        try { window.dispatchEvent(new PopStateEvent('popstate', { state: history.state })); } catch (_) {}
       })
       .catch(function () {
         // Fallback: re-attach saved elements then do normal navigation
