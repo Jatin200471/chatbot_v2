@@ -186,15 +186,27 @@ export default {
         if (cwConv) guardUrl += `&cw_conversation=${encodeURIComponent(cwConv)}`;
         const { data } = await API.get(guardUrl);
         if (data?.active) {
-          vLog('Call already active for this visitor — refusing duplicate');
-          this._syncCallActiveFromPopup();
-          // Try to focus the existing popup if we have its reference
+          // Only block if popup is ACTUALLY open (same window) — not just a stale heartbeat.
           if (_popupRef && !_popupRef.closed) {
+            vLog('Popup is open — focusing it');
             try { _popupRef.focus(); } catch (_) {}
-          } else {
-            alert('You already have a voice call open in another tab. Please end it there before starting a new one.');
+            return;
           }
-          return;
+          // No popup here — could be another tab OR stale heartbeat.
+          // Check localStorage heartbeat as cross-tab signal (more reliable than backend only).
+          const lastHb = parseInt(localStorage.getItem('cw_voice_popup_heartbeat') || '0', 10);
+          const isRecentHb = lastHb && Date.now() - lastHb < 5000;
+          if (isRecentHb) {
+            vLog('Recent localStorage heartbeat — call active in another tab');
+            this._syncCallActiveFromPopup();
+            alert('You already have a voice call open in another tab. Please end it there before starting a new one.');
+            return;
+          }
+          // Backend says active but no popup here and no fresh localStorage heartbeat → stale data, proceed.
+          vLog('Backend active but no local popup/heartbeat — likely stale, proceeding with new call');
+          // Reset UI state so button shows correctly after we start
+          this.isCallActive = false;
+          this.setActive(false);
         }
       } catch (_) { /* network blip — proceed with call */ }
 
@@ -307,9 +319,16 @@ export default {
         });
 
         if (data?.active && !this.isCallActive) {
-          // Backend says active, widget shows idle → sync to active
-          console.log('[VOICE-WIDGET] ✅ syncing UI to ACTIVE (backend says call running)');
-          this._syncCallActiveFromPopup();
+          // Backend says active — only sync if localStorage heartbeat is also fresh
+          // (confirms popup is actually running, not just a stale DB record).
+          const lastHb = parseInt(localStorage.getItem('cw_voice_popup_heartbeat') || '0', 10);
+          const isRecentHb = lastHb && Date.now() - lastHb < 5000;
+          if (isRecentHb || popupHere) {
+            console.log('[VOICE-WIDGET] ✅ syncing UI to ACTIVE (backend + localStorage heartbeat confirm)');
+            this._syncCallActiveFromPopup();
+          } else {
+            console.log('[VOICE-WIDGET] ⚠️ backend says active but no fresh localStorage heartbeat — treating as stale, ignoring');
+          }
         } else if (!data?.active && this.isCallActive && !popupHere) {
           // Backend says inactive AND we don't own the popup → call
           // ended elsewhere (other tab) → reset our UI to idle

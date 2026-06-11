@@ -344,19 +344,62 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   # POST /api/v1/widget/conversations/voice_call_ended
   def voice_call_ended
     conv = conversation
-    return head :ok if conv.nil?
 
-    # Find the last NON-voice-transcript message's created_at.
-    # If no such message exists (pure voice conversation), fall back to
-    # the conversation's created_at so auto-resolve still applies.
-    last_text_msg = conv.messages
-                        .where("content_attributes->>'voice_transcript' IS NULL OR content_attributes->>'voice_transcript' != 'true'")
-                        .order(created_at: :asc)
-                        .last
-    activity_anchor = last_text_msg&.created_at || conv.created_at
+    unless conv.nil?
+      # Reset last_activity_at to last non-voice message (for auto-resolve logic)
+      last_text_msg = conv.messages
+                          .where("content_attributes->>'voice_transcript' IS NULL OR content_attributes->>'voice_transcript' != 'true'")
+                          .order(created_at: :asc)
+                          .last
+      activity_anchor = last_text_msg&.created_at || conv.created_at
+      conv.update_columns(last_activity_at: activity_anchor)
 
-    conv.update_columns(last_activity_at: activity_anchor)
-    Rails.logger.info "[VOICE-AGENT] voice_call_ended: conv #{conv.id} last_activity_at reset to #{activity_anchor}"
+      # Clear heartbeat on this conversation
+      conv_attrs = conv.custom_attributes || {}
+      if conv_attrs.key?('voice_heartbeat_at')
+        conv_attrs.delete('voice_heartbeat_at')
+        conv.update_columns(custom_attributes: conv_attrs, updated_at: Time.current)
+      end
+    end
+
+    # Clear heartbeat on session contact
+    if @contact
+      contact_attrs = @contact.additional_attributes || {}
+      if contact_attrs.key?('voice_heartbeat_at')
+        contact_attrs.delete('voice_heartbeat_at')
+        @contact.update_columns(additional_attributes: contact_attrs, updated_at: Time.current)
+      end
+    end
+
+    # Inbox-wide cleanup: clear ALL heartbeats in this inbox.
+    # This runs even when there's no session (popup sends call_ended without cookie).
+    # Ensures stale heartbeats from anonymous contacts are always cleared.
+    begin
+      inbox = @web_widget&.inbox
+      if inbox
+        Contact.joins(:contact_inboxes)
+               .where('contact_inboxes.inbox_id = ?', inbox.id)
+               .where("additional_attributes->>'voice_heartbeat_at' IS NOT NULL")
+               .limit(10)
+               .each do |c|
+          attrs = c.additional_attributes || {}
+          attrs.delete('voice_heartbeat_at')
+          c.update_columns(additional_attributes: attrs, updated_at: Time.current)
+        end
+        Conversation.where(inbox_id: inbox.id)
+                    .where("custom_attributes->>'voice_heartbeat_at' IS NOT NULL")
+                    .limit(10)
+                    .each do |cv|
+          attrs = cv.custom_attributes || {}
+          attrs.delete('voice_heartbeat_at')
+          cv.update_columns(custom_attributes: attrs, updated_at: Time.current)
+        end
+      end
+    rescue StandardError => _e
+      # non-critical cleanup — ignore errors
+    end
+
+    Rails.logger.info "[VOICE-AGENT] voice_call_ended: conv #{conv&.id} contact=#{@contact&.id} heartbeats cleared"
 
     head :ok
   rescue StandardError => e
@@ -483,14 +526,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
         end
       end
 
-      # A3: contact_inbox attributes
-      if !active && @contact_inbox
-        hb = @contact_inbox.additional_attributes&.dig('voice_heartbeat_at')
-        ts = (Time.parse(hb) rescue nil) if hb.present?
-        if ts && ts >= cutoff
-          active = true; source = 'contact_inbox'; heartbeat = hb
-        end
-      end
+      # NOTE: ContactInbox does NOT have additional_attributes — A3 block removed
     end
 
     # ── Path B: no session (hard-refresh / cookie stripped) ──────────────
@@ -500,7 +536,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       inbox = @web_widget.inbox
 
       # B1: scan recent conversations for this inbox
-      inbox.conversations.where('updated_at > ?', Time.current - 30.seconds).find_each do |conv|
+      Conversation.where(inbox_id: inbox.id).order(id: :desc).limit(30).each do |conv|
         hb = conv.custom_attributes&.dig('voice_heartbeat_at')
         next if hb.blank?
         ts = (Time.parse(hb) rescue nil)
@@ -511,7 +547,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
 
       # B2: scan contacts with recent updates
       if !active
-        inbox.contacts.where('updated_at > ?', Time.current - 30.seconds).find_each do |c|
+        Contact.joins(:contact_inboxes).where('contact_inboxes.inbox_id = ?', inbox.id).order('contacts.id desc').limit(30).each do |c|
           hb = c.additional_attributes&.dig('voice_heartbeat_at')
           next if hb.blank?
           ts = (Time.parse(hb) rescue nil)
