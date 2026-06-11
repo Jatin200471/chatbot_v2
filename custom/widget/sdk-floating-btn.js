@@ -231,21 +231,23 @@
       .then(function (html) {
         var newDoc = new DOMParser().parseFromString(html, 'text/html');
 
-        // Step 3 — update URL + title
+        // Step 3 — swap page-specific styles (title only, NOT pushState yet)
         document.title = newDoc.title;
-        history.pushState({}, document.title, href);
-
-        // Step 4 — swap page-specific styles
         var oldStyle = document.querySelector('head style');
         var newStyle = newDoc.querySelector('head style');
         if (oldStyle && newStyle)      { oldStyle.textContent = newStyle.textContent; }
         else if (newStyle)             { document.head.appendChild(newStyle.cloneNode(true)); }
 
-        // Step 5 — replace body content
+        // Step 4 — replace body content (Chatwoot MutationObserver fires here;
+        // URL has NOT changed yet so it won't call sendMessage on a null iframe)
         document.body.innerHTML = newDoc.body.innerHTML;
 
-        // Step 6 — re-attach Chatwoot elements (iframe WebRTC = INTACT)
+        // Step 5 — re-attach Chatwoot elements BEFORE pushState
+        // (iframe is back in DOM before anything reads document.location.href)
         saved.forEach(function (el) { document.body.appendChild(el); });
+
+        // Step 6 — NOW update URL (MutationObserver doesn't watch URL changes)
+        history.pushState({}, document.title, href);
       })
       .catch(function () {
         // Fallback: re-attach saved elements then do normal navigation
