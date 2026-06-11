@@ -329,104 +329,62 @@
     });
   }
 
-  window.addEventListener('message', function (e) {
-    var data = e.data;
-
-    // Voice popup events (from widget iframe forwarding popup state).
-    // The Chatwoot widget stays visible during the call so the visitor
-    // can watch the live transcript flow into the chat panel.
-    // We still flip 'voice-active' state so the SPA-nav interceptor
-    // intercepts link clicks during the call.
-    if (data && typeof data === 'object') {
-      if (data.event === 'cw-voice-call-started' || data.event === 'cw-voice-popup-opened') {
-        applyVoiceState(true, false);
-        return;
-      }
-      if (data.event === 'cw-voice-call-ended' || data.event === 'cw-voice-popup-closed' || data.event === 'cw-voice-popup-ended') {
-        // Restore any hidden elements left over from older builds
-        _showChatwootWidget();
-        applyVoiceState(false, false);
-        return;
-      }
-    }
-
-    // Plain object format (direct window.parent / window.top postMessage)
-    if (data && typeof data === 'object' && data.event === 'voice-call-active') {
-      applyVoiceState(data.isActive, data.autoOpen);
-      return;
-    }
-
-    // ── Prefixed string format "chatwoot-widget:{...}" (IFrameHelper)
-    if (typeof data === 'string' && data.indexOf('chatwoot-widget:') === 0) {
-      try {
-        var parsed = JSON.parse(data.slice('chatwoot-widget:'.length));
-        if (parsed && parsed.event === 'voice-call-active') {
-          applyVoiceState(parsed.isActive, parsed.autoOpen);
-        }
-      } catch (_) {}
-    }
-  });
-
-  // ── FALLBACK: localStorage polling ───────────────────────────────────────
-  (function checkVoiceNow() {
-    try {
-      var lsActive = localStorage.getItem('cw_voice_active') === '1';
-      if (lsActive) applyVoiceState(true, false);
-    } catch (_) {}
-  })();
-
-  setInterval(function () {
-    try {
-      var lsActive = localStorage.getItem('cw_voice_active') === '1';
-      if (lsActive !== window._cwVoiceActive) {
-        applyVoiceState(lsActive, false);
-      }
-    } catch (_) {}
-  }, 300);
-
-  // ── CALL WATCHDOG — poll backend every 2s when call is active ───────────────
-  // Runs on the PARENT PAGE (not inside iframe), works on ANY embedding website.
-  // When popup closes → sends beacon to backend → heartbeat cleared → we detect
-  // active:false here → immediately tell widget iframe to deactivate.
-  // 2s poll = fast enough to feel instant, runs ONLY during active call.
+  // ── CALL WATCHDOG ─────────────────────────────────────────────────────────
+  // When call active: poll backend every 2s.
+  // Popup close → sendBeacon clears heartbeat → we detect → widget deactivates.
+  // Token extracted from widget iframe src URL (always reliable, no chatwootSettings needed).
+  //
+  // NOTE: localStorage polling is intentionally NOT used here.
+  // Widget iframe (chatwoot origin) and parent page (customer origin) have
+  // PARTITIONED localStorage — they cannot share data. A poller on the parent
+  // page would always see cw_voice_active=null and reset state every 300ms.
 
   var _watchdogTimer = null;
+  var _watchdogBase  = '';
+  var _watchdogToken = '';
 
-  function _getSdkBaseUrl() {
-    if (window.chatwootSettings && window.chatwootSettings.baseUrl)
-      return window.chatwootSettings.baseUrl.replace(/\/$/, '');
+  function _getIframeEndpoint() {
+    if (_watchdogBase && _watchdogToken) return true;
     try {
-      var s = document.querySelector('script[src*="sdk.js"]');
-      if (s) return new URL(s.src).origin;
-    } catch (_) {}
-    return '';
-  }
-
-  function _getSdkToken() {
-    var s = window.chatwootSettings || {};
-    return s.websiteToken || s.website_token || '';
+      var iframe = document.getElementById('chatwoot_live_chat_widget') ||
+                   document.querySelector('iframe[src*="widget"]');
+      if (!iframe || !iframe.src) return false;
+      var u = new URL(iframe.src);
+      _watchdogBase  = u.origin;
+      _watchdogToken = u.searchParams.get('website_token') || '';
+      if (!_watchdogToken) {
+        var cs = window.chatwootSettings || {};
+        _watchdogToken = cs.websiteToken || cs.website_token || '';
+      }
+      return !!(_watchdogBase && _watchdogToken);
+    } catch (_) { return false; }
   }
 
   function _startWatchdog() {
     if (_watchdogTimer) return;
-    var base = _getSdkBaseUrl(), wt = _getSdkToken();
-    if (!base || !wt) return;
-    console.log('[CW-SDK] watchdog started');
+    if (!_getIframeEndpoint()) {
+      setTimeout(function () { if (window._cwVoiceActive) _startWatchdog(); }, 1000);
+      return;
+    }
+    console.log('[CW-SDK] watchdog started — base=' + _watchdogBase);
     _watchdogTimer = setInterval(function () {
       if (!window._cwVoiceActive) { _stopWatchdog(); return; }
-      fetch(base + '/api/v1/widget/conversations/voice_call_active?website_token=' + encodeURIComponent(wt), {
+      fetch(_watchdogBase + '/api/v1/widget/conversations/voice_call_active?website_token=' + encodeURIComponent(_watchdogToken), {
         credentials: 'include'
-      }).then(function (r) { return r.json(); }).then(function (d) {
-        if (!window._cwVoiceActive) return;
-        var gone = !d || !d.active;
-        if (!gone && d.last_heartbeat) {
-          gone = (Date.now() - new Date(d.last_heartbeat).getTime()) > 8000;
-        }
-        if (gone) {
-          console.log('[CW-SDK] watchdog: call ended — deactivating');
-          _deactivate();
-        }
-      }).catch(function () {});
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!window._cwVoiceActive) return;
+          var gone = !d || !d.active;
+          if (!gone && d.last_heartbeat) {
+            gone = (Date.now() - new Date(d.last_heartbeat).getTime()) > 8000;
+          }
+          if (gone) {
+            console.log('[CW-SDK] watchdog: popup gone — deactivating');
+            _cwDeactivate();
+          }
+        })
+        .catch(function () {});
     }, 2000);
   }
 
@@ -434,24 +392,37 @@
     if (_watchdogTimer) { clearInterval(_watchdogTimer); _watchdogTimer = null; }
   }
 
-  function _deactivate() {
+  function _cwDeactivate() {
+    if (!window._cwVoiceActive) return; // already deactivated — prevent loops
     _stopWatchdog();
+    window._cwVoiceActive = false;
     applyVoiceState(false, false);
-    // Tell widget iframe to reset voice button
+    _showChatwootWidget();
+    // Tell widget iframe to reset its voice button UI immediately
+    // source MUST be 'cw-voice-popup' — widget's onWindowMessage filters on this exact value
     var iframe = document.getElementById('chatwoot_live_chat_widget') ||
                  document.querySelector('iframe[src*="widget"]');
     if (iframe && iframe.contentWindow) {
-      try { iframe.contentWindow.postMessage({ source: 'cw-sdk', event: 'voice-popup-closed' }, '*'); } catch (_) {}
+      try { iframe.contentWindow.postMessage({ source: 'cw-voice-popup', event: 'voice-popup-closed' }, '*'); } catch (_) {}
     }
-    window.postMessage({ event: 'cw-voice-call-ended' }, '*');
   }
 
-  // Start/stop watchdog with call state
-  var _origApply = applyVoiceState;
-  applyVoiceState = function (isActive, autoOpen) {
-    _origApply(isActive, autoOpen);
-    if (isActive) _startWatchdog(); else _stopWatchdog();
-  };
+  // Unified message listener — starts/stops watchdog + handles deactivation
+  window.addEventListener('message', function (e) {
+    var data = e.data;
+    if (!data || typeof data !== 'object') return;
+    var ev = data.event;
+    if (ev === 'cw-voice-call-started' || ev === 'cw-voice-popup-opened') {
+      window._cwVoiceActive = true;
+      applyVoiceState(true, false);
+      _startWatchdog();
+    } else if (ev === 'cw-voice-call-ended' || ev === 'voice-popup-ended' || ev === 'cw-voice-popup-ended') {
+      // Widget iframe or popup itself signalled end — deactivate
+      // Note: popup sends 'voice-popup-ended', widget iframe sends 'cw-voice-call-ended'
+      _cwDeactivate();
+    }
+    // 'voice-popup-closed' NOT listed here — that's what we send TO the iframe.
+  });
 
   // ── Warn user before navigating away during active voice call ────────────
   // Catches programmatic navigations (location.href, form submit, etc.) that
