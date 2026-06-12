@@ -227,13 +227,22 @@
     });
   })();
 
-  // Widget element IDs that must never be wrapped or swapped out.
-  // Chatwoot uses 'cw-widget-holder' (sdk.js: v.id="cw-widget-holder").
-  // 'woot-widget-holder' kept for older builds.
-  var _widgetIds = { 'cw-widget-holder': 1, 'woot-widget-holder': 1,
-                     'chatwoot_live_chat_widget': 1,
-                     'cw-voice-end-btn': 1, 'cw-voice-style': 1,
-                     'cw-voice-hide-style': 1 };
+  // All Chatwoot-owned body elements — never wrap or swap these out.
+  // From sdk.js source:
+  //   v.id = "cw-widget-holder"   (iframe holder)
+  //   C.id = "cw-bubble-holder"   (floating bubble button)
+  //   e.id = "cw-widget-styles"   (injected <style> tag)
+  //   iframe id = "chatwoot_live_chat_widget"
+  var _widgetIds = {
+    'cw-widget-holder':         1,   // main widget container
+    'cw-bubble-holder':         1,   // floating bubble button
+    'cw-widget-styles':         1,   // Chatwoot injected styles
+    'woot-widget-holder':       1,   // older Chatwoot builds
+    'chatwoot_live_chat_widget':1,   // the iframe itself
+    'cw-voice-end-btn':         1,   // our End Call button
+    'cw-voice-style':           1,   // our pulse animation style
+    'cw-voice-hide-style':      1,   // our hide-widget style
+  };
 
   // Wrap all non-widget body children in a #spa-content div so SPA swaps
   // only replace that div — the Chatwoot widget iframe stays in <body> at
