@@ -227,9 +227,13 @@
     });
   })();
 
-  // Widget element IDs that must never be wrapped or swapped out
-  var _widgetIds = { 'woot-widget-holder': 1, 'cw-voice-end-btn': 1,
-                     'cw-voice-style': 1, 'cw-voice-hide-style': 1 };
+  // Widget element IDs that must never be wrapped or swapped out.
+  // Chatwoot uses 'cw-widget-holder' (sdk.js: v.id="cw-widget-holder").
+  // 'woot-widget-holder' kept for older builds.
+  var _widgetIds = { 'cw-widget-holder': 1, 'woot-widget-holder': 1,
+                     'chatwoot_live_chat_widget': 1,
+                     'cw-voice-end-btn': 1, 'cw-voice-style': 1,
+                     'cw-voice-hide-style': 1 };
 
   // Wrap all non-widget body children in a #spa-content div so SPA swaps
   // only replace that div — the Chatwoot widget iframe stays in <body> at
@@ -243,7 +247,10 @@
 
     var toMove = [];
     Array.from(document.body.children).forEach(function (c) {
-      if (!_widgetIds[c.id]) toMove.push(c);
+      var skip = _widgetIds[c.id] ||
+                 c.classList.contains('woot-widget-holder') ||
+                 c.classList.contains('woot--bubble-holder');
+      if (!skip) toMove.push(c);
     });
     toMove.forEach(function (c) { container.appendChild(c); });
     // Insert before any widget elements that are already in body
