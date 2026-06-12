@@ -110,14 +110,16 @@ export default {
     }, 600);
 
     // Event-driven cross-page propagation — NO polling.
-    // On mount: check backend twice (immediate + 3s retry).
-    // If call is active, _syncCallActiveFromPopup() starts the keepAlive interval
-    // which polls every 5s indefinitely — no need for aggressive startup polling.
+    // On mount: check backend immediately + two retries (3s, 6s).
+    // If call is active, _syncCallActiveFromPopup() starts keepAlive.
     this._checkAttempt = 0;
     this._checkBackendCallStatus();
     this._mountRetry2 = setTimeout(() => {
       if (!this.isCallActive) this._checkBackendCallStatus();
     }, 3000);
+    this._mountRetry3 = setTimeout(() => {
+      if (!this.isCallActive) this._checkBackendCallStatus();
+    }, 6000);
 
     document.addEventListener('visibilitychange', this._onVisibilityChange);
     window.addEventListener('storage', this._onStorageEvent);
@@ -130,6 +132,7 @@ export default {
     if (ch) ch.removeEventListener('message', this.onBroadcastMessage);
     if (this._popupSyncTimer) clearTimeout(this._popupSyncTimer);
     if (this._mountRetry2) clearTimeout(this._mountRetry2);
+    if (this._mountRetry3) clearTimeout(this._mountRetry3);
     if (this._keepAliveInterval) { clearInterval(this._keepAliveInterval); this._keepAliveInterval = null; }
     document.removeEventListener('visibilitychange', this._onVisibilityChange);
     window.removeEventListener('storage', this._onStorageEvent);
@@ -274,6 +277,23 @@ export default {
 
     _syncCallActiveFromPopup() {
       if (this.isCallActive) return;
+
+      // Reclaim popup window reference (only when we KNOW a call is active).
+      // window.open('', name) returns the existing named window without navigating it.
+      // Called here — not in mounted() — so we never open a blank popup accidentally.
+      if (!_popupRef) {
+        try {
+          const existing = window.open('', 'cwVoiceCall');
+          if (existing && !existing.closed) {
+            const href = existing.location?.href || '';
+            if (href && !href.startsWith('about:')) {
+              _popupRef = existing;
+              vLog('Reclaimed popup ref ✓');
+            }
+          }
+        } catch (_) {}
+      }
+
       vLog('Detected alive popup via heartbeat — syncing UI to active');
       this.isCallActive = true;
       this.isConnecting = false;
@@ -354,9 +374,11 @@ export default {
           const hbAge = data.last_heartbeat
             ? Date.now() - new Date(data.last_heartbeat).getTime()
             : Infinity;
-          const isRecentHb = hbAge < 10000; // 10s window (popup beats every 3s)
+          // 20s matches backend cutoff — backend already validated freshness,
+          // so we trust its response. popupHere is a bonus fast-path.
+          const isRecentHb = hbAge < 20000;
           if (isRecentHb || popupHere) {
-            console.log('[VOICE-WIDGET] ✅ syncing UI to ACTIVE (backend heartbeat age=' + Math.round(hbAge/1000) + 's)');
+            console.log('[VOICE-WIDGET] ✅ syncing UI to ACTIVE (backend heartbeat age=' + Math.round(hbAge/1000) + 's, popupHere=' + popupHere + ')');
             this._syncCallActiveFromPopup();
           } else {
             console.log('[VOICE-WIDGET] ⚠️ backend active but heartbeat is ' + Math.round(hbAge/1000) + 's old — treating as stale, ignoring');

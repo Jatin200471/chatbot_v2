@@ -219,50 +219,114 @@
   //   #cw-voice-end-btn    — floating End Call button
   //   #cw-voice-style      — CSS keyframes for the button
 
+  // Scripts that were already loaded — don't reload them on page swap
+  var _loadedScripts = {};
+  (function () {
+    document.querySelectorAll('script[src]').forEach(function (s) {
+      _loadedScripts[s.src] = true;
+    });
+  })();
+
   function spaNavigate(href) {
-    // Step 1 — detach Chatwoot elements from DOM (kept alive in JS memory)
+    // Prevent concurrent navigations
+    if (window._spaNavigating) return;
+    window._spaNavigating = true;
+
+    // Step 1 — move Chatwoot elements OUT of <body> into <html> root.
+    // Moving (not removing) keeps iframe.contentWindow accessible so sdk.js
+    // doesn't crash while the body swap happens.
     var saved = [];
     document.querySelectorAll('#woot-widget-holder, #cw-voice-end-btn, #cw-voice-style')
-      .forEach(function (el) { saved.push(el); el.remove(); });
+      .forEach(function (el) {
+        saved.push(el);
+        document.documentElement.appendChild(el);
+      });
+
+    function restore(fallbackHref) {
+      saved.forEach(function (el) { document.body.appendChild(el); });
+      window._spaNavigating = false;
+      if (fallbackHref) location.href = fallbackHref;
+    }
 
     // Step 2 — fetch new page HTML
     fetch(href, { credentials: 'same-origin' })
-      .then(function (r) { return r.text(); })
+      .then(function (r) {
+        // If server returns redirect or non-HTML (e.g. a file download), fall back
+        var ct = r.headers.get('content-type') || '';
+        if (!ct.includes('text/html')) { restore(href); return null; }
+        return r.text();
+      })
       .then(function (html) {
+        if (!html) return;
         var newDoc = new DOMParser().parseFromString(html, 'text/html');
 
-        // Step 3 — swap page-specific styles (title only, NOT pushState yet)
+        // Step 3 — update title
         document.title = newDoc.title;
-        var oldStyle = document.querySelector('head style');
-        var newStyle = newDoc.querySelector('head style');
-        if (oldStyle && newStyle)      { oldStyle.textContent = newStyle.textContent; }
-        else if (newStyle)             { document.head.appendChild(newStyle.cloneNode(true)); }
 
-        // Step 4 — replace body content (Chatwoot MutationObserver fires here;
-        // URL has NOT changed yet so it won't call sendMessage on a null iframe)
+        // Step 4 — swap <link rel="stylesheet"> and <style> in <head>
+        // Remove old page-specific stylesheets, add new ones
+        var oldLinks = Array.from(document.querySelectorAll('head link[rel="stylesheet"][data-spa]'));
+        oldLinks.forEach(function (l) { l.remove(); });
+        newDoc.querySelectorAll('link[rel="stylesheet"]').forEach(function (l) {
+          if (!document.querySelector('link[href="' + l.href + '"]')) {
+            var clone = l.cloneNode(true);
+            clone.setAttribute('data-spa', '1');
+            document.head.appendChild(clone);
+          }
+        });
+        var oldStyle = document.querySelector('head style[data-spa]');
+        if (oldStyle) oldStyle.remove();
+        var newStyle = newDoc.querySelector('head style');
+        if (newStyle) {
+          var s = newStyle.cloneNode(true);
+          s.setAttribute('data-spa', '1');
+          document.head.appendChild(s);
+        }
+
+        // Step 5 — replace body content
         document.body.innerHTML = newDoc.body.innerHTML;
 
-        // Step 5 — re-attach Chatwoot elements BEFORE pushState
-        // (iframe is back in DOM before anything reads document.location.href)
+        // Step 6 — re-execute page-specific inline scripts and NEW external scripts.
+        // This re-runs things like sliders, accordions, analytics pageviews etc.
+        newDoc.body.querySelectorAll('script').forEach(function (oldScript) {
+          var newScript = document.createElement('script');
+          if (oldScript.src) {
+            if (_loadedScripts[oldScript.src]) return; // skip already-loaded
+            newScript.src  = oldScript.src;
+            newScript.async = oldScript.async;
+            newScript.defer = oldScript.defer;
+            _loadedScripts[oldScript.src] = true;
+          } else {
+            newScript.textContent = oldScript.textContent;
+          }
+          document.body.appendChild(newScript);
+        });
+
+        // Step 7 — move Chatwoot elements back into body
         saved.forEach(function (el) { document.body.appendChild(el); });
 
-        // Step 6 — NOW update URL (MutationObserver doesn't watch URL changes)
+        // Step 8 — update URL
         history.pushState({}, document.title, href);
 
-        // Step 7 — fire popstate so SPA frameworks/routers re-render content
+        // Step 9 — scroll to top (like a normal page load)
+        window.scrollTo(0, 0);
+
+        // Step 10 — fire popstate so any SPA routers on the page re-render
         try { window.dispatchEvent(new PopStateEvent('popstate', { state: history.state })); } catch (_) {}
+
+        window._spaNavigating = false;
       })
-      .catch(function () {
-        // Fallback: re-attach saved elements then do normal navigation
-        saved.forEach(function (el) { document.body.appendChild(el); });
-        location.href = href;
-      });
+      .catch(function () { restore(href); });
   }
 
-  // Intercept <a> clicks — ONLY when a voice call is active
+  // ── Always-on SPA navigation ──────────────────────────────────────────────
+  // Intercept ALL same-origin link clicks so the page never fully reloads.
+  // This keeps the Chatwoot widget iframe alive across every page change —
+  // chat sessions persist, voice WebRTC survives, no popup needed.
+  //
+  // Skip: anchor links (#), mailto/tel/js links, external domains,
+  //       links with target="_blank", download links, and form actions.
   document.addEventListener('click', function (e) {
-    if (!window._cwVoiceActive) return;
-
     var a = e.target.closest('a[href]');
     if (!a || a.target || a.download) return;
 
@@ -272,15 +336,18 @@
 
     try {
       var url = new URL(a.href, location.href);
-      if (url.origin !== location.origin) return; // external links → normal
+      if (url.origin !== location.origin) return; // external links → normal full nav
+      // Same page, different hash only → let browser handle scroll
+      if (url.pathname === location.pathname && url.search === location.search &&
+          url.hash !== location.hash) return;
       e.preventDefault();
       spaNavigate(url.href);
     } catch (_) {}
   });
 
-  // Handle browser Back / Forward during an active voice call
+  // Handle browser Back / Forward buttons
   window.addEventListener('popstate', function () {
-    if (window._cwVoiceActive) spaNavigate(location.href);
+    spaNavigate(location.href);
   });
 
 
