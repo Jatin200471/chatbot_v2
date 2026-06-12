@@ -303,6 +303,7 @@
     let _heartbeatTimer = null;
     let _backendHeartbeatTimer = null;
     let _configReceived = false;
+    let _callConnectedAt = null; // timestamp when call connected
 
     let _channel = null;
     try { _channel = new BroadcastChannel('cw-voice'); } catch (_) {}
@@ -378,8 +379,14 @@
           console.log('[VOICE-POPUP] heartbeat ->', d);
           // Another tab/page clicked "End Call" in the widget — stop this popup too
           if (d && d.end_requested) {
-            console.log('[VOICE-POPUP] END_REQUESTED from backend — ending call now');
-            handleCallEnded('Remote end requested');
+            // Ignore stale end_requested from previous call — give 8s grace after connect
+            const callAge = _callConnectedAt ? Date.now() - _callConnectedAt : Infinity;
+            if (callAge < 8000) {
+              console.log('[VOICE-POPUP] ignoring stale end_requested (call age ' + Math.round(callAge/1000) + 's)');
+            } else {
+              console.log('[VOICE-POPUP] END_REQUESTED from backend — ending call now');
+              handleCallEnded('Remote end requested');
+            }
           }
         })
         .catch(e => console.warn('[VOICE-POPUP] heartbeat FAILED:', e?.message));
@@ -458,6 +465,7 @@
 
           onConnect: () => {
             isCallActive = true;
+            _callConnectedAt = Date.now();
             setStatus('connected', 'Connected');
             $endCallBtn.disabled = false;
             writeHeartbeat();
