@@ -297,7 +297,11 @@
             newScript.defer = oldScript.defer;
             _loadedScripts[oldScript.src] = true;
           } else {
-            newScript.textContent = oldScript.textContent;
+            // Skip Chatwoot embed snippets — sdk.js is already loaded and
+            // re-running the embed snippet causes widget re-initialization
+            var txt = oldScript.textContent || '';
+            if (txt.includes('chatwootSDK') || txt.includes('/packs/js/sdk.js') || txt.includes('chatwoot:ready')) return;
+            newScript.textContent = txt;
           }
           document.body.appendChild(newScript);
         });
