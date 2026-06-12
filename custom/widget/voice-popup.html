@@ -453,14 +453,13 @@
         conversation = await Conversation.startSession({
           signedUrl: cfg.signedUrl,
 
-          // Send Chatwoot context to ElevenLabs agent as dynamic variables.
-          // In your ElevenLabs agent prompt you can reference {{conversation_id}},
-          // {{customer_name}}, {{website}} etc.
+          // Chatwoot context → ElevenLabs agent as dynamic variables.
+          // Use in agent prompt: {{chatwoot_conversation_id}}, {{chatwoot_conversation_url}} etc.
           dynamicVariables: {
-            conversation_id:  cfg.cwConversation  || '',
-            customer_name:    cfg.agentName       || 'Customer',
-            website:          cfg.brand            || '',
-            widget_color:     cfg.color            || '',
+            chatwoot_conversation_id:  cfg.cwConversationId  || '',
+            chatwoot_conversation_url: cfg.cwConversationUrl || '',
+            customer_name:             cfg.agentName         || 'Customer',
+            website:                   cfg.brand             || '',
           },
 
           onConnect: () => {

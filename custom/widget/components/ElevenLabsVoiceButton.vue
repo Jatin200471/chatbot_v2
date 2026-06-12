@@ -483,21 +483,26 @@ export default {
       if (!signedUrl) throw new Error('Backend returned no signed_url');
 
       const ch = window.chatwootWebChannel || {};
+      // Numeric conversation ID (e.g. 202) — returned by backend
+      const convId   = data?.conversation_id   || '';
+      const acctId   = data?.account_id        || '';
+      const convUrl  = convId && acctId
+        ? `${window.location.origin}/app/accounts/${acctId}/conversations/${convId}`
+        : '';
+
       const config = {
         signedUrl,
-        baseUrl:        window.location.origin,
-        websiteToken:   WEBSITE_TOKEN || '',
-        color:          this.widgetColor || ch.widgetColor || this.color || '#1f93ff',
-        // Avatar: prefer the agent's own avatar (returned by backend),
-        // fall back to the inbox avatar.
-        avatar:         data?.avatar_url || ch.avatarUrl || '',
-        // Center label — first ASSIGNED AGENT NAME (not inbox name)
-        agentName:      data?.agent_name || ch.websiteName || 'AI Assistant',
-        agentRole:      'Voice Assistant',
-        // Footer brand — account name (e.g. "Visual Graphx"), not inbox name
-        brand:          data?.brand_name || ch.websiteName || 'Voice Assistant',
-        authToken:      window.authToken || '',
-        cwConversation: this.getCwConversationToken() || '',
+        baseUrl:            window.location.origin,
+        websiteToken:       WEBSITE_TOKEN || '',
+        color:              this.widgetColor || ch.widgetColor || this.color || '#1f93ff',
+        avatar:             data?.avatar_url || ch.avatarUrl || '',
+        agentName:          data?.agent_name || ch.websiteName || 'AI Assistant',
+        agentRole:          'Voice Assistant',
+        brand:              data?.brand_name || ch.websiteName || 'Voice Assistant',
+        authToken:          window.authToken || '',
+        cwConversation:     this.getCwConversationToken() || '',
+        cwConversationId:   String(convId),
+        cwConversationUrl:  convUrl,
       };
       _pendingConfig = config;
       return config;
