@@ -353,18 +353,19 @@ export default {
         const { data } = await API.get(url);
         const popupHere = _popupRef && !_popupRef.closed;
 
-        // Always log so the user can debug the chain end-to-end.
-        // Compare contact_id with the popup's heartbeat log — if they
-        // differ, the visitor identity is splitting across tabs.
-        console.log('[VOICE-WIDGET] 🔍 status check →', {
-          active: data?.active,
-          source: data?.source,
-          contact_id: data?.contact_id,
-          contact_inbox_id: data?.contact_inbox_id,
-          last_heartbeat: data?.last_heartbeat,
-          uiActive: this.isCallActive,
-          popupHere,
-        });
+        // Only log when something interesting is happening (active call or state mismatch).
+        // Suppress idle checks to keep console clean.
+        if (data?.active || this.isCallActive) {
+          console.log('[VOICE-WIDGET] 🔍 status check →', {
+            active: data?.active,
+            source: data?.source,
+            contact_id: data?.contact_id,
+            contact_inbox_id: data?.contact_inbox_id,
+            last_heartbeat: data?.last_heartbeat,
+            uiActive: this.isCallActive,
+            popupHere,
+          });
+        }
 
         if (data?.active && !this.isCallActive) {
           // Use backend last_heartbeat timestamp to confirm freshness.
