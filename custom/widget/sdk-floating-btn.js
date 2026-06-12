@@ -228,9 +228,15 @@
   })();
 
   function spaNavigate(href) {
+    // If a voice call is active, skip DOM-swap navigation.
+    // This avoids iframe detach/reattach races that break the SDK audio pipeline
+    // (e.g. "Cannot read properties of null (reading 'contentWindow')").
+    if (window._cwVoiceActive) return;
+
     // Prevent concurrent navigations
     if (window._spaNavigating) return;
     window._spaNavigating = true;
+
 
     // Step 1 — move Chatwoot elements OUT of <body> into <html> root.
     // Moving (not removing) keeps iframe.contentWindow accessible so sdk.js
