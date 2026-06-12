@@ -446,6 +446,16 @@
         conversation = await Conversation.startSession({
           signedUrl: cfg.signedUrl,
 
+          // Send Chatwoot context to ElevenLabs agent as dynamic variables.
+          // In your ElevenLabs agent prompt you can reference {{conversation_id}},
+          // {{customer_name}}, {{website}} etc.
+          dynamicVariables: {
+            conversation_id:  cfg.cwConversation  || '',
+            customer_name:    cfg.agentName       || 'Customer',
+            website:          cfg.brand            || '',
+            widget_color:     cfg.color            || '',
+          },
+
           onConnect: () => {
             isCallActive = true;
             setStatus('connected', 'Connected');

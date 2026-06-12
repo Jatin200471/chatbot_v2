@@ -227,57 +227,55 @@
     });
   })();
 
+  // Widget element IDs that must never be wrapped or swapped out
+  var _widgetIds = { 'woot-widget-holder': 1, 'cw-voice-end-btn': 1,
+                     'cw-voice-style': 1, 'cw-voice-hide-style': 1 };
+
+  // Wrap all non-widget body children in a #spa-content div so SPA swaps
+  // only replace that div — the Chatwoot widget iframe stays in <body> at
+  // all times, which means iframe.contentWindow is NEVER null during a swap.
+  function ensureSpaContainer() {
+    var existing = document.getElementById('spa-content');
+    if (existing) return existing;
+
+    var container = document.createElement('div');
+    container.id = 'spa-content';
+
+    var toMove = [];
+    Array.from(document.body.children).forEach(function (c) {
+      if (!_widgetIds[c.id]) toMove.push(c);
+    });
+    toMove.forEach(function (c) { container.appendChild(c); });
+    // Insert before any widget elements that are already in body
+    document.body.insertBefore(container, document.body.firstChild);
+    return container;
+  }
+
   function spaNavigate(href) {
-    // If a voice call is active, DO NOT do the DOM-swap navigation.
-    // Instead allow a normal full navigation so Chatwoot SDK can
-    // re-create the iframe safely.
-    // (We still keep the popup open in the popup window.)
-    if (window._cwVoiceActive) {
-      window.location.href = href;
-      return;
-    }
-
-    // Prevent concurrent navigations
-
     if (window._spaNavigating) return;
     window._spaNavigating = true;
 
-
-    // Step 1 — move Chatwoot elements OUT of <body> into <html> root.
-    // Moving (not removing) keeps iframe.contentWindow accessible so sdk.js
-    // doesn't crash while the body swap happens.
-    var saved = [];
-    document.querySelectorAll('#woot-widget-holder, #cw-voice-end-btn, #cw-voice-style')
-      .forEach(function (el) {
-        saved.push(el);
-        document.documentElement.appendChild(el);
-      });
-
-    function restore(fallbackHref) {
-      saved.forEach(function (el) { document.body.appendChild(el); });
-      window._spaNavigating = false;
-      if (fallbackHref) location.href = fallbackHref;
-    }
-
-    // Step 2 — fetch new page HTML
     fetch(href, { credentials: 'same-origin' })
       .then(function (r) {
-        // If server returns redirect or non-HTML (e.g. a file download), fall back
         var ct = r.headers.get('content-type') || '';
-        if (!ct.includes('text/html')) { restore(href); return null; }
+        if (!ct.includes('text/html')) {
+          window._spaNavigating = false;
+          location.href = href;
+          return null;
+        }
         return r.text();
       })
       .then(function (html) {
         if (!html) return;
         var newDoc = new DOMParser().parseFromString(html, 'text/html');
+        var container = ensureSpaContainer();
 
-        // Step 3 — update title
+        // Update <title>
         document.title = newDoc.title;
 
-        // Step 4 — swap <link rel="stylesheet"> and <style> in <head>
-        // Remove old page-specific stylesheets, add new ones
-        var oldLinks = Array.from(document.querySelectorAll('head link[rel="stylesheet"][data-spa]'));
-        oldLinks.forEach(function (l) { l.remove(); });
+        // Swap page-specific stylesheets in <head>
+        document.querySelectorAll('head link[rel="stylesheet"][data-spa]')
+          .forEach(function (l) { l.remove(); });
         newDoc.querySelectorAll('link[rel="stylesheet"]').forEach(function (l) {
           if (!document.querySelector('link[href="' + l.href + '"]')) {
             var clone = l.cloneNode(true);
@@ -294,44 +292,42 @@
           document.head.appendChild(s);
         }
 
-        // Step 5 — replace body content
-        document.body.innerHTML = newDoc.body.innerHTML;
+        // Collect scripts BEFORE innerHTML wipes them
+        var scripts = Array.from(newDoc.body.querySelectorAll('script'));
 
-        // Step 6 — re-execute page-specific inline scripts and NEW external scripts.
-        // This re-runs things like sliders, accordions, analytics pageviews etc.
-        newDoc.body.querySelectorAll('script').forEach(function (oldScript) {
+        // Replace ONLY the content container — widget iframe stays in body untouched.
+        // Chatwoot's MutationObserver fires here but finds the iframe still in body,
+        // so iframe.contentWindow is never null.
+        container.innerHTML = newDoc.body.innerHTML;
+
+        // Re-execute page scripts (sliders, analytics, etc.)
+        scripts.forEach(function (oldScript) {
           var newScript = document.createElement('script');
           if (oldScript.src) {
-            if (_loadedScripts[oldScript.src]) return; // skip already-loaded
-            newScript.src  = oldScript.src;
+            if (_loadedScripts[oldScript.src]) return;
+            newScript.src   = oldScript.src;
             newScript.async = oldScript.async;
             newScript.defer = oldScript.defer;
             _loadedScripts[oldScript.src] = true;
           } else {
-            // Skip Chatwoot embed snippets — sdk.js is already loaded and
-            // re-running the embed snippet causes widget re-initialization
             var txt = oldScript.textContent || '';
-            if (txt.includes('chatwootSDK') || txt.includes('/packs/js/sdk.js') || txt.includes('chatwoot:ready')) return;
+            // Skip Chatwoot embed snippets — sdk.js is already live
+            if (txt.includes('chatwootSDK') || txt.includes('/packs/js/sdk.js') ||
+                txt.includes('chatwoot:ready')) return;
             newScript.textContent = txt;
           }
-          document.body.appendChild(newScript);
+          container.appendChild(newScript);
         });
 
-        // Step 7 — move Chatwoot elements back into body
-        saved.forEach(function (el) { document.body.appendChild(el); });
-
-        // Step 8 — update URL
         history.pushState({}, document.title, href);
-
-        // Step 9 — scroll to top (like a normal page load)
         window.scrollTo(0, 0);
-
-        // Step 10 — fire popstate so any SPA routers on the page re-render
         try { window.dispatchEvent(new PopStateEvent('popstate', { state: history.state })); } catch (_) {}
-
         window._spaNavigating = false;
       })
-      .catch(function () { restore(href); });
+      .catch(function () {
+        window._spaNavigating = false;
+        location.href = href;
+      });
   }
 
   // ── Always-on SPA navigation ──────────────────────────────────────────────
