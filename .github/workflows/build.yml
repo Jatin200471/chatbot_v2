@@ -1,4 +1,4 @@
-name: Build & Push Docker Image
+name: Build & Deploy
 
 on:
   push:
@@ -11,8 +11,11 @@ permissions:
   packages: write
 
 jobs:
+  # ── Job 1: Build Docker image and push to GHCR ──────────────────────────────
   build:
     runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -85,3 +88,55 @@ jobs:
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "docker pull ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom:latest" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # ── Job 2: Deploy to server (only on main branch push) ──────────────────────
+  # Requires these GitHub Secrets to be set in repo Settings → Secrets:
+  #   SSH_HOST   — server IP or domain (e.g. 157.90.123.45)
+  #   SSH_USER   — SSH username (e.g. root or ubuntu)
+  #   SSH_KEY    — SSH private key (paste full contents of id_rsa / id_ed25519)
+  #   DEPLOY_PATH — path on server where docker-compose.yaml lives
+  #                 (e.g. /home/ubuntu/chatwoot  or  /root/chatwoot)
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Check deploy secrets
+        id: check
+        run: |
+          if [ -z "${{ secrets.SSH_HOST }}" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "⚠️ SSH_HOST secret not set — skipping deploy. Add secrets to enable auto-deploy." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to server via SSH
+        if: steps.check.outputs.skip == 'false'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+
+            echo "=== Pulling latest image ==="
+            docker compose pull
+
+            echo "=== Restarting containers ==="
+            docker compose up -d --remove-orphans
+
+            echo "=== Waiting for health check ==="
+            sleep 15
+            docker compose ps
+
+            echo "=== Deploy complete ==="
+
+      - name: Deploy summary
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          echo "### Deploy Complete ✅" >> $GITHUB_STEP_SUMMARY
+          echo "Server: \`${{ secrets.SSH_HOST }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "Image: \`ghcr.io/${{ github.repository_owner }}/chatwoot-custom:latest\`" >> $GITHUB_STEP_SUMMARY
