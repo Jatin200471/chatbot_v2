@@ -419,6 +419,7 @@ Rails.application.routes.draw do
             get  :voice_history
             post :voice_heartbeat
             get  :voice_call_active
+            post :voice_link_elevenlabs
           end
         end
         resource :contact, only: [:show, :update] do

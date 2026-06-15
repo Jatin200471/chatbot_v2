@@ -467,6 +467,19 @@
             _callConnectedAt = Date.now();
             setStatus('connected', 'Connected');
             $endCallBtn.disabled = false;
+
+            // Capture ElevenLabs conversation ID and save to Chatwoot
+            try {
+              const elConvId = typeof conversation.getId === 'function'
+                ? conversation.getId()
+                : conversation.conversationId || null;
+              if (elConvId) {
+                apiPost('/api/v1/widget/conversations/voice_link_elevenlabs', {
+                  elevenlabs_conversation_id: elConvId,
+                }).catch(e => console.warn('[VOICE-POPUP] link conv id failed:', e?.message));
+              }
+            } catch (_) {}
+
             writeHeartbeat();
             startBackendHeartbeat();
             postToOpener('voice-popup-connected');

@@ -302,6 +302,12 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     chatwoot_conv = conversation || build_conversation_for_voice
     ai_sender     = voice_agent_sender(chatwoot_conv)
 
+    # Store ElevenLabs conversation ID so agents can look up the recording
+    existing_attrs = chatwoot_conv.custom_attributes || {}
+    unless existing_attrs['elevenlabs_conversation_id'] == conv_id
+      chatwoot_conv.update_columns(custom_attributes: existing_attrs.merge('elevenlabs_conversation_id' => conv_id))
+    end
+
     # Preserve activity timestamp — same reason as voice_transcript action.
     # Fallback to created_at so fresh voice-only conversations (nil last_activity_at)
     # also get the timer preserved correctly.
@@ -585,6 +591,25 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   rescue StandardError => e
     Rails.logger.warn "[VOICE-AGENT] voice_call_active failed: #{e.message}"
     render json: { active: false, error: e.message }
+  end
+
+  # Called by the voice popup after ElevenLabs SDK connects.
+  # Stores the ElevenLabs conversation_id in Chatwoot conversation custom_attributes
+  # so agents can look up the recording/transcript on the ElevenLabs dashboard.
+  #
+  # POST /api/v1/widget/conversations/voice_link_elevenlabs
+  def voice_link_elevenlabs
+    el_conv_id = params[:elevenlabs_conversation_id].to_s.strip
+    return render json: { error: 'missing elevenlabs_conversation_id' }, status: :bad_request if el_conv_id.blank?
+
+    conv = conversation || build_conversation_for_voice
+    existing_attrs = conv.custom_attributes || {}
+    conv.update_columns(custom_attributes: existing_attrs.merge('elevenlabs_conversation_id' => el_conv_id))
+
+    render json: { ok: true, elevenlabs_conversation_id: el_conv_id, chatwoot_conversation_id: conv.id }
+  rescue StandardError => e
+    Rails.logger.error "[VOICE-LINK] #{e.class} #{e.message}"
+    render json: { error: e.message }, status: :internal_server_error
   end
 
   def set_custom_attributes
