@@ -1,24 +1,41 @@
 <script>
 // Override of upstream `app/javascript/shared/components/Branding.vue`.
-// NOTE the path — Branding lives under `shared/`, not `widget/`. Earlier
-// versions of the Dockerfile copied this file to the wrong destination
-// (widget/components/Branding.vue, which nothing imports), so the upstream
-// component with its <a href="https://www.chatwoot.com"> kept being used.
-//
-// Upstream wraps the "Powered by …" text in an <a href="https://www.chatwoot.com">
-// which still pointed visitors back to Chatwoot even after we localised the
-// label to "Powered by Visual Graphx". This replacement renders the label as
-// a plain, non-clickable span so there's no outbound link, no Chatwoot logo,
-// and no surprise navigation. The i18n key (`POWERED_BY`) is what controls
-// the visible text — see custom/widget/i18n/en.json.
+// Renders the 'Powered by …' label using per-inbox branding settings stored in
+// the DB (custom_branding_text / custom_branding_url). Falls back to the i18n
+// key POWERED_BY when no custom text is configured. If a URL is provided the
+// label becomes a clickable link that opens in a new tab; otherwise it stays
+// as a plain non-navigating span.
+import { mapGetters } from 'vuex';
+
 export default {
   name: 'Branding',
+  computed: {
+    ...mapGetters({
+      customBrandingText: 'appConfig/getCustomBrandingText',
+      customBrandingUrl: 'appConfig/getCustomBrandingUrl',
+    }),
+    brandingLabel() {
+      return this.customBrandingText || this.$t('POWERED_BY');
+    },
+    hasLink() {
+      return !!this.customBrandingUrl;
+    },
+  },
 };
 </script>
 
 <template>
   <div class="branding flex items-center justify-center text-xs text-n-slate-11">
-    <span class="branding__label">{{ $t('POWERED_BY') }}</span>
+    <a
+      v-if="hasLink"
+      :href="customBrandingUrl"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="branding__link"
+    >
+      {{ brandingLabel }}
+    </a>
+    <span v-else class="branding__label">{{ brandingLabel }}</span>
   </div>
 </template>
 
@@ -27,7 +44,15 @@ export default {
   user-select: none;
   padding: 4px 0;
 }
-.branding__label {
+.branding__label,
+.branding__link {
   font-weight: 500;
+}
+.branding__link {
+  color: inherit;
+  text-decoration: none;
+}
+.branding__link:hover {
+  text-decoration: underline;
 }
 </style>

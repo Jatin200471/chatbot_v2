@@ -38,6 +38,8 @@ const state = {
   // Set to true when the active conversation is resolved/ended.
   // ChatInputWrap replaces the text input with a restart button.
   conversationEnded: false,
+  customBrandingText: '',
+  customBrandingUrl: '',
 };
 
 export const getters = {
@@ -62,6 +64,8 @@ export const getters = {
   getElevenLabsEnabled: $state => $state.enableElevenLabs,
   getElevenLabsConfig: $state => $state.elevenLabsConfig,
   getConversationEnded: $state => $state.conversationEnded,
+  getCustomBrandingText: $state => $state.customBrandingText,
+  getCustomBrandingUrl: $state => $state.customBrandingUrl,
 };
 
 export const actions = {
@@ -123,6 +127,9 @@ export const actions = {
   setConversationEnded({ commit }, value) {
     commit('SET_CONVERSATION_ENDED', !!value);
   },
+  setBrandingConfig({ commit }, { customBrandingText, customBrandingUrl }) {
+    commit('SET_BRANDING_CONFIG', { customBrandingText, customBrandingUrl });
+  },
 };
 
 export const mutations = {
@@ -167,6 +174,10 @@ export const mutations = {
   },
   SET_CONVERSATION_ENDED($state, value) {
     $state.conversationEnded = value;
+  },
+  SET_BRANDING_CONFIG($state, { customBrandingText, customBrandingUrl }) {
+    $state.customBrandingText = customBrandingText || '';
+    $state.customBrandingUrl = customBrandingUrl || '';
   },
 };
 

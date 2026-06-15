@@ -117,10 +117,11 @@ export default {
     },
   },
   mounted() {
-    const { websiteToken, locale, widgetColor } = window.chatwootWebChannel;
+    const { websiteToken, locale, widgetColor, customBrandingText, customBrandingUrl } = window.chatwootWebChannel;
     this.setLocale(locale);
     this.setWidgetColor(widgetColor);
     this.setWidgetColorVariable(widgetColor);
+    this.setBrandingConfig({ customBrandingText: customBrandingText || '', customBrandingUrl: customBrandingUrl || '' });
     setHeader(window.authToken);
 
     if (this.isIFrame) {
@@ -170,6 +171,7 @@ export default {
       'setBubbleVisibility',
       'setColorScheme',
       'setConversationEnded',
+      'setBrandingConfig',
     ]),
     ...mapActions('conversation', ['fetchOldConversations', 'clearConversations', 'syncLatestMessages']),
     ...mapActions('conversationAttributes', ['getAttributes']),

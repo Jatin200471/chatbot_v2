@@ -44,6 +44,9 @@ export default {
       voiceAgentAgentId: '',
       voiceAgentConfigData: {},
       isUpdatingVoiceAgent: false,
+      customBrandingText: '',
+      customBrandingUrl: '',
+      isUpdatingBranding: false,
     };
   },
   validations: {
@@ -84,6 +87,8 @@ export default {
         : rawConfig;
       this.voiceAgentAgentId = this.inbox.elevenlabs_agent_id || parsedConfig.agent_id || '';
       this.voiceAgentConfigData = JSON.stringify(parsedConfig, null, 2);
+      this.customBrandingText = this.inbox.custom_branding_text || '';
+      this.customBrandingUrl = this.inbox.custom_branding_url || '';
     },
     handleHmacFlag() {
       this.updateInbox();
@@ -160,6 +165,25 @@ export default {
         useAlert(this.$t('INBOX_MGMT.EDIT.API.ERROR_MESSAGE'));
       } finally {
         this.isSyncingTemplates = false;
+      }
+    },
+    async updateBrandingSettings() {
+      this.isUpdatingBranding = true;
+      try {
+        const payload = {
+          id: this.inbox.id,
+          formData: false,
+          channel: {
+            custom_branding_text: this.customBrandingText.trim() || null,
+            custom_branding_url: this.customBrandingUrl.trim() || null,
+          },
+        };
+        await this.$store.dispatch('inboxes/updateInbox', payload);
+        useAlert(this.$t('INBOX_MGMT.EDIT.API.SUCCESS_MESSAGE'));
+      } catch (error) {
+        useAlert(this.$t('INBOX_MGMT.EDIT.API.ERROR_MESSAGE'));
+      } finally {
+        this.isUpdatingBranding = false;
       }
     },
     async updateVoiceAgentSettings() {
@@ -446,6 +470,58 @@ export default {
         </div>
       </SettingsSection>
       <!-- ─── END VOICE AGENT ─── -->
+
+      <!-- ───────────────────────────────────────────────
+           WIDGET BRANDING SECTION
+      ─────────────────────────────────────────────── -->
+      <SettingsSection
+        title="Widget Branding"
+        sub-title="Customise the 'Powered by' label shown at the bottom of the chat widget. Optionally add a URL — visitors can click the label to open it in a new tab."
+      >
+        <div class="flex flex-col w-full max-w-3xl gap-5">
+          <!-- Branding text -->
+          <div class="flex flex-col gap-1.5">
+            <label class="text-sm font-medium text-n-slate-11" for="customBrandingText">
+              Branding Label
+              <span class="text-n-slate-9 font-normal ml-1">leave blank to use default</span>
+            </label>
+            <input
+              id="customBrandingText"
+              v-model="customBrandingText"
+              type="text"
+              placeholder="Powered by Your Company"
+              class="chatwoot-input w-full max-w-lg"
+            />
+          </div>
+
+          <!-- Branding URL -->
+          <div class="flex flex-col gap-1.5">
+            <label class="text-sm font-medium text-n-slate-11" for="customBrandingUrl">
+              Branding Link URL
+              <span class="text-n-slate-9 font-normal ml-1">optional — makes the label clickable</span>
+            </label>
+            <input
+              id="customBrandingUrl"
+              v-model="customBrandingUrl"
+              type="url"
+              placeholder="https://yourcompany.com"
+              class="chatwoot-input w-full max-w-lg"
+            />
+            <p class="text-xs text-n-slate-10 mt-0.5">
+              The link opens in a new tab. Leave blank to show plain text.
+            </p>
+          </div>
+
+          <div>
+            <NextButton
+              label="Save Branding"
+              :is-loading="isUpdatingBranding"
+              @click="updateBrandingSettings"
+            />
+          </div>
+        </div>
+      </SettingsSection>
+      <!-- ─── END WIDGET BRANDING ─── -->
 
     </div>
   </div>

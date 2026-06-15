@@ -37,6 +37,8 @@
         voiceAgentEnabled: <%= (@web_widget.elevenlabs_voice? || (@web_widget.voice_agent_api_key.present? && @web_widget.voice_agent_provider.present?)) %>,
         voiceAgentProvider: '<%= @web_widget.voice_agent_provider.to_s %>',
         voiceAgentConfigData: <%= (@web_widget.voice_agent_config_data || {}).to_json.html_safe %>,
+        customBrandingText: <%= @web_widget.custom_branding_text.to_json.html_safe %>,
+        customBrandingUrl: <%= @web_widget.custom_branding_url.to_json.html_safe %>,
       }
       window.chatwootPubsubToken = '<%= @contact_inbox.pubsub_token %>'
       window.authToken = '<%= @token %>'

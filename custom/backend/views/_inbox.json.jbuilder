@@ -56,6 +56,8 @@ if voice_config.is_a?(String)
   end
 end
 json.voice_agent_config_data voice_config
+json.custom_branding_text resource.channel.try(:custom_branding_text)
+json.custom_branding_url resource.channel.try(:custom_branding_url)
 json.reply_time resource.channel.try(:reply_time)
 if resource.web_widget?
   json.hmac_token resource.channel.try(:hmac_token) if Current.account_user&.administrator?
