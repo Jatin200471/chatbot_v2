@@ -333,27 +333,30 @@ export const IFrameHelper = {
       chatIcon.style.background = widgetColor;
       closeBubble.style.background = widgetColor;
 
-      // Remove SVG entirely so it doesn't push layout off-center
+      // Remove SVG entirely - it affects layout even when hidden
       const svgIcon = document.getElementById('woot-widget-bubble-icon');
       if (svgIcon) svgIcon.remove();
 
-      // Use <img> with object-fit for perfect centering inside the round bubble
+      // Make button a flex container so img centers perfectly
+      chatIcon.style.display = 'flex';
+      chatIcon.style.alignItems = 'center';
+      chatIcon.style.justifyContent = 'center';
+      chatIcon.style.overflow = 'hidden';
+      chatIcon.style.padding = '0';
+
+      // Inject img sized explicitly to fill the 64x64 bubble
       const customImg = document.createElement('img');
       customImg.src = customBubbleIconUrl;
+      customImg.setAttribute('data-cw-custom-icon', '1');
       customImg.alt = '';
-      customImg.style.cssText = [
-        'width: 100%',
-        'height: 100%',
-        'object-fit: cover',
-        'object-position: center',
-        'position: absolute',
-        'top: 0',
-        'left: 0',
-        'border-radius: 50%',
-        'pointer-events: none',
-      ].join(';');
-      chatIcon.style.position = 'relative';
-      chatIcon.style.overflow = 'hidden';
+      customImg.style.width = '64px';
+      customImg.style.height = '64px';
+      customImg.style.objectFit = 'cover';
+      customImg.style.objectPosition = 'center center';
+      customImg.style.borderRadius = '50%';
+      customImg.style.display = 'block';
+      customImg.style.pointerEvents = 'none';
+      customImg.style.flexShrink = '0';
       chatIcon.appendChild(customImg);
     } else {
       chatIcon.style.background = widgetColor;
