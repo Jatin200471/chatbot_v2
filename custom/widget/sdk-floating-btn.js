@@ -108,33 +108,79 @@
   });
   _iframeObserver.observe(document.body, { childList: true, subtree: true });
 
-  // ── Custom bubble icon + gradient support ────────────────────────────────
+  // ── Custom bubble icon support ───────────────────────────────────────────
   // Widget iframe sends 'cw-custom-bubble-icon' postMessage after mount.
-  // We replace the default SVG icon with the client's custom image.
-  window.addEventListener('message', function (e) {
-    if (!e.data || e.data.event !== 'cw-custom-bubble-icon') return;
-    var iconUrl = e.data.iconUrl;
-    if (!iconUrl) return;
+  // We store the URL globally and apply it as soon as the bubble exists.
+  var _cwCustomBubbleIconUrl = null;
 
-    var applyIcon = function () {
-      var existingIcon = document.getElementById('woot-widget-bubble-icon');
-      if (!existingIcon) return false;
+  function _applyCwBubbleIcon() {
+    if (!_cwCustomBubbleIconUrl) return false;
 
+    // Approach 1: replace SVG by ID
+    var svg = document.getElementById('woot-widget-bubble-icon');
+    if (svg) {
+      // Hide SVG, inject img as sibling inside the button
+      svg.style.display = 'none';
+      var btn = svg.parentNode;
+      // Remove any previously injected img
+      var old = btn.querySelector('img[data-cw-custom-icon]');
+      if (old) old.remove();
       var img = document.createElement('img');
-      img.src = iconUrl;
-      img.alt = '';
-      img.style.cssText = 'width:26px;height:26px;object-fit:contain;pointer-events:none;';
-      existingIcon.parentNode.replaceChild(img, existingIcon);
+      img.src = _cwCustomBubbleIconUrl;
+      img.setAttribute('data-cw-custom-icon', '1');
+      img.style.cssText = 'width:28px;height:28px;object-fit:contain;pointer-events:none;display:block;';
+      btn.appendChild(img);
       return true;
-    };
-
-    // Try immediately, then retry until bubble is in DOM
-    if (!applyIcon()) {
-      var attempts = 0;
-      var interval = setInterval(function () {
-        if (applyIcon() || ++attempts > 20) clearInterval(interval);
-      }, 300);
     }
+
+    // Approach 2: CSS background-image on bubble button (fallback)
+    var bubble = document.querySelector('.woot-widget-bubble:not(.woot--close)');
+    if (bubble) {
+      var styleId = 'cw-custom-bubble-style';
+      var existing = document.getElementById(styleId);
+      if (existing) existing.remove();
+      var style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = [
+        '.woot-widget-bubble:not(.woot--close) svg { display:none !important; }',
+        '.woot-widget-bubble:not(.woot--close)::after {',
+        '  content:"";',
+        '  display:block;',
+        '  width:28px;height:28px;',
+        '  background:url("' + _cwCustomBubbleIconUrl.replace(/"/g, '\\"') + '") center/contain no-repeat;',
+        '}'
+      ].join('');
+      document.head.appendChild(style);
+      return true;
+    }
+
+    return false;
+  }
+
+  // Listen for postMessage from widget iframe
+  window.addEventListener('message', function (e) {
+    try {
+      var data = e.data;
+      // Our widget sends plain object; Chatwoot SDK sends strings — ignore strings
+      if (typeof data !== 'object' || !data || data.event !== 'cw-custom-bubble-icon') return;
+      var iconUrl = data.iconUrl;
+      if (!iconUrl) return;
+
+      _cwCustomBubbleIconUrl = iconUrl;
+
+      // Try immediately; if bubble not yet in DOM, poll until it appears
+      if (!_applyCwBubbleIcon()) {
+        var attempts = 0;
+        var poll = setInterval(function () {
+          if (_applyCwBubbleIcon() || ++attempts > 40) clearInterval(poll);
+        }, 250);
+      }
+    } catch (_) {}
+  });
+
+  // Also try on chatwoot:ready in case postMessage arrived first
+  window.addEventListener('chatwoot:ready', function () {
+    setTimeout(function () { _applyCwBubbleIcon(); }, 100);
   });
 
   window.addEventListener('chatwoot:ready', function () {

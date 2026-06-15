@@ -123,11 +123,12 @@ export default {
     this.setWidgetColorVariable(widgetColor);
     this.setBrandingConfig({ customBrandingText: customBrandingText || '', customBrandingUrl: customBrandingUrl || '' });
 
-    // Send custom bubble icon URL to parent SDK so it can replace the default icon
+    // Send custom bubble icon URL to parent SDK — delayed so SDK bubble is created first
     if (customBubbleIconUrl) {
-      try {
-        window.parent.postMessage({ event: 'cw-custom-bubble-icon', iconUrl: customBubbleIconUrl }, '*');
-      } catch (_) {}
+      const _iconUrl = customBubbleIconUrl;
+      setTimeout(function () {
+        try { window.parent.postMessage({ event: 'cw-custom-bubble-icon', iconUrl: _iconUrl }, '*'); } catch (_) {}
+      }, 1200);
     }
     setHeader(window.authToken);
 
