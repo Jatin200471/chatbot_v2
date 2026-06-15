@@ -151,7 +151,7 @@ export default {
     </p>
     <button
       class="px-4 py-2 rounded-md text-sm font-medium text-white transition-opacity hover:opacity-90"
-      :style="{ backgroundColor: widgetColor }"
+      :style="{ background: widgetColor }"
       @click="handleRestart"
     >
       {{ $t('CONVERSATION_RESOLVED.RESTART_BUTTON') }}

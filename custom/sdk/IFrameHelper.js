@@ -329,19 +329,16 @@ export const IFrameHelper = {
 
     addClasses(closeBubble, closeBtnClassName);
 
-    chatIcon.style.background = widgetColor;
-    closeBubble.style.background = widgetColor;
-
     if (customBubbleIconUrl) {
+      const bgValue =
+        `url('${customBubbleIconUrl}') center/60% no-repeat, ${widgetColor}`;
+      chatIcon.style.background = bgValue;
+      closeBubble.style.background = widgetColor;
       const svgIcon = document.getElementById('woot-widget-bubble-icon');
       if (svgIcon) svgIcon.style.display = 'none';
-      const img = document.createElement('img');
-      img.src = customBubbleIconUrl;
-      img.style.cssText =
-        'width:32px;height:32px;object-fit:contain;pointer-events:none;' +
-        'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);';
-      chatIcon.style.position = 'relative';
-      chatIcon.appendChild(img);
+    } else {
+      chatIcon.style.background = widgetColor;
+      closeBubble.style.background = widgetColor;
     }
 
     bubbleHolder.appendChild(chatIcon);
