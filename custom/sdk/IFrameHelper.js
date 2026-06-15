@@ -337,26 +337,25 @@ export const IFrameHelper = {
       const svgIcon = document.getElementById('woot-widget-bubble-icon');
       if (svgIcon) svgIcon.remove();
 
-      // Make button a flex container so img centers perfectly
-      chatIcon.style.display = 'flex';
-      chatIcon.style.alignItems = 'center';
-      chatIcon.style.justifyContent = 'center';
-      chatIcon.style.overflow = 'hidden';
-      chatIcon.style.padding = '0';
+      // Make button a flex container so img centers perfectly (using setAttribute to override !important CSS)
+      const existingStyle = chatIcon.getAttribute('style') || '';
+      chatIcon.setAttribute('style',
+        existingStyle +
+        '; display: flex !important; align-items: center !important;' +
+        ' justify-content: center !important; overflow: hidden !important; padding: 0 !important;'
+      );
 
       // Inject img sized explicitly to fill the 64x64 bubble
       const customImg = document.createElement('img');
       customImg.src = customBubbleIconUrl;
       customImg.setAttribute('data-cw-custom-icon', '1');
       customImg.alt = '';
-      customImg.style.width = '64px';
-      customImg.style.height = '64px';
-      customImg.style.objectFit = 'cover';
-      customImg.style.objectPosition = 'center center';
-      customImg.style.borderRadius = '50%';
-      customImg.style.display = 'block';
-      customImg.style.pointerEvents = 'none';
-      customImg.style.flexShrink = '0';
+      customImg.setAttribute('style',
+        'width: 64px !important; height: 64px !important;' +
+        ' object-fit: cover !important; object-position: center center !important;' +
+        ' border-radius: 50% !important; display: block !important;' +
+        ' pointer-events: none !important; flex-shrink: 0 !important;'
+      );
       chatIcon.appendChild(customImg);
     } else {
       chatIcon.style.background = widgetColor;
