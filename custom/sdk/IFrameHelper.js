@@ -330,12 +330,31 @@ export const IFrameHelper = {
     addClasses(closeBubble, closeBtnClassName);
 
     if (customBubbleIconUrl) {
-      const bgValue =
-        `url('${customBubbleIconUrl}') center/cover no-repeat, ${widgetColor}`;
-      chatIcon.style.background = bgValue;
+      chatIcon.style.background = widgetColor;
       closeBubble.style.background = widgetColor;
+
+      // Remove SVG entirely so it doesn't push layout off-center
       const svgIcon = document.getElementById('woot-widget-bubble-icon');
-      if (svgIcon) svgIcon.style.display = 'none';
+      if (svgIcon) svgIcon.remove();
+
+      // Use <img> with object-fit for perfect centering inside the round bubble
+      const customImg = document.createElement('img');
+      customImg.src = customBubbleIconUrl;
+      customImg.alt = '';
+      customImg.style.cssText = [
+        'width: 100%',
+        'height: 100%',
+        'object-fit: cover',
+        'object-position: center',
+        'position: absolute',
+        'top: 0',
+        'left: 0',
+        'border-radius: 50%',
+        'pointer-events: none',
+      ].join(';');
+      chatIcon.style.position = 'relative';
+      chatIcon.style.overflow = 'hidden';
+      chatIcon.appendChild(customImg);
     } else {
       chatIcon.style.background = widgetColor;
       closeBubble.style.background = widgetColor;
