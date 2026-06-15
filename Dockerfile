@@ -56,6 +56,7 @@ COPY custom/widget/api/endpoint.js app/javascript/widget/api/endPoints.js
 COPY custom/widget/api/inboxConfig.js app/javascript/widget/api/inboxConfig.js
 COPY custom/dashboard/ConfigurationPage.vue app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue
 COPY custom/dashboard/ResolveAction.vue app/javascript/dashboard/components/buttons/ResolveAction.vue
+COPY custom/dashboard/ColorPicker.vue app/javascript/dashboard/components-next/colorpicker/ColorPicker.vue
 
 # Voice agent (ElevenLabs / Dograh / etc.) configuration is now done per
 # inbox from the Chatwoot dashboard at runtime. No build-time ARG/ENV vars
@@ -165,6 +166,8 @@ COPY custom/backend/migrations/20260520000002_add_voice_agent_config_to_channel_
      /app/db/migrate/20260520000002_add_voice_agent_config_to_channel_web_widgets.rb
 COPY custom/backend/migrations/20260521000001_add_branding_to_channel_web_widgets.rb \
      /app/db/migrate/20260521000001_add_branding_to_channel_web_widgets.rb
+COPY custom/backend/migrations/20260521000002_add_bubble_icon_to_channel_web_widgets.rb \
+     /app/db/migrate/20260521000002_add_bubble_icon_to_channel_web_widgets.rb
 
 # ── Frontend: Dashboard & Widget files processed by Vite in Stage 1 ────────────
 # All Vue components, store modules, and helpers are bundled by Vite in Stage 1

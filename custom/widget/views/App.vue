@@ -117,11 +117,18 @@ export default {
     },
   },
   mounted() {
-    const { websiteToken, locale, widgetColor, customBrandingText, customBrandingUrl } = window.chatwootWebChannel;
+    const { websiteToken, locale, widgetColor, customBrandingText, customBrandingUrl, customBubbleIconUrl } = window.chatwootWebChannel;
     this.setLocale(locale);
     this.setWidgetColor(widgetColor);
     this.setWidgetColorVariable(widgetColor);
     this.setBrandingConfig({ customBrandingText: customBrandingText || '', customBrandingUrl: customBrandingUrl || '' });
+
+    // Send custom bubble icon URL to parent SDK so it can replace the default icon
+    if (customBubbleIconUrl) {
+      try {
+        window.parent.postMessage({ event: 'cw-custom-bubble-icon', iconUrl: customBubbleIconUrl }, '*');
+      } catch (_) {}
+    }
     setHeader(window.authToken);
 
     if (this.isIFrame) {
@@ -181,8 +188,17 @@ export default {
     ...mapActions('voiceAgentConfig', ['fetchVoiceAgentConfig']),
 
     setWidgetColorVariable(widgetColor) {
-      if (widgetColor) {
+      if (!widgetColor) return;
+      const isGradient = widgetColor.startsWith('linear-gradient') || widgetColor.startsWith('radial-gradient');
+      if (isGradient) {
+        // Extract first hex color for CSS properties that need a solid color (text, borders)
+        const match = widgetColor.match(/#[a-fA-F0-9]{3,8}/);
+        const solidColor = match ? match[0] : '#1f93ff';
+        document.documentElement.style.setProperty('--widget-color', solidColor);
+        document.documentElement.style.setProperty('--widget-gradient', widgetColor);
+      } else {
         document.documentElement.style.setProperty('--widget-color', widgetColor);
+        document.documentElement.style.setProperty('--widget-gradient', widgetColor);
       }
     },
     scrollConversationToBottom() {

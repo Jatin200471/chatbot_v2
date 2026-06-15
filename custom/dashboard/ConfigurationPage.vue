@@ -47,6 +47,8 @@ export default {
       customBrandingText: '',
       customBrandingUrl: '',
       isUpdatingBranding: false,
+      customBubbleIconUrl: '',
+      isUpdatingBubbleIcon: false,
     };
   },
   validations: {
@@ -89,6 +91,7 @@ export default {
       this.voiceAgentConfigData = JSON.stringify(parsedConfig, null, 2);
       this.customBrandingText = this.inbox.custom_branding_text || '';
       this.customBrandingUrl = this.inbox.custom_branding_url || '';
+      this.customBubbleIconUrl = this.inbox.custom_bubble_icon_url || '';
     },
     handleHmacFlag() {
       this.updateInbox();
@@ -165,6 +168,24 @@ export default {
         useAlert(this.$t('INBOX_MGMT.EDIT.API.ERROR_MESSAGE'));
       } finally {
         this.isSyncingTemplates = false;
+      }
+    },
+    async updateBubbleIconSettings() {
+      this.isUpdatingBubbleIcon = true;
+      try {
+        const payload = {
+          id: this.inbox.id,
+          formData: false,
+          channel: {
+            custom_bubble_icon_url: this.customBubbleIconUrl.trim() || null,
+          },
+        };
+        await this.$store.dispatch('inboxes/updateInbox', payload);
+        useAlert(this.$t('INBOX_MGMT.EDIT.API.SUCCESS_MESSAGE'));
+      } catch (error) {
+        useAlert(this.$t('INBOX_MGMT.EDIT.API.ERROR_MESSAGE'));
+      } finally {
+        this.isUpdatingBubbleIcon = false;
       }
     },
     async updateBrandingSettings() {
@@ -522,6 +543,55 @@ export default {
         </div>
       </SettingsSection>
       <!-- ─── END WIDGET BRANDING ─── -->
+
+      <!-- ───────────────────────────────────────────────
+           CUSTOM BUBBLE ICON SECTION
+      ─────────────────────────────────────────────── -->
+      <SettingsSection
+        title="Custom Bubble Icon"
+        sub-title="Replace the default chat bubble icon with your own image. Enter a direct image URL (PNG, SVG, or WebP recommended). Leave blank to use the default Chatwoot icon."
+      >
+        <div class="flex flex-col w-full max-w-3xl gap-5">
+          <div class="flex flex-col gap-1.5">
+            <label class="text-sm font-medium text-n-slate-11" for="customBubbleIconUrl">
+              Icon Image URL
+              <span class="text-n-slate-9 font-normal ml-1">direct link to image</span>
+            </label>
+            <input
+              id="customBubbleIconUrl"
+              v-model="customBubbleIconUrl"
+              type="url"
+              placeholder="https://yoursite.com/chat-icon.png"
+              class="chatwoot-input w-full max-w-lg"
+            />
+          </div>
+
+          <!-- Preview -->
+          <div v-if="customBubbleIconUrl" class="flex items-center gap-3">
+            <span class="text-xs text-n-slate-9">Preview:</span>
+            <div
+              class="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden"
+              :style="{ background: inbox.widget_color || '#1f93ff' }"
+            >
+              <img
+                :src="customBubbleIconUrl"
+                alt="bubble icon preview"
+                class="w-7 h-7 object-contain"
+                @error="$event.target.style.display='none'"
+              />
+            </div>
+          </div>
+
+          <div>
+            <NextButton
+              label="Save Bubble Icon"
+              :is-loading="isUpdatingBubbleIcon"
+              @click="updateBubbleIconSettings"
+            />
+          </div>
+        </div>
+      </SettingsSection>
+      <!-- ─── END CUSTOM BUBBLE ICON ─── -->
 
     </div>
   </div>

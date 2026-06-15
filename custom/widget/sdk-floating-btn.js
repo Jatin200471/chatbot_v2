@@ -108,6 +108,35 @@
   });
   _iframeObserver.observe(document.body, { childList: true, subtree: true });
 
+  // ── Custom bubble icon + gradient support ────────────────────────────────
+  // Widget iframe sends 'cw-custom-bubble-icon' postMessage after mount.
+  // We replace the default SVG icon with the client's custom image.
+  window.addEventListener('message', function (e) {
+    if (!e.data || e.data.event !== 'cw-custom-bubble-icon') return;
+    var iconUrl = e.data.iconUrl;
+    if (!iconUrl) return;
+
+    var applyIcon = function () {
+      var existingIcon = document.getElementById('woot-widget-bubble-icon');
+      if (!existingIcon) return false;
+
+      var img = document.createElement('img');
+      img.src = iconUrl;
+      img.alt = '';
+      img.style.cssText = 'width:26px;height:26px;object-fit:contain;pointer-events:none;';
+      existingIcon.parentNode.replaceChild(img, existingIcon);
+      return true;
+    };
+
+    // Try immediately, then retry until bubble is in DOM
+    if (!applyIcon()) {
+      var attempts = 0;
+      var interval = setInterval(function () {
+        if (applyIcon() || ++attempts > 20) clearInterval(interval);
+      }, 300);
+    }
+  });
+
   window.addEventListener('chatwoot:ready', function () {
 
     // ── Restore widget state from previous page ──────────────────────────
