@@ -331,7 +331,7 @@ export const IFrameHelper = {
 
     if (customBubbleIconUrl) {
       const bgValue =
-        `url('${customBubbleIconUrl}') center/60% no-repeat, ${widgetColor}`;
+        `url('${customBubbleIconUrl}') center/cover no-repeat, ${widgetColor}`;
       chatIcon.style.background = bgValue;
       closeBubble.style.background = widgetColor;
       const svgIcon = document.getElementById('woot-widget-bubble-icon');

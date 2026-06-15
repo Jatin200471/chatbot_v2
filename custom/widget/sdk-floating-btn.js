@@ -247,14 +247,15 @@
     btn.id  = BTN_ID;
     btn.title = 'End Voice Call';
     btn.innerHTML =
-      '<span style="display:flex;align-items:center;justify-content:center;gap:7px;line-height:1;">' +
-        '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" ' +
-          'style="flex:0 0 auto;display:block;margin:0;pointer-events:none;">' +
-          '<path d="M3.5 14.5c5.5-5 11.5-5 17 0 .8.7.9 2 0 2.7l-2.1 1.6c-.5.4-1.2.4-1.7 0l-2-1.7' +
-          'a1.5 1.5 0 0 1-.5-1.1V14a9.8 9.8 0 0 0-4.4 0v0c0 .4-.2.8-.5 1.1l-2 1.6c-.5.4-1.2.4-1.7 0' +
-          'L3.5 15c-.5-.6-.4-1.7 0-2.5Z" transform="rotate(135 12 12)"/>' +
-        '</svg>' +
-        '<span style="font-size:13px;font-weight:600;letter-spacing:.01em;display:block;line-height:1;">End Call</span>' +
+      '<span style="position:relative;display:block;min-width:64px;line-height:1;">' +
+        '<span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;width:16px;height:16px;pointer-events:none;">' +
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="display:block;">' +
+            '<path d="M3.5 14.5c5.5-5 11.5-5 17 0 .8.7.9 2 0 2.7l-2.1 1.6c-.5.4-1.2.4-1.7 0l-2-1.7' +
+            'a1.5 1.5 0 0 1-.5-1.1V14a9.8 9.8 0 0 0-4.4 0v0c0 .4-.2.8-.5 1.1l-2 1.6c-.5.4-1.2.4-1.7 0' +
+            'L3.5 15c-.5-.6-.4-1.7 0-2.5Z" transform="rotate(135 12 12)"/>' +
+          '</svg>' +
+        '</span>' +
+        '<span style="display:block;width:100%;text-align:center;font-size:13px;font-weight:600;letter-spacing:.01em;line-height:1;">End Call</span>' +
       '</span>';
 
     btn.style.cssText = [
