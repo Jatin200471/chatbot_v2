@@ -87,8 +87,20 @@ export default {
     isCreatingConversation() {
       return this.isCreating || this.isConversationRouting;
     },
+    buttonBgColor() {
+      const color = this.widgetColor;
+      if (!color) return color;
+      if (
+        color.startsWith('linear-gradient') ||
+        color.startsWith('radial-gradient')
+      ) {
+        const match = color.match(/#[a-fA-F0-9]{3,8}/);
+        return match ? match[0] : '#1f93ff';
+      }
+      return color;
+    },
     textColor() {
-      return getContrastingTextColor(this.widgetColor);
+      return getContrastingTextColor(this.buttonBgColor);
     },
     hasActiveCampaign() {
       return !isEmptyObject(this.activeCampaign);
@@ -397,7 +409,7 @@ export default {
       <CustomButton
         class="font-medium flex items-center justify-center gap-2"
         block
-        :bg-color="widgetColor"
+        :bg-color="buttonBgColor"
         :text-color="textColor"
         :disabled="isCreatingConversation"
       >
