@@ -338,7 +338,9 @@ export const IFrameHelper = {
       const img = document.createElement('img');
       img.src = customBubbleIconUrl;
       img.style.cssText =
-        'width:28px;height:28px;object-fit:contain;pointer-events:none;';
+        'width:32px;height:32px;object-fit:contain;pointer-events:none;' +
+        'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);';
+      chatIcon.style.position = 'relative';
       chatIcon.appendChild(img);
     }
 
