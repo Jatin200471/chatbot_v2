@@ -109,78 +109,53 @@
   _iframeObserver.observe(document.body, { childList: true, subtree: true });
 
   // ── Custom bubble icon support ───────────────────────────────────────────
-  // Widget iframe sends 'cw-custom-bubble-icon' postMessage after mount.
-  // We store the URL globally and apply it as soon as the bubble exists.
+  // Intercepts the 'loaded' chatwoot-widget postMessage (sent by the widget
+  // iframe) to read customBubbleIconUrl/Size directly from channelConfig.
+  // This works regardless of which sdk.js is served.
   var _cwCustomBubbleIconUrl = null;
+  var _cwCustomBubbleIconSize = 60;
 
   function _applyCwBubbleIcon() {
     if (!_cwCustomBubbleIconUrl) return false;
-
-    // Approach 1: replace SVG by ID
-    var svg = document.getElementById('woot-widget-bubble-icon');
-    if (svg) {
-      // Hide SVG, inject img as sibling inside the button
-      svg.style.display = 'none';
-      var btn = svg.parentNode;
-      // Remove any previously injected img
-      var old = btn.querySelector('img[data-cw-custom-icon]');
-      if (old) old.remove();
-      var img = document.createElement('img');
-      img.src = _cwCustomBubbleIconUrl;
-      img.setAttribute('data-cw-custom-icon', '1');
-      img.style.cssText = 'width:28px;height:28px;object-fit:contain;pointer-events:none;display:block;';
-      btn.appendChild(img);
-      return true;
-    }
-
-    // Approach 2: CSS background-image on bubble button (fallback)
     var bubble = document.querySelector('.woot-widget-bubble:not(.woot--close)');
-    if (bubble) {
-      var styleId = 'cw-custom-bubble-style';
-      var existing = document.getElementById(styleId);
-      if (existing) existing.remove();
-      var style = document.createElement('style');
-      style.id = styleId;
-      style.textContent = [
-        '.woot-widget-bubble:not(.woot--close) svg { display:none !important; }',
-        '.woot-widget-bubble:not(.woot--close)::after {',
-        '  content:"";',
-        '  display:block;',
-        '  width:28px;height:28px;',
-        '  background:url("' + _cwCustomBubbleIconUrl.replace(/"/g, '\\"') + '") center/contain no-repeat;',
-        '}'
-      ].join('');
-      document.head.appendChild(style);
-      return true;
-    }
+    if (!bubble) return false;
 
-    return false;
+    // Hide SVG child so it doesn't cover the background image
+    var svg = bubble.querySelector('svg');
+    if (svg) svg.style.display = 'none';
+
+    // Apply icon as CSS background layered over the gradient
+    var sizePct = _cwCustomBubbleIconSize + '%';
+    bubble.style.backgroundImage = "url('" + _cwCustomBubbleIconUrl.replace(/'/g, "\\'") + "')";
+    bubble.style.backgroundSize = sizePct;
+    bubble.style.backgroundPosition = 'center';
+    bubble.style.backgroundRepeat = 'no-repeat';
+    return true;
   }
 
-  // Listen for postMessage from widget iframe
+  // Intercept the chatwoot-widget 'loaded' string message to get channelConfig
   window.addEventListener('message', function (e) {
     try {
-      var data = e.data;
-      // Our widget sends plain object; Chatwoot SDK sends strings — ignore strings
-      if (typeof data !== 'object' || !data || data.event !== 'cw-custom-bubble-icon') return;
-      var iconUrl = data.iconUrl;
-      if (!iconUrl) return;
+      if (typeof e.data !== 'string' || e.data.indexOf('chatwoot-widget:') !== 0) return;
+      var msg = JSON.parse(e.data.replace('chatwoot-widget:', ''));
+      if (msg.event !== 'loaded') return;
+      var ch = msg.config && msg.config.channelConfig;
+      if (!ch || !ch.customBubbleIconUrl) return;
 
-      _cwCustomBubbleIconUrl = iconUrl;
+      _cwCustomBubbleIconUrl = ch.customBubbleIconUrl;
+      _cwCustomBubbleIconSize = ch.customBubbleIconSize || 60;
 
-      // Try immediately; if bubble not yet in DOM, poll until it appears
-      if (!_applyCwBubbleIcon()) {
-        var attempts = 0;
-        var poll = setInterval(function () {
-          if (_applyCwBubbleIcon() || ++attempts > 40) clearInterval(poll);
-        }, 250);
-      }
+      // Bubble may not exist yet — poll until it appears
+      var attempts = 0;
+      var poll = setInterval(function () {
+        if (_applyCwBubbleIcon() || ++attempts > 40) clearInterval(poll);
+      }, 150);
     } catch (_) {}
   });
 
-  // Also try on chatwoot:ready in case postMessage arrived first
+  // Also re-apply on chatwoot:ready (handles page re-navigation edge cases)
   window.addEventListener('chatwoot:ready', function () {
-    setTimeout(function () { _applyCwBubbleIcon(); }, 100);
+    setTimeout(function () { _applyCwBubbleIcon(); }, 200);
   });
 
   window.addEventListener('chatwoot:ready', function () {
