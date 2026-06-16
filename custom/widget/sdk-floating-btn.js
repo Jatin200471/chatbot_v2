@@ -114,22 +114,27 @@
   // This works regardless of which sdk.js is served.
   var _cwCustomBubbleIconUrl = null;
   var _cwCustomBubbleIconSize = 60;
+  var _cwWidgetColor = null;
 
   function _applyCwBubbleIcon() {
     if (!_cwCustomBubbleIconUrl) return false;
     var bubble = document.querySelector('.woot-widget-bubble:not(.woot--close)');
     if (!bubble) return false;
 
-    // Hide SVG child so it doesn't cover the background image
+    // Hide SVG so it doesn't render on top of background layers
     var svg = bubble.querySelector('svg');
     if (svg) svg.style.display = 'none';
 
-    // Apply icon as CSS background layered over the gradient
-    var sizePct = _cwCustomBubbleIconSize + '%';
-    bubble.style.backgroundImage = "url('" + _cwCustomBubbleIconUrl.replace(/'/g, "\\'") + "')";
-    bubble.style.backgroundSize = sizePct;
-    bubble.style.backgroundPosition = 'center';
-    bubble.style.backgroundRepeat = 'no-repeat';
+    // Layer 1 (top): custom icon centered at configured size
+    // Layer 2 (bottom): original widget gradient/color
+    var iconUrl = "url('" + _cwCustomBubbleIconUrl.replace(/'/g, "\\'") + "')";
+    var sizePct = (_cwCustomBubbleIconSize || 60) + '%';
+    var bgColor = _cwWidgetColor || '#1f93ff';
+
+    bubble.style.backgroundImage = iconUrl + ', ' + bgColor;
+    bubble.style.backgroundSize = sizePct + ', cover';
+    bubble.style.backgroundPosition = 'center, center';
+    bubble.style.backgroundRepeat = 'no-repeat, no-repeat';
     return true;
   }
 
@@ -144,6 +149,7 @@
 
       _cwCustomBubbleIconUrl = ch.customBubbleIconUrl;
       _cwCustomBubbleIconSize = ch.customBubbleIconSize || 60;
+      _cwWidgetColor = ch.widgetColor || '#1f93ff';
 
       // Bubble may not exist yet — poll until it appears
       var attempts = 0;
