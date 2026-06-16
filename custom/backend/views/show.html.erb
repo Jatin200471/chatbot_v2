@@ -40,6 +40,7 @@
         customBrandingText: <%= @web_widget.custom_branding_text.to_json.html_safe %>,
         customBrandingUrl: <%= @web_widget.custom_branding_url.to_json.html_safe %>,
         customBubbleIconUrl: <%= @web_widget.custom_bubble_icon_url.to_json.html_safe %>,
+        customBubbleIconSize: <%= (@web_widget.custom_bubble_icon_size || 60).to_json.html_safe %>,
       }
       window.chatwootPubsubToken = '<%= @contact_inbox.pubsub_token %>'
       window.authToken = '<%= @token %>'

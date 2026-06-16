@@ -177,6 +177,7 @@ export const IFrameHelper = {
       IFrameHelper.onLoad({
         widgetColor: message.config.channelConfig.widgetColor,
         customBubbleIconUrl: message.config.channelConfig.customBubbleIconUrl,
+        customBubbleIconSize: message.config.channelConfig.customBubbleIconSize || 60,
       });
       IFrameHelper.toggleCloseButton();
 
@@ -297,7 +298,7 @@ export const IFrameHelper = {
     IFrameHelper.sendMessage('push-event', { eventName });
   },
 
-  onLoad: ({ widgetColor, customBubbleIconUrl }) => {
+  onLoad: ({ widgetColor, customBubbleIconUrl, customBubbleIconSize }) => {
     const iframe = IFrameHelper.getAppFrame();
     iframe.style.visibility = '';
     iframe.setAttribute('id', `chatwoot_live_chat_widget`);
@@ -330,33 +331,14 @@ export const IFrameHelper = {
     addClasses(closeBubble, closeBtnClassName);
 
     if (customBubbleIconUrl) {
-      chatIcon.style.background = widgetColor;
+      const sizePct = (customBubbleIconSize || 60) + '%';
+      // CSS background layering: icon on top, gradient/color underneath
+      // querySelector works on chatIcon directly (no need for DOM append first)
+      chatIcon.style.background =
+        `url('${customBubbleIconUrl}') center/${sizePct} no-repeat, ${widgetColor}`;
       closeBubble.style.background = widgetColor;
-
-      // Remove SVG entirely - it affects layout even when hidden
-      const svgIcon = document.getElementById('woot-widget-bubble-icon');
-      if (svgIcon) svgIcon.remove();
-
-      // Make button a flex container so img centers perfectly (using setAttribute to override !important CSS)
-      const existingStyle = chatIcon.getAttribute('style') || '';
-      chatIcon.setAttribute('style',
-        existingStyle +
-        '; display: flex !important; align-items: center !important;' +
-        ' justify-content: center !important; overflow: hidden !important; padding: 0 !important;'
-      );
-
-      // Inject img sized explicitly to fill the 64x64 bubble
-      const customImg = document.createElement('img');
-      customImg.src = customBubbleIconUrl;
-      customImg.setAttribute('data-cw-custom-icon', '1');
-      customImg.alt = '';
-      customImg.setAttribute('style',
-        'width: 64px !important; height: 64px !important;' +
-        ' object-fit: cover !important; object-position: center center !important;' +
-        ' border-radius: 50% !important; display: block !important;' +
-        ' pointer-events: none !important; flex-shrink: 0 !important;'
-      );
-      chatIcon.appendChild(customImg);
+      const svgIcon = chatIcon.querySelector('svg');
+      if (svgIcon) svgIcon.style.display = 'none';
     } else {
       chatIcon.style.background = widgetColor;
       closeBubble.style.background = widgetColor;

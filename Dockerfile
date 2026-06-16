@@ -169,6 +169,8 @@ COPY custom/backend/migrations/20260521000001_add_branding_to_channel_web_widget
      /app/db/migrate/20260521000001_add_branding_to_channel_web_widgets.rb
 COPY custom/backend/migrations/20260521000002_add_bubble_icon_to_channel_web_widgets.rb \
      /app/db/migrate/20260521000002_add_bubble_icon_to_channel_web_widgets.rb
+COPY custom/backend/migrations/20260521000003_add_bubble_icon_size_to_channel_web_widgets.rb \
+     /app/db/migrate/20260521000003_add_bubble_icon_size_to_channel_web_widgets.rb
 
 # ── Frontend: Dashboard & Widget files processed by Vite in Stage 1 ────────────
 # All Vue components, store modules, and helpers are bundled by Vite in Stage 1

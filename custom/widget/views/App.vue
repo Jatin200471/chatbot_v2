@@ -117,19 +117,12 @@ export default {
     },
   },
   mounted() {
-    const { websiteToken, locale, widgetColor, customBrandingText, customBrandingUrl, customBubbleIconUrl } = window.chatwootWebChannel;
+    const { websiteToken, locale, widgetColor, customBrandingText, customBrandingUrl, customBubbleIconUrl, customBubbleIconSize } = window.chatwootWebChannel;
     this.setLocale(locale);
     this.setWidgetColor(widgetColor);
     this.setWidgetColorVariable(widgetColor);
     this.setBrandingConfig({ customBrandingText: customBrandingText || '', customBrandingUrl: customBrandingUrl || '' });
 
-    // Send custom bubble icon URL to parent SDK — delayed so SDK bubble is created first
-    if (customBubbleIconUrl) {
-      const _iconUrl = customBubbleIconUrl;
-      setTimeout(function () {
-        try { window.parent.postMessage({ event: 'cw-custom-bubble-icon', iconUrl: _iconUrl }, '*'); } catch (_) {}
-      }, 1200);
-    }
     setHeader(window.authToken);
 
     if (this.isIFrame) {

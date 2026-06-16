@@ -48,6 +48,7 @@ export default {
       customBrandingUrl: '',
       isUpdatingBranding: false,
       customBubbleIconUrl: '',
+      customBubbleIconSize: 60,
       isUpdatingBubbleIcon: false,
     };
   },
@@ -92,6 +93,7 @@ export default {
       this.customBrandingText = this.inbox.custom_branding_text || '';
       this.customBrandingUrl = this.inbox.custom_branding_url || '';
       this.customBubbleIconUrl = this.inbox.custom_bubble_icon_url || '';
+      this.customBubbleIconSize = this.inbox.custom_bubble_icon_size ?? 60;
     },
     handleHmacFlag() {
       this.updateInbox();
@@ -178,6 +180,7 @@ export default {
           formData: false,
           channel: {
             custom_bubble_icon_url: this.customBubbleIconUrl.trim() || null,
+            custom_bubble_icon_size: Number(this.customBubbleIconSize),
           },
         };
         await this.$store.dispatch('inboxes/updateInbox', payload);
@@ -566,17 +569,38 @@ export default {
             />
           </div>
 
+          <!-- Size slider -->
+          <div class="flex flex-col gap-1.5">
+            <label class="text-sm font-medium text-n-slate-11">
+              Icon Size
+              <span class="text-n-slate-9 font-normal ml-1">{{ customBubbleIconSize }}% of bubble</span>
+            </label>
+            <div class="flex items-center gap-3 max-w-lg">
+              <span class="text-xs text-n-slate-9 w-6">20</span>
+              <input
+                v-model.number="customBubbleIconSize"
+                type="range"
+                min="20"
+                max="90"
+                step="5"
+                class="flex-1 accent-n-brand"
+              />
+              <span class="text-xs text-n-slate-9 w-6">90</span>
+            </div>
+          </div>
+
           <!-- Preview -->
           <div v-if="customBubbleIconUrl" class="flex items-center gap-3">
             <span class="text-xs text-n-slate-9">Preview:</span>
             <div
-              class="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden"
+              class="rounded-full flex items-center justify-center overflow-hidden"
+              style="width:64px;height:64px;"
               :style="{ background: inbox.widget_color || '#1f93ff' }"
             >
               <img
                 :src="customBubbleIconUrl"
                 alt="bubble icon preview"
-                class="w-7 h-7 object-contain"
+                :style="{ width: customBubbleIconSize + '%', height: customBubbleIconSize + '%', objectFit: 'contain' }"
                 @error="$event.target.style.display='none'"
               />
             </div>
