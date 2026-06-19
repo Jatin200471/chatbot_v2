@@ -5,6 +5,8 @@ Rails.application.config.after_initialize do
     private
 
     def clear_onboarding_step
+      return if Account.count <= 1 && !SuperAdmin.exists?
+
       step = custom_attributes&.dig('onboarding_step')
       return unless %w[account_details enrichment].include?(step)
 
