@@ -77,9 +77,9 @@ COPY custom/sdk/IFrameHelper.js app/javascript/sdk/IFrameHelper.js
 #
 # If your CI runner has < 5 GB free RAM, drop --minify entirely (uncomment
 # the alternate command below). Minification can be re-applied as a post-step.
-ENV NODE_OPTIONS="--max-old-space-size=6144 --max-semi-space-size=128 --max-http-header-size=16384"
-ENV UV_THREADPOOL_SIZE=4
-ENV GOMAXPROCS=2
+ENV NODE_OPTIONS="--max-old-space-size=3072 --max-semi-space-size=64 --max-http-header-size=16384"
+ENV UV_THREADPOOL_SIZE=2
+ENV GOMAXPROCS=1
 
 # Pass --build-arg MINIFY=false to skip minification for faster dev builds (~2 min saved).
 # Default is true (minified) for production.
@@ -89,10 +89,10 @@ ARG MINIFY=true
 # When only 1-2 Vue files change, Vite reuses cached transforms for unchanged files.
 # First build: no speedup. Subsequent builds: 30-60% faster.
 RUN --mount=type=cache,target=/chatwoot-src/node_modules/.vite,sharing=locked \
-    if [ "$MINIFY" = "false" ]; then \
-      node_modules/.bin/vite build --config vite.config.ts; \
+    if [ "$MINIFY" = "true" ]; then \
+      node_modules/.bin/vite build --config vite.config.ts --minify terser; \
     else \
-      node_modules/.bin/vite build --config vite.config.ts --minify esbuild; \
+      node_modules/.bin/vite build --config vite.config.ts --minify false; \
     fi
 
 # ── Inject floating End Call button into sdk.js ───────────────────────────
