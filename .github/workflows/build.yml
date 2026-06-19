@@ -20,6 +20,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ── SWAP FIX: Vite build needs extra memory on GitHub free runners ────────
+      # GitHub ubuntu-latest = ~7GB RAM. Chatwoot Vite build spikes to 6GB+.
+      # Adding 8GB swap prevents OOM/exit-139 crashes during minification.
+      - name: Add swap space (fixes Vite OOM crash)
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          echo "=== Memory after swap ==="
+          free -h
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -46,7 +58,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       # Minify only on version tags (production releases).
-      # Branch pushes skip minification — saves ~3 min per dev build.
+      # Branch/main pushes skip minification — saves RAM + ~3 min per build.
       - name: Set build flags
         id: flags
         run: |
@@ -91,9 +103,9 @@ jobs:
 
   # ── Job 2: Deploy to server (only on main branch push) ──────────────────────
   # Requires these GitHub Secrets to be set in repo Settings → Secrets:
-  #   SSH_HOST   — server IP or domain (e.g. 157.90.123.45)
-  #   SSH_USER   — SSH username (e.g. root or ubuntu)
-  #   SSH_KEY    — SSH private key (paste full contents of id_rsa / id_ed25519)
+  #   SSH_HOST    — server IP or domain (e.g. 157.90.123.45)
+  #   SSH_USER    — SSH username (e.g. root or ubuntu)
+  #   SSH_KEY     — SSH private key (paste full contents of id_rsa / id_ed25519)
   #   DEPLOY_PATH — path on server where docker-compose.yaml lives
   deploy:
     needs: build
