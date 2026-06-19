@@ -21,14 +21,18 @@ jobs:
         uses: actions/checkout@v4
 
       # ── SWAP FIX: Vite build needs extra memory on GitHub free runners ────────
-      # GitHub ubuntu-latest = ~7GB RAM. Chatwoot Vite build spikes to 6GB+.
-      # Adding 8GB swap prevents OOM/exit-139 crashes during minification.
+      # Some runners already have /swapfile — so we check before creating.
       - name: Add swap space (fixes Vite OOM crash)
         run: |
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          if [ ! -f /swapfile ]; then
+            sudo fallocate -l 8G /swapfile
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
+          else
+            echo "Swapfile already exists, skipping creation"
+            sudo swapon /swapfile 2>/dev/null || echo "Swap already active"
+          fi
           echo "=== Memory after swap ==="
           free -h
 
@@ -58,7 +62,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       # Minify only on version tags (production releases).
-      # Branch/main pushes skip minification — saves RAM + ~3 min per build.
+      # Branch pushes skip minification — saves RAM + ~3 min per build.
       - name: Set build flags
         id: flags
         run: |
