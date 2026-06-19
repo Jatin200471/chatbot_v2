@@ -1,5 +1,5 @@
 # ── Stage 1: Node.js build environment ────────────────────────────────────────
-FROM node:18-bullseye-slim AS node-builder
+FROM node:20-bullseye-slim AS node-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
