@@ -1,4 +1,4 @@
-name: Build & Deploy
+name: Build & Deploy (Hard Refresh)
 
 on:
   push:
@@ -38,7 +38,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom
+          images: ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-hardrefresh
           tags: |
             type=ref,event=branch
             type=ref,event=tag
@@ -69,15 +69,15 @@ jobs:
             MINIFY=${{ steps.flags.outputs.minify }}
           cache-from: |
             type=gha
-            type=registry,ref=ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom:buildcache
+            type=registry,ref=ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-hardrefresh:buildcache
           cache-to: |
             type=gha,mode=max
-            type=registry,ref=ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom:buildcache,mode=max
+            type=registry,ref=ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-hardrefresh:buildcache,mode=max
 
       - name: Image size report
         if: always()
         run: |
-          SIZE=$(docker manifest inspect ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom:latest \
+          SIZE=$(docker manifest inspect ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-hardrefresh:latest \
             | python3 -c "import sys,json; m=json.load(sys.stdin); print(round(sum(l['size'] for l in m.get('layers',[])) / 1024**2, 1))" 2>/dev/null || echo "N/A")
           echo "### Build Complete" >> $GITHUB_STEP_SUMMARY
           echo "| | |" >> $GITHUB_STEP_SUMMARY
@@ -86,7 +86,7 @@ jobs:
           echo "| Tags | \`${{ steps.meta.outputs.tags }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-custom:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ghcr.io/${{ steps.owner.outputs.name }}/chatwoot-hardrefresh:latest" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   # ── Job 2: Deploy to server (only on main branch push) ──────────────────────
@@ -95,7 +95,6 @@ jobs:
   #   SSH_USER   — SSH username (e.g. root or ubuntu)
   #   SSH_KEY    — SSH private key (paste full contents of id_rsa / id_ed25519)
   #   DEPLOY_PATH — path on server where docker-compose.yaml lives
-  #                 (e.g. /home/ubuntu/chatwoot  or  /root/chatwoot)
   deploy:
     needs: build
     runs-on: ubuntu-latest
@@ -139,4 +138,4 @@ jobs:
         run: |
           echo "### Deploy Complete ✅" >> $GITHUB_STEP_SUMMARY
           echo "Server: \`${{ secrets.SSH_HOST }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "Image: \`ghcr.io/${{ github.repository_owner }}/chatwoot-custom:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "Image: \`ghcr.io/${{ github.repository_owner }}/chatwoot-hardrefresh:latest\`" >> $GITHUB_STEP_SUMMARY

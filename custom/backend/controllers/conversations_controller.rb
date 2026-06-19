@@ -151,6 +151,20 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       return render json: { error: 'No agent_id configured on this inbox' }, status: :unprocessable_entity
     end
 
+    # Clear voice_ended_at so the FIRST heartbeat of this new call does not see
+    # a stale ended signal from the previous call and immediately terminate.
+    begin
+      if @contact
+        attrs = @contact.additional_attributes || {}
+        if attrs.key?('voice_ended_at')
+          attrs.delete('voice_ended_at')
+          @contact.update_columns(additional_attributes: attrs)
+        end
+      end
+    rescue StandardError => _e
+      # non-critical — proceed even if clear fails
+    end
+
     # TWO MODES — agent_id never goes to the browser in either case:
     #
     # 1. PRIVATE agent (API key configured):

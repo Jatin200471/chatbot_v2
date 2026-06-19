@@ -50,7 +50,25 @@ export default {
       customBubbleIconUrl: '',
       customBubbleIconSize: 60,
       isUpdatingBubbleIcon: false,
-    };
+      widgetBgColor: '',
+      widgetBgImageUrl: '',
+      widgetFontFamily: '',
+      welcomeHeadingColor: '',
+      welcomeHeadingSize: 24,
+      welcomeTaglineColor: '',
+      welcomeTaglineSize: 14,
+      ctaBgColor: '',
+      ctaTextColor: '',
+      botBubbleBgColor: '',
+      botBubbleTextColor: '',
+      userBubbleBgColor: '',
+      userBubbleTextColor: '',
+      inputFocusColor: '',
+      isUpdatingAppearance: false,
+      
+      // Widget Branding / Bubble Icon / Appearance removed in this build.
+      // Kept legacy fields for backward compatibility if backend sends them.
+    }; 
   },
   validations: {
     whatsAppInboxAPIKey: { required },
@@ -94,6 +112,20 @@ export default {
       this.customBrandingUrl = this.inbox.custom_branding_url || '';
       this.customBubbleIconUrl = this.inbox.custom_bubble_icon_url || '';
       this.customBubbleIconSize = this.inbox.custom_bubble_icon_size ?? 60;
+      this.widgetBgColor = this.inbox.widget_bg_color || '';
+      this.widgetBgImageUrl = this.inbox.widget_bg_image_url || '';
+      this.widgetFontFamily = this.inbox.widget_font_family || '';
+      this.welcomeHeadingColor = this.inbox.welcome_heading_color || '';
+      this.welcomeHeadingSize = this.inbox.welcome_heading_size || 24;
+      this.welcomeTaglineColor = this.inbox.welcome_tagline_color || '';
+      this.welcomeTaglineSize = this.inbox.welcome_tagline_size || 14;
+      this.ctaBgColor = this.inbox.cta_bg_color || '';
+      this.ctaTextColor = this.inbox.cta_text_color || '';
+      this.botBubbleBgColor = this.inbox.bot_bubble_bg_color || '';
+      this.botBubbleTextColor = this.inbox.bot_bubble_text_color || '';
+      this.userBubbleBgColor = this.inbox.user_bubble_bg_color || '';
+      this.userBubbleTextColor = this.inbox.user_bubble_text_color || '';
+      this.inputFocusColor = this.inbox.input_focus_color || '';
     },
     handleHmacFlag() {
       this.updateInbox();
@@ -208,6 +240,37 @@ export default {
         useAlert(this.$t('INBOX_MGMT.EDIT.API.ERROR_MESSAGE'));
       } finally {
         this.isUpdatingBranding = false;
+      }
+    },
+    async updateAppearanceSettings() {
+      this.isUpdatingAppearance = true;
+      try {
+        const payload = {
+          id: this.inbox.id,
+          formData: false,
+          channel: {
+            widget_bg_color: this.widgetBgColor.trim() || null,
+            widget_bg_image_url: this.widgetBgImageUrl.trim() || null,
+            widget_font_family: this.widgetFontFamily.trim() || null,
+            welcome_heading_color: this.welcomeHeadingColor.trim() || null,
+            welcome_heading_size: this.welcomeHeadingSize ? Number(this.welcomeHeadingSize) : null,
+            welcome_tagline_color: this.welcomeTaglineColor.trim() || null,
+            welcome_tagline_size: this.welcomeTaglineSize ? Number(this.welcomeTaglineSize) : null,
+            cta_bg_color: this.ctaBgColor.trim() || null,
+            cta_text_color: this.ctaTextColor.trim() || null,
+            bot_bubble_bg_color: this.botBubbleBgColor.trim() || null,
+            bot_bubble_text_color: this.botBubbleTextColor.trim() || null,
+            user_bubble_bg_color: this.userBubbleBgColor.trim() || null,
+            user_bubble_text_color: this.userBubbleTextColor.trim() || null,
+            input_focus_color: this.inputFocusColor.trim() || null,
+          },
+        };
+        await this.$store.dispatch('inboxes/updateInbox', payload);
+        useAlert(this.$t('INBOX_MGMT.EDIT.API.SUCCESS_MESSAGE'));
+      } catch (error) {
+        useAlert(this.$t('INBOX_MGMT.EDIT.API.ERROR_MESSAGE'));
+      } finally {
+        this.isUpdatingAppearance = false;
       }
     },
     async updateVoiceAgentSettings() {
@@ -494,128 +557,6 @@ export default {
         </div>
       </SettingsSection>
       <!-- ─── END VOICE AGENT ─── -->
-
-      <!-- ───────────────────────────────────────────────
-           WIDGET BRANDING SECTION
-      ─────────────────────────────────────────────── -->
-      <SettingsSection
-        title="Widget Branding"
-        sub-title="Customise the 'Powered by' label shown at the bottom of the chat widget. Optionally add a URL — visitors can click the label to open it in a new tab."
-      >
-        <div class="flex flex-col w-full max-w-3xl gap-5">
-          <!-- Branding text -->
-          <div class="flex flex-col gap-1.5">
-            <label class="text-sm font-medium text-n-slate-11" for="customBrandingText">
-              Branding Label
-              <span class="text-n-slate-9 font-normal ml-1">leave blank to use default</span>
-            </label>
-            <input
-              id="customBrandingText"
-              v-model="customBrandingText"
-              type="text"
-              placeholder="Powered by Your Company"
-              class="chatwoot-input w-full max-w-lg"
-            />
-          </div>
-
-          <!-- Branding URL -->
-          <div class="flex flex-col gap-1.5">
-            <label class="text-sm font-medium text-n-slate-11" for="customBrandingUrl">
-              Branding Link URL
-              <span class="text-n-slate-9 font-normal ml-1">optional — makes the label clickable</span>
-            </label>
-            <input
-              id="customBrandingUrl"
-              v-model="customBrandingUrl"
-              type="url"
-              placeholder="https://yourcompany.com"
-              class="chatwoot-input w-full max-w-lg"
-            />
-            <p class="text-xs text-n-slate-10 mt-0.5">
-              The link opens in a new tab. Leave blank to show plain text.
-            </p>
-          </div>
-
-          <div>
-            <NextButton
-              label="Save Branding"
-              :is-loading="isUpdatingBranding"
-              @click="updateBrandingSettings"
-            />
-          </div>
-        </div>
-      </SettingsSection>
-      <!-- ─── END WIDGET BRANDING ─── -->
-
-      <!-- ───────────────────────────────────────────────
-           CUSTOM BUBBLE ICON SECTION
-      ─────────────────────────────────────────────── -->
-      <SettingsSection
-        title="Custom Bubble Icon"
-        sub-title="Replace the default chat bubble icon with your own image. Enter a direct image URL (PNG, SVG, or WebP recommended). Leave blank to use the default Chatwoot icon."
-      >
-        <div class="flex flex-col w-full max-w-3xl gap-5">
-          <div class="flex flex-col gap-1.5">
-            <label class="text-sm font-medium text-n-slate-11" for="customBubbleIconUrl">
-              Icon Image URL
-              <span class="text-n-slate-9 font-normal ml-1">direct link to image</span>
-            </label>
-            <input
-              id="customBubbleIconUrl"
-              v-model="customBubbleIconUrl"
-              type="url"
-              placeholder="https://yoursite.com/chat-icon.png"
-              class="chatwoot-input w-full max-w-lg"
-            />
-          </div>
-
-          <!-- Size slider -->
-          <div class="flex flex-col gap-1.5">
-            <label class="text-sm font-medium text-n-slate-11">
-              Icon Size
-              <span class="text-n-slate-9 font-normal ml-1">{{ customBubbleIconSize }}% of bubble</span>
-            </label>
-            <div class="flex items-center gap-3 max-w-lg">
-              <span class="text-xs text-n-slate-9 w-6">20</span>
-              <input
-                v-model.number="customBubbleIconSize"
-                type="range"
-                min="20"
-                max="90"
-                step="5"
-                class="flex-1 accent-n-brand"
-              />
-              <span class="text-xs text-n-slate-9 w-6">90</span>
-            </div>
-          </div>
-
-          <!-- Preview -->
-          <div v-if="customBubbleIconUrl" class="flex items-center gap-3">
-            <span class="text-xs text-n-slate-9">Preview:</span>
-            <div
-              class="rounded-full flex items-center justify-center overflow-hidden"
-              style="width:64px;height:64px;"
-              :style="{ background: inbox.widget_color || '#1f93ff' }"
-            >
-              <img
-                :src="customBubbleIconUrl"
-                alt="bubble icon preview"
-                :style="{ width: customBubbleIconSize + '%', height: customBubbleIconSize + '%', objectFit: 'contain' }"
-                @error="$event.target.style.display='none'"
-              />
-            </div>
-          </div>
-
-          <div>
-            <NextButton
-              label="Save Bubble Icon"
-              :is-loading="isUpdatingBubbleIcon"
-              @click="updateBubbleIconSettings"
-            />
-          </div>
-        </div>
-      </SettingsSection>
-      <!-- ─── END CUSTOM BUBBLE ICON ─── -->
 
     </div>
   </div>

@@ -28,12 +28,8 @@
         timezone: '<%= @web_widget.inbox.timezone %>',
         allowMessagesAfterResolved: <%= @web_widget.inbox.allow_messages_after_resolved %>,
         disableBranding: <%= @web_widget.inbox.account.feature_enabled?('disable_branding') %>,
-        // Legacy ElevenLabs fields (kept for backwards compat)
         enableElevenLabsVoice: <%= @web_widget.elevenlabs_voice? %>,
         elevenLabsAgentId: '<%= @web_widget.elevenlabs_agent_id.to_s %>',
-        // Voice Agent — generic multi-provider config
-        // voiceAgentEnabled is true when the 'elevenlabs_voice' feature flag is set
-        // OR when the admin saved voice agent settings (provider + api key present)
         voiceAgentEnabled: <%= (@web_widget.elevenlabs_voice? || (@web_widget.voice_agent_api_key.present? && @web_widget.voice_agent_provider.present?)) %>,
         voiceAgentProvider: '<%= @web_widget.voice_agent_provider.to_s %>',
         voiceAgentConfigData: <%= (@web_widget.voice_agent_config_data || {}).to_json.html_safe %>,
@@ -41,6 +37,23 @@
         customBrandingUrl: <%= @web_widget.custom_branding_url.to_json.html_safe %>,
         customBubbleIconUrl: <%= @web_widget.custom_bubble_icon_url.to_json.html_safe %>,
         customBubbleIconSize: <%= (@web_widget.custom_bubble_icon_size || 60).to_json.html_safe %>,
+        widgetBgColor: <%= @web_widget.widget_bg_color.to_json.html_safe %>,
+        widgetBgImageUrl: <%= @web_widget.widget_bg_image_url.to_json.html_safe %>,
+        widgetFontFamily: <%= @web_widget.widget_font_family.to_json.html_safe %>,
+        welcomeHeadingColor: <%= @web_widget.welcome_heading_color.to_json.html_safe %>,
+        welcomeHeadingSize: <%= (@web_widget.welcome_heading_size || 0).to_json.html_safe %>,
+        welcomeTaglineColor: <%= @web_widget.welcome_tagline_color.to_json.html_safe %>,
+        welcomeTaglineSize: <%= (@web_widget.welcome_tagline_size || 0).to_json.html_safe %>,
+        onlineStatusColor: <%= @web_widget.online_status_color.to_json.html_safe %>,
+        replyTimeColor: <%= @web_widget.reply_time_color.to_json.html_safe %>,
+        ctaBgColor: <%= @web_widget.cta_bg_color.to_json.html_safe %>,
+        ctaTextColor: <%= @web_widget.cta_text_color.to_json.html_safe %>,
+        botBubbleBgColor: <%= @web_widget.bot_bubble_bg_color.to_json.html_safe %>,
+        botBubbleTextColor: <%= @web_widget.bot_bubble_text_color.to_json.html_safe %>,
+        userBubbleBgColor: <%= @web_widget.user_bubble_bg_color.to_json.html_safe %>,
+        userBubbleTextColor: <%= @web_widget.user_bubble_text_color.to_json.html_safe %>,
+        inputFocusColor: <%= @web_widget.input_focus_color.to_json.html_safe %>,
+        messageFontSize: <%= (@web_widget.message_font_size || 0).to_json.html_safe %>,
       }
       window.chatwootPubsubToken = '<%= @contact_inbox.pubsub_token %>'
       window.authToken = '<%= @token %>'

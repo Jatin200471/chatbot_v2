@@ -40,7 +40,15 @@ class Channel::WebWidget < ApplicationRecord
                     { selected_feature_flags: [] }, :elevenlabs_agent_id,
                     :voice_agent_provider, :voice_agent_api_key, :voice_agent_config_data,
                     :custom_branding_text, :custom_branding_url,
-                    :custom_bubble_icon_url, :custom_bubble_icon_size].freeze
+                    :custom_bubble_icon_url, :custom_bubble_icon_size,
+                    :widget_bg_color, :widget_bg_image_url, :widget_font_family,
+                    :welcome_heading_color, :welcome_heading_size,
+                    :welcome_tagline_color, :welcome_tagline_size,
+                    :cta_bg_color, :cta_text_color,
+                    :bot_bubble_bg_color, :bot_bubble_text_color,
+                    :user_bubble_bg_color, :user_bubble_text_color,
+                    :input_focus_color,
+                    :message_font_size].freeze
 
   before_validation :validate_pre_chat_options
   validates :website_url, presence: true

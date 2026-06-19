@@ -34,7 +34,7 @@ services:
       retries: 5
 
   rails:
-    image: ghcr.io/jatinn71/chatwoot-custom:latest
+    image: ghcr.io/jatinn71/chatwoot-hardrefresh:latest
     pull_policy: always
     restart: unless-stopped
     depends_on:
@@ -108,7 +108,7 @@ services:
         exec bundle exec rails s -p 3000 -b '0.0.0.0'
 
   sidekiq:
-    image: ghcr.io/jatinn71/chatwoot-custom:latest
+    image: ghcr.io/jatinn71/chatwoot-hardrefresh:latest
     pull_policy: always
     restart: unless-stopped
     depends_on:
