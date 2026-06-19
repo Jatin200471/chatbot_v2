@@ -17,7 +17,7 @@ export default {
     ChatAttachmentButton,
     ChatSendButton,
     ElevenLabsVoiceButton,
-    EmojiInput,
+    EmojiPicker,
     FluentIcon,
     ResizableTextArea,
   },
@@ -52,6 +52,12 @@ export default {
       shouldShowEmojiPicker: 'appConfig/getShouldShowEmojiPicker',
       conversationEnded: 'appConfig/getConversationEnded',
     }),
+    ctaBgColor() {
+      return window.chatwootWebChannel?.ctaBgColor || null;
+    },
+    ctaTextColor() {
+      return window.chatwootWebChannel?.ctaTextColor || null;
+    },
     showAttachment() {
       return (
         this.shouldShowFilePicker &&
@@ -151,7 +157,7 @@ export default {
     </p>
     <button
       class="px-4 py-2 rounded-md text-sm font-medium text-white transition-opacity hover:opacity-90"
-      :style="{ background: widgetColor }"
+      :style="{ background: ctaBgColor || widgetColor, color: ctaTextColor || undefined }"
       @click="handleRestart"
     >
       {{ $t('CONVERSATION_RESOLVED.RESTART_BUTTON') }}
@@ -202,7 +208,7 @@ export default {
           }"
         />
       </button>
-      <EmojiInput
+      <EmojiPicker
         v-if="shouldShowEmojiPicker && showEmojiPicker"
         v-on-clickaway="hideEmojiPicker"
         :on-click="emojiOnClick"

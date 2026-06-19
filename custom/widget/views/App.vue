@@ -122,6 +122,8 @@ export default {
     this.setWidgetColor(widgetColor);
     this.setWidgetColorVariable(widgetColor);
     this.setBrandingConfig({ customBrandingText: customBrandingText || '', customBrandingUrl: customBrandingUrl || '' });
+    this.applyChannelMessages();
+    this.injectCustomAppearance();
 
     setHeader(window.authToken);
 
@@ -180,6 +182,127 @@ export default {
     ...mapActions('agent', ['fetchAvailableAgents']),
     ...mapActions('contacts', ['clearCurrentUser', 'loadSavedUserData']),
     ...mapActions('voiceAgentConfig', ['fetchVoiceAgentConfig']),
+
+    applyChannelMessages() {
+      const ch = window.chatwootWebChannel || {};
+      if (ch.availableMessage || ch.unavailableMessage || ch.replyTimeText) {
+        this.$store.commit('appConfig/SET_WIDGET_APP_CONFIG', {
+          ...this.$store.state.appConfig,
+          availableMessage: ch.availableMessage || '',
+          unavailableMessage: ch.unavailableMessage || '',
+          replyTimeText: ch.replyTimeText || '',
+        });
+      }
+    },
+
+    injectCustomAppearance() {
+      const ch = window.chatwootWebChannel || {};
+      const rules = [];
+
+      // Extract solid color from widget_color (gradient → first hex)
+      const widgetColorRaw = ch.widgetColor || '#1f93ff';
+      const solidWidgetColor = (() => {
+        if (!widgetColorRaw.includes('gradient')) return widgetColorRaw;
+        const m = widgetColorRaw.match(/#[a-fA-F0-9]{3,8}/);
+        return m ? m[0] : '#1f93ff';
+      })();
+
+      // Override Chatwoot's --color-n-brand so focus rings use widget color
+      rules.push(`:root{--color-n-brand:${solidWidgetColor}!important}`);
+
+      // Widget body background (solid or gradient)
+      if (ch.widgetBgColor) {
+        const bg = ch.widgetBgColor.trim();
+        rules.push(
+          `.bg-n-slate-2{background:${bg}!important}` +
+          `.dark .bg-n-solid-1{background:${bg}!important}`
+        );
+      }
+
+      // Input focus — override box-shadow (Chatwoot uses shadow-n-brand on focus)
+      const focusColor = ch.inputFocusColor || solidWidgetColor;
+      rules.push(
+        `[class*="rounded-[7px]"]:focus-within,` +
+        `.woot-chat-input:focus-within` +
+        `{box-shadow:0 0 0 1px ${focusColor},0 0 2px 3px ${focusColor}33!important}`
+      );
+
+      // Google Font — load via <link>
+      if (ch.widgetFontFamily) {
+        const fname = ch.widgetFontFamily.trim();
+        if (fname) {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fname).replace(/%20/g,'+')}:wght@400;500;600&display=swap`;
+          document.head.appendChild(link);
+          rules.push(`body,*{font-family:'${fname}',sans-serif!important}`);
+        }
+      }
+
+      // Message font size (same for bot + user)
+      if (ch.messageFontSize) {
+        rules.push(`.chat-bubble,.chat-bubble *{font-size:${ch.messageFontSize}px!important}`);
+      }
+
+      // Welcome heading / tagline  (structural selectors — reliable across Chatwoot versions)
+      if (ch.welcomeHeadingColor || ch.welcomeHeadingSize) {
+        const c = ch.welcomeHeadingColor ? `color:${ch.welcomeHeadingColor}!important;` : '';
+        const s = ch.welcomeHeadingSize ? `font-size:${ch.welcomeHeadingSize}px!important;` : '';
+        rules.push(`#app h2{${c}${s}}`);
+      }
+      if (ch.welcomeTaglineColor || ch.welcomeTaglineSize) {
+        const c = ch.welcomeTaglineColor ? `color:${ch.welcomeTaglineColor}!important;` : '';
+        const s = ch.welcomeTaglineSize ? `font-size:${ch.welcomeTaglineSize}px!important;` : '';
+        // tagline is typically the first <p> after the h2 in the home view
+        rules.push(`#app h2+p,#app h2~p:first-of-type{${c}${s}}`);
+      }
+
+      // Start/Continue Conversation button — gradient support
+      // CSS `color` does not support gradients; use background-clip:text on the span only.
+      // The button itself gets the solid extracted color (for chevron icon + fallback).
+      if (widgetColorRaw.includes('gradient')) {
+        // Button & icon: use solid extracted color
+        rules.push(`.cw-start-conv-btn{color:${solidWidgetColor}!important}`);
+        // Span (text only): gradient-text technique
+        rules.push(
+          `.cw-start-conv-btn span{` +
+          `background:${widgetColorRaw}!important;` +
+          `-webkit-background-clip:text!important;` +
+          `-webkit-text-fill-color:transparent!important;` +
+          `background-clip:text!important` +
+          `}`
+        );
+      }
+
+      // CTA button — targets FormKit submit + all buttons in the widget home
+      if (ch.ctaBgColor || ch.ctaTextColor) {
+        const bg = ch.ctaBgColor ? `background:${ch.ctaBgColor}!important;` : '';
+        const tc = ch.ctaTextColor ? `color:${ch.ctaTextColor}!important;` : '';
+        // .formkit-form button = pre-chat form submit button
+        // button[data-type="submit"] = FormKit rendered button
+        // .button.success = Chatwoot Foundation button
+        rules.push(
+          `.formkit-form button,button[data-type="submit"],.button.success,` +
+          `.start-conversation-button button,.woot-widget-wrap .button` +
+          `{${bg}${tc}}`
+        );
+      }
+
+      // Notification popup: transparent card chrome but give it an explicit
+      // white content background so widgetBgColor doesn't bleed through.
+      rules.push(
+        `.unread-notification-wrap{background:transparent!important;box-shadow:none!important;border:none!important}` +
+        `.unread-notification-wrap .notification-message{background:#fff!important;box-shadow:0 1px 4px rgba(0,0,0,.12)!important;border-radius:8px!important}` +
+        `.unread-notification{background:transparent!important;box-shadow:none!important;border:none!important}`
+      );
+
+      if (rules.length) {
+        const style = document.createElement('style');
+        style.id = 'cw-custom-appearance';
+        style.textContent = rules.join('\n');
+        document.head.appendChild(style);
+      }
+    },
 
     setWidgetColorVariable(widgetColor) {
       if (!widgetColor) return;
@@ -353,6 +476,7 @@ export default {
           this.setLocale(message.locale);
           this.setBubbleLabel();
           this.setAppConfig(message);
+          this.applyChannelMessages();
           this.configReady = true;
           this.fetchAvailableAgents(websiteToken);
           this.setCampaignReadData(message.campaignsSnoozedTill);

@@ -12,6 +12,9 @@ WORKDIR /chatwoot-src
 
 RUN git clone --depth 1 https://github.com/chatwoot/chatwoot.git .
 
+# Fix Vite 6 ESM — vite-plugin-ruby is ESM-only, patch require() to import()
+RUN sed -i "s/require('vite-plugin-ruby')/await import('vite-plugin-ruby')/" vite.config.ts
+
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
     pnpm install --frozen-lockfile
 
@@ -41,8 +44,14 @@ COPY custom/widget/api/conversation.js app/javascript/widget/api/conversation.js
 COPY custom/widget/api/endpoint.js app/javascript/widget/api/endPoints.js
 COPY custom/widget/api/inboxConfig.js app/javascript/widget/api/inboxConfig.js
 COPY custom/dashboard/ConfigurationPage.vue app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue
+COPY custom/dashboard/Settings.vue app/javascript/dashboard/routes/dashboard/settings/inbox/Settings.vue
+COPY custom/dashboard/widget-preview/Widget.vue app/javascript/dashboard/routes/dashboard/settings/inbox/widget-preview/Widget.vue
+COPY custom/dashboard/widget-preview/WidgetHead.vue app/javascript/dashboard/routes/dashboard/settings/inbox/widget-preview/WidgetHead.vue
+COPY custom/dashboard/widget-preview/WidgetBody.vue app/javascript/dashboard/routes/dashboard/settings/inbox/widget-preview/WidgetBody.vue
+COPY custom/dashboard/widget-preview/WidgetFooter.vue app/javascript/dashboard/routes/dashboard/settings/inbox/widget-preview/WidgetFooter.vue
 COPY custom/dashboard/ResolveAction.vue app/javascript/dashboard/components/buttons/ResolveAction.vue
 COPY custom/dashboard/ColorPicker.vue app/javascript/dashboard/components-next/colorpicker/ColorPicker.vue
+COPY custom/widget/components/Availability/AvailabilityContainer.vue app/javascript/widget/components/Availability/AvailabilityContainer.vue
 COPY custom/sdk/IFrameHelper.js app/javascript/sdk/IFrameHelper.js
 
 # ── Memory settings safe for GitHub Actions Docker BuildKit ──────────────────
@@ -106,7 +115,12 @@ COPY custom/backend/controllers/conversations_controller.rb /app/app/controllers
 COPY custom/backend/controllers/concerns/website_token_helper.rb /app/app/controllers/concerns/website_token_helper.rb
 COPY custom/backend/controllers/security_headers_concern.rb /app/app/controllers/concerns/security_headers_concern.rb
 COPY custom/backend/initializers/rack_attack.rb /app/config/initializers/rack_attack.rb
+COPY custom/backend/initializers/installation_config_guard.rb /app/config/initializers/installation_config_guard.rb
+COPY custom/backend/initializers/enterprise_limits_patch.rb /app/config/initializers/enterprise_limits_patch.rb
+COPY custom/backend/initializers/skip_onboarding.rb /app/config/initializers/skip_onboarding.rb
 COPY custom/backend/routes.rb /app/config/routes.rb
+COPY custom/backend/controllers/enterprise/api/v1/stubs_controller.rb /app/app/controllers/enterprise/api/v1/stubs_controller.rb
+COPY custom/backend/views/widget_configs/create.json.jbuilder /app/app/views/api/v1/widget/configs/create.json.jbuilder
 COPY custom/backend/migrations/20260520000001_add_elevenlabs_to_channel_web_widgets.rb \
      /app/db/migrate/20260520000001_add_elevenlabs_to_channel_web_widgets.rb
 COPY custom/backend/migrations/20260520000002_add_voice_agent_config_to_channel_web_widgets.rb \
@@ -117,6 +131,14 @@ COPY custom/backend/migrations/20260521000002_add_bubble_icon_to_channel_web_wid
      /app/db/migrate/20260521000002_add_bubble_icon_to_channel_web_widgets.rb
 COPY custom/backend/migrations/20260521000003_add_bubble_icon_size_to_channel_web_widgets.rb \
      /app/db/migrate/20260521000003_add_bubble_icon_size_to_channel_web_widgets.rb
+COPY custom/backend/migrations/20260521000004_add_widget_appearance_to_channel_web_widgets.rb \
+     /app/db/migrate/20260521000004_add_widget_appearance_to_channel_web_widgets.rb
+COPY custom/backend/migrations/20260521000005_add_message_font_size_to_channel_web_widgets.rb \
+     /app/db/migrate/20260521000005_add_message_font_size_to_channel_web_widgets.rb
+COPY custom/backend/migrations/20260618000001_add_available_message_to_channel_web_widgets.rb \
+     /app/db/migrate/20260618000001_add_available_message_to_channel_web_widgets.rb
+COPY custom/backend/migrations/20260619000001_add_reply_time_text_to_channel_web_widgets.rb \
+     /app/db/migrate/20260619000001_add_reply_time_text_to_channel_web_widgets.rb
 
 # ── Image Metadata ────────────────────────────────────────────────────────────
 LABEL org.opencontainers.image.title="Chatwoot Custom — Voice Agent + Persistent User Data"

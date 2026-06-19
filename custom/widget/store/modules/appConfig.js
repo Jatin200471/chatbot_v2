@@ -25,6 +25,7 @@ const state = {
   welcomeDescription: '',
   availableMessage: '',
   unavailableMessage: '',
+  replyTimeText: '',
   enableFileUpload: true,
   enableEmojiPicker: true,
   enableEndConversation: true,
@@ -57,6 +58,7 @@ export const getters = {
   getWelcomeTagline: $state => $state.welcomeDescription,
   getAvailableMessage: $state => $state.availableMessage,
   getUnavailableMessage: $state => $state.unavailableMessage,
+  getReplyTimeText: $state => $state.replyTimeText,
   getShouldShowFilePicker: $state => $state.enableFileUpload,
   getShouldShowEmojiPicker: $state => $state.enableEmojiPicker,
   getCanUserEndConversation: $state => $state.enableEndConversation,
@@ -145,6 +147,9 @@ export const mutations = {
     $state.welcomeDescription = data.welcomeDescription;
     $state.availableMessage = data.availableMessage;
     $state.unavailableMessage = data.unavailableMessage;
+    if (data.replyTimeText !== undefined) {
+      $state.replyTimeText = data.replyTimeText;
+    }
     $state.enableFileUpload = data.enableFileUpload;
     $state.enableEmojiPicker = data.enableEmojiPicker;
     $state.enableEndConversation = data.enableEndConversation;
