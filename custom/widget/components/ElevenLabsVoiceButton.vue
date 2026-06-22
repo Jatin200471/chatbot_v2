@@ -205,7 +205,7 @@ export default {
         this._voicePopup = window.open(
           popupUrl,
           'cw_voice_popup',
-          'width=360,height=500,resizable=yes'
+          'width=280,height=360,resizable=yes'
         );
 
         if (!this._voicePopup) {

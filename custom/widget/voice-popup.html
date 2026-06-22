@@ -55,12 +55,12 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 10px 14px 9px;
+      padding: 6px 10px 5px;
       border-bottom: 0.5px solid var(--border-tertiary);
       flex-shrink: 0;
     }
     .popup-header .title {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       letter-spacing: 0.07em;
       color: var(--text-secondary);
@@ -70,15 +70,15 @@
     .live-badge {
       display: none;
       align-items: center;
-      gap: 5px;
-      font-size: 11px;
+      gap: 4px;
+      font-size: 9px;
       font-weight: 600;
       color: #e8533a;
     }
     .live-badge.show { display: inline-flex; }
     .live-dot {
-      width: 7px;
-      height: 7px;
+      width: 5px;
+      height: 5px;
       border-radius: 50%;
       background: #e8533a;
       animation: pulse 1.4s ease-in-out infinite;
@@ -95,19 +95,19 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 12px 16px 8px;
+      padding: 8px 12px 6px;
       min-height: 0;
     }
 
     /* Avatar scales with available space using vmin */
     .avatar-wrap {
       position: relative;
-      width: min(38vmin, 120px);
-      height: min(38vmin, 120px);
+      width: min(32vmin, 90px);
+      height: min(32vmin, 90px);
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: min(3vmin, 14px);
+      margin-bottom: min(2vmin, 8px);
       flex-shrink: 0;
     }
     .avatar-ring {
@@ -146,10 +146,10 @@
     }
 
     .name {
-      font-size: clamp(12px, 4vmin, 16px);
+      font-size: clamp(11px, 3.5vmin, 14px);
       font-weight: 600;
       color: var(--text-primary);
-      margin-bottom: 2px;
+      margin-bottom: 1px;
       max-width: 90%;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -157,18 +157,18 @@
       text-align: center;
     }
     .role {
-      font-size: clamp(10px, 3vmin, 12px);
+      font-size: clamp(9px, 2.5vmin, 11px);
       color: var(--text-secondary);
-      margin-bottom: min(3vmin, 12px);
+      margin-bottom: min(2vmin, 8px);
     }
 
     .connected-badge {
       display: flex;
       align-items: center;
-      gap: 5px;
-      border-radius: 20px;
-      padding: 4px 12px;
-      font-size: clamp(9px, 2.8vmin, 11px);
+      gap: 4px;
+      border-radius: 16px;
+      padding: 3px 10px;
+      font-size: clamp(8px, 2.5vmin, 10px);
       font-weight: 500;
     }
     .connected-badge[data-state="connecting"] {
@@ -197,23 +197,23 @@
 
     /* ── Footer ── */
     .popup-footer {
-      padding: 0 14px 10px;
+      padding: 0 10px 6px;
       flex-shrink: 0;
     }
     .end-btn {
       width: 100%;
       background: #e8533a;
       border: none;
-      border-radius: 24px;
+      border-radius: 20px;
       color: #fff;
-      font-size: clamp(11px, 3.5vmin, 13px);
+      font-size: clamp(10px, 3vmin, 12px);
       font-weight: 600;
-      padding: clamp(8px, 2.5vmin, 11px) 0;
+      padding: clamp(6px, 2vmin, 9px) 0;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
+      gap: 5px;
       transition: background 0.15s;
     }
     .end-btn:hover:not(:disabled) { background: #c93f28; }
@@ -223,13 +223,13 @@
       color: #64748b;
       cursor: not-allowed;
     }
-    .end-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+    .end-btn svg { width: 11px; height: 11px; flex-shrink: 0; }
 
     /* ── Brand line — always visible ── */
     .brand {
-      padding: 0 14px 10px;
+      padding: 0 10px 6px;
       text-align: center;
-      font-size: clamp(9px, 2.5vmin, 10px);
+      font-size: clamp(8px, 2vmin, 9px);
       color: var(--text-secondary);
       font-weight: 500;
       flex-shrink: 0;
@@ -309,11 +309,16 @@
     let _channel = null;
     try { _channel = new BroadcastChannel('cw-voice'); } catch (_) {}
 
-    // ── Opener check (NOT auto-close) ──────────────────────────────
-    // On traditional websites the iframe (opener) is destroyed on every
-    // page nav. We intentionally do NOT auto-close the popup — the call
-    // must survive page changes. The popup closes only when the call
-    // ends (endSession / End Call button / backend end_requested).
+    // ── Auto-close when opener tab is closed ──────────────────────
+    let _openerCheckTimer = setInterval(() => {
+      if (window.opener && !window.opener.closed) return;
+      clearInterval(_openerCheckTimer);
+      if (isCallActive) {
+        endCall('Tab closed');
+      } else {
+        try { window.close(); } catch (_) {}
+      }
+    }, 1500);
 
     function setStatus(state, text) {
       $status.dataset.state = state;
