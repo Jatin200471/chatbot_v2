@@ -99,10 +99,12 @@ services:
             20260521000001 20260521000002 20260521000003
             20260521000004 20260521000005
             20260618000001
+            20260622000001
           ]
           custom_cols = %i[elevenlabs_agent_id voice_agent_provider custom_branding_text
                            custom_bubble_icon_url custom_bubble_icon_size widget_bg_color
-                           message_font_size available_message unavailable_message]
+                           message_font_size available_message unavailable_message
+                           header_bg_color header_text_color]
           any_missing = ActiveRecord::Base.connection.table_exists?(:channel_web_widgets) &&
                         custom_cols.any? { |c| !ActiveRecord::Base.connection.column_exists?(:channel_web_widgets, c) }
           if any_missing

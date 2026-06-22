@@ -140,6 +140,8 @@ COPY custom/backend/migrations/20260618000001_add_available_message_to_channel_w
      /app/db/migrate/20260618000001_add_available_message_to_channel_web_widgets.rb
 COPY custom/backend/migrations/20260619000001_add_reply_time_text_to_channel_web_widgets.rb \
      /app/db/migrate/20260619000001_add_reply_time_text_to_channel_web_widgets.rb
+COPY custom/backend/migrations/20260622000001_add_header_colors_to_channel_web_widgets.rb \
+     /app/db/migrate/20260622000001_add_header_colors_to_channel_web_widgets.rb
 
 # ── Image Metadata ────────────────────────────────────────────────────────────
 LABEL org.opencontainers.image.title="Chatwoot Custom — Voice Agent + Persistent User Data"
