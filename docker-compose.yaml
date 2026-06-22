@@ -99,7 +99,7 @@ services:
               ic.update!(value: 'false')
               puts 'Super admin exists — signup disabled automatically.'
             else
-              ic.update!(value: ENV.fetch('ENABLE_ACCOUNT_SIGNUP', 'false'))
+              ic.update!(value: ENV.fetch('ENABLE_ACCOUNT_SIGNUP', 'true'))
               puts 'No super admin yet — signup value set from ENV.'
             end
           end
