@@ -104,6 +104,25 @@ services:
             end
           end
         " || echo 'InstallationConfig sync skipped'
+
+        echo 'Setting up installation onboarding if fresh DB...'
+        bundle exec rails runner "
+          unless SuperAdmin.exists?
+            key = Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING
+            Redis::Alfred.set(key, true)
+            puts 'Fresh DB — installation onboarding Redis key set. Visit /app to begin setup.'
+          else
+            puts 'SuperAdmin exists — skipping onboarding key.'
+          end
+
+          Account.find_each do |a|
+            next unless ['account_details', 'enrichment'].include?(a.custom_attributes&.dig('onboarding_step'))
+            attrs = (a.custom_attributes || {}).except('onboarding_step')
+            a.update_columns(custom_attributes: attrs)
+          end
+          puts 'Account onboarding step cleared.'
+        " || echo 'Onboarding key setup skipped'
+
         echo 'Starting server...'
         exec bundle exec rails s -p 3000 -b '0.0.0.0'
 
