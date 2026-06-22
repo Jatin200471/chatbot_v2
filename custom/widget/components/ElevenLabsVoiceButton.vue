@@ -167,19 +167,12 @@ export default {
         await this.startDograhCall();
         return;
       }
-      await this.startInlineCall();
+      await this.startPopupCall();
     },
 
-    // ── Inline call (SPA mode — no popup window) ───────────────────────────
-    async startInlineCall() {
+    // ── Popup call (traditional sites — separate window survives page nav) ──
+    async startPopupCall() {
       if (!this.hasAnyVoiceEnabled) return;
-
-      // Increment generation FIRST — any in-flight callbacks from a previous
-      // session will see their captured myGen no longer matches and bail out.
-      const myGen = ++_callGeneration;
-
-      // Fast double-click guard: if isConnecting is already true from an earlier
-      // startInlineCall that hasn't finished the await yet, abort this one.
       if (this.isConnecting) return;
 
       // Guard against duplicate active call
@@ -200,111 +193,43 @@ export default {
       } catch (_) {}
 
       this.isConnecting = true;
-      this.inlineStatus = 'connecting';
-      this.inlineStatusText = 'Requesting mic…';
       this.setConnecting(true);
 
       try {
         const config = await this._buildConfig();
         this.inlineConfig = config;
 
-        // Mic permission check
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(t => t.stop());
+        // Open voice-popup.html in a separate window — survives page nav
+        const origin = config.baseUrl || window.location.origin;
+        const popupUrl = `${origin}/voice-popup.html?wt=${encodeURIComponent(config.websiteToken || '')}`;
+        this._voicePopup = window.open(
+          popupUrl,
+          'cw_voice_popup',
+          'width=360,height=500,resizable=yes'
+        );
 
-        this.inlineStatusText = 'Loading…';
-        const mod = await import('https://esm.sh/@11labs/client');
-        const Conversation = mod.Conversation;
-        if (!Conversation) throw new Error('ElevenLabs SDK did not expose Conversation');
+        if (!this._voicePopup) {
+          throw new Error('Popup blocked — please allow popups for this site');
+        }
 
-        this.inlineStatusText = 'Connecting…';
+        // Send config to popup once it's ready (it requests config via postMessage)
+        this._popupConfig = config;
+        this.isCallActive = true;
+        this.isConnecting = false;
+        this.setActive(true);
+        this.setConnecting(false);
 
-        _inlineConversation = await Conversation.startSession({
-          signedUrl: config.signedUrl,
-          dynamicVariables: {
-            chatwoot_conversation_id:  config.cwConversationId  || '',
-            chatwoot_conversation_url: config.cwConversationUrl || '',
-            customer_name:             config.agentName         || 'Customer',
-            website:                   config.brand             || '',
-          },
-
-          onConnect: () => {
-            if (myGen !== _callGeneration) return; // stale session
-            this.isConnecting = false;
-            this.isCallActive = true;
-            this.inlineStatus = 'connected';
-            this.inlineStatusText = 'Connected';
-            this.setActive(true);
-            this.setConnecting(false);
-            this._callStartTime = Date.now(); // track call start for stale-signal guard
-            this._startInlineHeartbeat();
-            this._startInlineBackendHeartbeat();
-            // Notify parent page so floating End Call button logic can run
-            try {
-              window.parent.postMessage({ event: 'cw-voice-call-started' }, '*');
-            } catch (_) {}
-            try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
-            // Link ElevenLabs conversation ID to Chatwoot conversation
-            try {
-              const elConvId = typeof _inlineConversation.getId === 'function'
-                ? _inlineConversation.getId()
-                : _inlineConversation.conversationId || null;
-              if (elConvId) {
-                const cwConv = this.getCwConversationToken();
-                let url = buildConvUrl('/api/v1/widget/conversations/voice_link_elevenlabs');
-                if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
-                API.post(url, { elevenlabs_conversation_id: elConvId }).catch(() => {});
-              }
-            } catch (_) {}
-          },
-
-          onDisconnect: () => {
-            if (myGen !== _callGeneration) return; // stale session — do NOT reset current call
-            this.handleInlineCallEnded('Call ended');
-          },
-
-          onError: (err) => {
-            if (myGen !== _callGeneration) return; // stale session
-            const msg = (err && (err.message || err.toString())) || 'Unknown error';
-            console.error('[VOICE-INLINE] error:', msg);
-            this.inlineStatus = 'error';
-            this.inlineStatusText = 'Error';
-            this.isConnecting = false;
-            this.setConnecting(false);
-          },
-
-          onMessage: ({ message, source }) => {
-            if (myGen !== _callGeneration) return; // stale session
-            const text = (message || '').toString().trim();
-            if (!text) return;
-            const cwConv = this.getCwConversationToken();
-            let url = buildConvUrl('/api/v1/widget/conversations/voice_transcript');
-            if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
-            API.post(url, { source, content: text }).catch(() => {});
-            try { this.$store.dispatch('conversation/fetchOldConversations'); } catch (_) {}
-            try { this.$store.dispatch('message/fetchAllMessages'); } catch (_) {}
-          },
-
-          onModeChange: (mode) => {
-            if (myGen !== _callGeneration) return; // stale session
-            this.inlineSpeaking = mode === 'speaking';
-            const ch = getBroadcastChannel();
-            if (ch) {
-              try { ch.postMessage({ type: 'speaking', value: mode === 'speaking' }); } catch (_) {}
-            }
-          },
-        });
+        // Notify parent page
+        try {
+          window.parent.postMessage({ event: 'cw-voice-call-started' }, '*');
+        } catch (_) {}
 
       } catch (error) {
         const msg = (error && error.message) || 'unknown';
-        console.error('[VOICE-INLINE] startInlineCall failed:', msg);
+        console.error('[VOICE-POPUP] startPopupCall failed:', msg);
         this.isConnecting = false;
-        this.inlineStatus = 'error';
-        this.inlineStatusText = (error && (error.name === 'NotAllowedError' || error.name === 'NotFoundError'))
-          ? 'Mic denied' : 'Failed to connect';
         this.setConnecting(false);
-        // Auto-dismiss error panel after 3s
-        setTimeout(() => { if (this.inlineStatus === 'error') this.inlineStatus = 'idle'; }, 3000);
+        alert(msg);
       }
     },
 
@@ -317,18 +242,26 @@ export default {
         return;
       }
 
-      // ElevenLabs path — grab reference and immediately null it
-      const conv = _inlineConversation;
-      _inlineConversation = null;
-
-      if (!conv) {
-        this.handleInlineCallEnded('Call ended');
-        return;
+      // Popup path — send end request to popup window
+      if (this._voicePopup && !this._voicePopup.closed) {
+        try {
+          this._voicePopup.postMessage({ source: 'cw-widget', event: 'request-end-call' }, '*');
+        } catch (_) {}
+      }
+      // Also broadcast on channel so popup picks it up
+      const ch = getBroadcastChannel();
+      if (ch) {
+        try { ch.postMessage({ type: 'request-end-call' }); } catch (_) {}
       }
 
-      this.inlineStatusText = 'Ending…';
-      try { await conv.endSession(); }
-      catch (e) { console.warn('[VOICE-INLINE] endSession threw:', e?.message); }
+      // ElevenLabs inline path (fallback)
+      const conv = _inlineConversation;
+      _inlineConversation = null;
+      if (conv) {
+        this.inlineStatusText = 'Ending…';
+        try { await conv.endSession(); }
+        catch (e) { console.warn('[VOICE] endSession threw:', e?.message); }
+      }
 
       this.handleInlineCallEnded('Call ended');
     },
@@ -663,37 +596,54 @@ export default {
 
       // Floating End Call button on parent page clicked
       if (data.event === 'end-voice-call-from-parent') {
-        if (_inlineConversation || this.isCallActive) {
-          this.endInlineCall();
-        }
+        if (this.isCallActive) this.endInlineCall();
       }
 
-      // Monitor popup requesting config
+      // Popup requesting config — send the saved config
       if (data.source === 'cw-voice-popup' && data.event === 'voice-popup-request-config') {
-        if (this.inlineConfig && this.isCallActive) {
+        const cfg = this._popupConfig || this.inlineConfig;
+        if (cfg) {
           try {
-            e.source.postMessage({
-              source: 'cw-widget',
-              event: 'config',
-              config: this.inlineConfig,
-            }, '*');
+            const target = e.source || (this._voicePopup && !this._voicePopup.closed ? this._voicePopup : null);
+            if (target) {
+              target.postMessage({
+                source: 'cw-widget',
+                event: 'config',
+                config: cfg,
+              }, '*');
+            }
           } catch (_) {}
         }
       }
 
-      // Monitor popup requesting call end
-      if (data.source === 'cw-voice-popup' && data.event === 'voice-popup-end-request') {
-        if (_inlineConversation || this.isCallActive) {
-          this.endInlineCall();
-        }
+      // Popup opened — mark call as active
+      if (data.source === 'cw-voice-popup' && data.event === 'voice-popup-opened') {
+        this.notifyParentWidgetHide(true);
+      }
+
+      // Popup connected — call is live
+      if (data.source === 'cw-voice-popup' && data.event === 'voice-popup-connected') {
+        this.isCallActive = true;
+        this.isConnecting = false;
+        this.setActive(true);
+        this.setConnecting(false);
+      }
+
+      // Popup ended or closed — reset state
+      if (data.source === 'cw-voice-popup' &&
+          (data.event === 'voice-popup-ended' || data.event === 'voice-popup-closed')) {
+        this.resetCallState();
+        this.notifyParentWidgetHide(false);
+      }
+
+      // Popup error
+      if (data.source === 'cw-voice-popup' && data.event === 'voice-popup-error') {
+        this.isConnecting = false;
+        this.setConnecting(false);
       }
     },
 
     notifyParentWidgetHide(hide) {
-      // We DO NOT hide the Chatwoot widget while the popup is open —
-      // the visitor needs to see the live transcript flowing into the
-      // chat panel. We still send the event so the parent script can
-      // flip its 'voice-active' state for SPA navigation interception.
       try {
         window.parent.postMessage({
           event: hide ? 'cw-voice-call-started' : 'cw-voice-call-ended',

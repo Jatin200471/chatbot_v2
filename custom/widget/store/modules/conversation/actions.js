@@ -11,7 +11,11 @@ import {
 } from 'widget/api/conversation';
 import { updateWidgetAuthToken } from 'widget/store/modules/contacts';
 
-import { ON_CONVERSATION_CREATED } from 'widget/constants/widgetBusEvents';
+import {
+  ON_CONVERSATION_CREATED,
+  ON_AGENT_MESSAGE_RECEIVED,
+} from 'widget/constants/widgetBusEvents';
+import { playNewMessageNotificationInWidget } from 'widget/helpers/WidgetAudioNotificationHelper';
 import { createTemporaryMessage, getNonDeletedMessages } from './helpers';
 import { emitter } from 'shared/helpers/mitt';
 export const actions = {
@@ -191,6 +195,14 @@ export const actions = {
       );
       commit('conversation/setMetaUserLastSeenAt', lastSeen, { root: true });
       commit('setMissingMessagesInConversation', updatedConversation);
+
+      const hasAgentMessage = missingMessages.some(
+        m => m.message_type !== 0
+      );
+      if (hasAgentMessage) {
+        emitter.emit(ON_AGENT_MESSAGE_RECEIVED);
+        playNewMessageNotificationInWidget();
+      }
     } catch (_) {
       // IgnoreError
     }

@@ -309,22 +309,11 @@
     let _channel = null;
     try { _channel = new BroadcastChannel('cw-voice'); } catch (_) {}
 
-    // ── Auto-close when opener (website) tab closes ──────────────
-    let _openerCheckTimer = null;
-    function startOpenerCheck() {
-      if (_openerCheckTimer) return;
-      _openerCheckTimer = setInterval(() => {
-        if (!window.opener || window.opener.closed) {
-          clearInterval(_openerCheckTimer);
-          // If we're monitoring an inline call, request end first
-          if (isCallActive && _isMonitorMode && _channel) {
-            try { _channel.postMessage({ type: 'request-end-call' }); } catch (_) {}
-          }
-          try { window.close(); } catch (_) {}
-        }
-      }, 1000);
-    }
-    startOpenerCheck();
+    // ── Opener check (NOT auto-close) ──────────────────────────────
+    // On traditional websites the iframe (opener) is destroyed on every
+    // page nav. We intentionally do NOT auto-close the popup — the call
+    // must survive page changes. The popup closes only when the call
+    // ends (endSession / End Call button / backend end_requested).
 
     function setStatus(state, text) {
       $status.dataset.state = state;

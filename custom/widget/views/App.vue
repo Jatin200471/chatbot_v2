@@ -396,9 +396,18 @@ export default {
         const { websiteToken } = window.chatwootWebChannel;
         await this.executeCampaign({ campaignId, websiteToken, customAttributes });
         this.router.replace({ name: 'messages' });
-        // Backend creates the campaign conversation asynchronously; give it a moment
-        // then fetch so the widget and dashboard both see the new conversation.
-        setTimeout(() => this.fetchOldConversations(), 1500);
+        // Backend creates the campaign conversation asynchronously.
+        // Without ActionCable we must poll until messages appear.
+        const pollForCampaignConversation = (attempts = 0) => {
+          if (attempts >= 5) return;
+          setTimeout(async () => {
+            await this.fetchOldConversations();
+            if (this.conversationSize === 0) {
+              pollForCampaignConversation(attempts + 1);
+            }
+          }, 1500);
+        };
+        pollForCampaignConversation();
       });
       emitter.on('snooze-campaigns', () => {
         const expireBy = addHours(new Date(), 1);
@@ -444,11 +453,11 @@ export default {
     },
 
     handleUnreadNotificationDot() {
+      const { unreadMessageCount } = this;
       if (this.isIFrame) {
-        // No red dot on bubble — always 0
         IFrameHelper.sendMessage({
           event: 'handleNotificationDot',
-          unreadMessageCount: 0,
+          unreadMessageCount,
         });
       }
     },
