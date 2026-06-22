@@ -92,42 +92,23 @@ services:
         echo 'Database ready! Running setup...'
         bundle exec rails db:chatwoot_prepare
 
-        echo 'Checking if seed data exists...'
-        NEEDS_SEED=$(bundle exec rails runner "puts InstallationConfig.exists? ? 'no' : 'yes'" 2>/dev/null | tail -1)
-        if [ "$NEEDS_SEED" = "yes" ]; then
-          echo 'No seed data found — running db:seed...'
-          bundle exec rails db:seed
-          echo 'Seed data loaded.'
-        else
-          echo 'Seed data already present.'
-        fi
-
-        echo 'Syncing ENABLE_ACCOUNT_SIGNUP...'
+        echo 'Setting up installation onboarding if fresh DB...'
         bundle exec rails runner "
-          ic = InstallationConfig.find_by(name: 'ENABLE_ACCOUNT_SIGNUP');
-          if ic
-            if SuperAdmin.exists?
-              ic.update!(value: 'false')
-              puts 'Super admin exists — signup disabled automatically.'
-            else
-              ic.update!(value: ENV.fetch('ENABLE_ACCOUNT_SIGNUP', 'true'))
-              puts 'No super admin yet — signup value set from ENV.'
-            end
+          unless SuperAdmin.exists?
+            key = Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING
+            Redis::Alfred.set(key, true)
+            puts 'Fresh DB — installation onboarding Redis key set. Visit /app to begin setup.'
+          else
+            puts 'SuperAdmin exists — skipping onboarding key.'
           end
-        " || echo 'InstallationConfig sync skipped'
 
-        echo 'Clearing account onboarding steps...'
-        bundle exec rails runner "
           Account.find_each do |a|
-            step = a.custom_attributes&.dig('onboarding_step')
-            if step.present?
-              attrs = (a.custom_attributes || {}).except('onboarding_step')
-              a.update_columns(custom_attributes: attrs)
-              puts \"Cleared onboarding_step '#{step}' from Account ##{a.id}\"
-            end
+            next unless ['account_details', 'enrichment'].include?(a.custom_attributes&.dig('onboarding_step'))
+            attrs = (a.custom_attributes || {}).except('onboarding_step')
+            a.update_columns(custom_attributes: attrs)
           end
-          puts 'Account onboarding steps cleared — users go straight to dashboard.'
-        " || echo 'Onboarding cleanup skipped'
+          puts 'Account onboarding step cleared.'
+        " || echo 'Onboarding key setup skipped'
 
         echo 'Starting server...'
         exec bundle exec rails s -p 3000 -b '0.0.0.0'
