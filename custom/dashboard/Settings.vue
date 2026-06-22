@@ -129,6 +129,8 @@ export default {
       cwBrandingUrl: '',
       cwBubbleIconUrl: '',
       cwBubbleIconSize: 60,
+      cwHeaderBgColor: '',
+      cwHeaderTextColor: '',
       isUpdatingCwAppearance: false,
       isUpdatingCwBranding: false,
       isUpdatingCwBubbleIcon: false,
@@ -484,6 +486,8 @@ export default {
       this.cwBrandingUrl = this.inbox.custom_branding_url || '';
       this.cwBubbleIconUrl = this.inbox.custom_bubble_icon_url || '';
       this.cwBubbleIconSize = this.inbox.custom_bubble_icon_size != null ? this.inbox.custom_bubble_icon_size : 60;
+      this.cwHeaderBgColor = this.inbox.header_bg_color || '';
+      this.cwHeaderTextColor = this.inbox.header_text_color || '';
     },
     async fetchHealthData() {
       if (!this.inbox) return;
@@ -555,6 +559,8 @@ export default {
             bot_bubble_text_color: this.cwBotBubbleTextColor.trim() || null,
             user_bubble_bg_color: this.cwUserBubbleBgColor.trim() || null,
             user_bubble_text_color: this.cwUserBubbleTextColor.trim() || null,
+            header_bg_color: this.cwHeaderBgColor.trim() || null,
+            header_text_color: this.cwHeaderTextColor.trim() || null,
           },
         });
         useAlert(this.$t('INBOX_MGMT.EDIT.API.SUCCESS_MESSAGE'));
@@ -1452,6 +1458,29 @@ export default {
                     </div>
                   </SettingsFieldSection>
 
+                  <SettingsFieldSection label="Header Background" help-text="Collapsed header background. Supports gradients. Defaults to white.">
+                    <div class="flex items-center gap-2 max-w-md">
+                      <ColorPicker v-model="cwHeaderBgColor" />
+                      <input v-model="cwHeaderBgColor" type="text" placeholder="#ffffff or linear-gradient(…)"
+                        class="flex-1 px-3 py-2 text-sm border border-n-weak rounded-lg bg-n-background text-n-slate-12 focus:outline-none focus:border-n-brand" />
+                    </div>
+                  </SettingsFieldSection>
+
+                  <SettingsFieldSection label="Header Text Color" help-text="Title and status text color in the collapsed header.">
+                    <div class="flex items-center gap-2">
+                      <ColorPicker v-model="cwHeaderTextColor" />
+                      <input v-model="cwHeaderTextColor" type="text" placeholder="#1c2024"
+                        class="w-28 px-3 py-2 text-sm border border-n-weak rounded-lg bg-n-background text-n-slate-12 focus:outline-none focus:border-n-brand" />
+                    </div>
+                    <div v-if="cwHeaderBgColor || cwHeaderTextColor" class="mt-2 flex items-center gap-2">
+                      <span class="text-xs text-n-slate-9">Preview:</span>
+                      <div class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
+                        :style="{ background: cwHeaderBgColor || '#ffffff', color: cwHeaderTextColor || '#1c2024' }">
+                        {{ selectedInboxName || 'Header Preview' }}
+                      </div>
+                    </div>
+                  </SettingsFieldSection>
+
                   <SettingsFieldSection label="Input Focus Border Color">
                     <div class="flex items-center gap-2">
                       <ColorPicker v-model="cwInputFocusColor" />
@@ -1568,6 +1597,8 @@ export default {
                 :bot-bubble-text-color="cwBotBubbleTextColor"
                 :user-bubble-bg-color="cwUserBubbleBgColor"
                 :user-bubble-text-color="cwUserBubbleTextColor"
+                :header-bg-color="cwHeaderBgColor"
+                :header-text-color="cwHeaderTextColor"
               />
             </div>
           </div>

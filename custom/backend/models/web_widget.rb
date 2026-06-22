@@ -49,6 +49,7 @@ class Channel::WebWidget < ApplicationRecord
                     :user_bubble_bg_color, :user_bubble_text_color,
                     :input_focus_color,
                     :message_font_size,
+                    :header_bg_color, :header_text_color,
                     :available_message,
                     :unavailable_message,
                     :reply_time_text].freeze

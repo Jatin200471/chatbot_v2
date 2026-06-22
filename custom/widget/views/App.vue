@@ -288,6 +288,45 @@ export default {
         );
       }
 
+      // Bot/Agent bubble colors
+      if (ch.botBubbleBgColor) {
+        rules.push(`.chat-bubble.agent{background:${ch.botBubbleBgColor}!important}`);
+      }
+      if (ch.botBubbleTextColor) {
+        rules.push(
+          `.chat-bubble.agent,.chat-bubble.agent .message-content,.chat-bubble.agent *{color:${ch.botBubbleTextColor}!important}`
+        );
+      }
+
+      // User bubble colors
+      if (ch.userBubbleBgColor) {
+        rules.push(`.chat-bubble.user{background:${ch.userBubbleBgColor}!important}`);
+      }
+      if (ch.userBubbleTextColor) {
+        rules.push(
+          `.chat-bubble.user,.chat-bubble.user .message-content,.chat-bubble.user *{color:${ch.userBubbleTextColor}!important}`
+        );
+      }
+
+      // Header background & text color — uses widgetColor by default but
+      // widgetBgColor can also affect the header area via bg-n-background
+      if (ch.headerBgColor) {
+        rules.push(`header.bg-n-background,.expanded .bg-n-background{background:${ch.headerBgColor}!important}`);
+      }
+      if (ch.headerTextColor) {
+        rules.push(
+          `header .text-n-slate-12,header .text-n-slate-11{color:${ch.headerTextColor}!important}`
+        );
+      }
+
+      // Online status & reply time text colors
+      if (ch.onlineStatusColor) {
+        rules.push(`.availability-status .text-n-slate-11{color:${ch.onlineStatusColor}!important}`);
+      }
+      if (ch.replyTimeColor) {
+        rules.push(`.reply-time .text-n-slate-11,.reply-time{color:${ch.replyTimeColor}!important}`);
+      }
+
       // Notification popup: transparent card chrome but give it an explicit
       // white content background so widgetBgColor doesn't bleed through.
       rules.push(
