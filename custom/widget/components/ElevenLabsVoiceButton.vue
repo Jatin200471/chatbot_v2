@@ -288,6 +288,10 @@ export default {
           onModeChange: (mode) => {
             if (myGen !== _callGeneration) return; // stale session
             this.inlineSpeaking = mode === 'speaking';
+            const ch = getBroadcastChannel();
+            if (ch) {
+              try { ch.postMessage({ type: 'speaking', value: mode === 'speaking' }); } catch (_) {}
+            }
           },
         });
 
@@ -626,6 +630,8 @@ export default {
         if (!this.isCallActive) this._syncCallActiveFromPopup();
       } else if (m.type === 'ended') {
         this.resetCallState();
+      } else if (m.type === 'request-end-call') {
+        if (this.isCallActive) this.endInlineCall();
       }
     },
 
@@ -657,6 +663,26 @@ export default {
 
       // Floating End Call button on parent page clicked
       if (data.event === 'end-voice-call-from-parent') {
+        if (_inlineConversation || this.isCallActive) {
+          this.endInlineCall();
+        }
+      }
+
+      // Monitor popup requesting config
+      if (data.source === 'cw-voice-popup' && data.event === 'voice-popup-request-config') {
+        if (this.inlineConfig && this.isCallActive) {
+          try {
+            e.source.postMessage({
+              source: 'cw-widget',
+              event: 'config',
+              config: this.inlineConfig,
+            }, '*');
+          } catch (_) {}
+        }
+      }
+
+      // Monitor popup requesting call end
+      if (data.source === 'cw-voice-popup' && data.event === 'voice-popup-end-request') {
         if (_inlineConversation || this.isCallActive) {
           this.endInlineCall();
         }

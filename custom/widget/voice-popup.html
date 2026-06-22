@@ -295,6 +295,7 @@
     // Read website_token from URL query param as early fallback
     const _urlParams = new URLSearchParams(window.location.search);
     const _urlWebsiteToken = _urlParams.get('wt') || '';
+    const _isMonitorMode = _urlParams.get('mode') === 'monitor';
 
     let cfg = null;
     let conversation = null;
@@ -307,6 +308,23 @@
 
     let _channel = null;
     try { _channel = new BroadcastChannel('cw-voice'); } catch (_) {}
+
+    // ── Auto-close when opener (website) tab closes ──────────────
+    let _openerCheckTimer = null;
+    function startOpenerCheck() {
+      if (_openerCheckTimer) return;
+      _openerCheckTimer = setInterval(() => {
+        if (!window.opener || window.opener.closed) {
+          clearInterval(_openerCheckTimer);
+          // If we're monitoring an inline call, request end first
+          if (isCallActive && _isMonitorMode && _channel) {
+            try { _channel.postMessage({ type: 'request-end-call' }); } catch (_) {}
+          }
+          try { window.close(); } catch (_) {}
+        }
+      }, 1000);
+    }
+    startOpenerCheck();
 
     function setStatus(state, text) {
       $status.dataset.state = state;
@@ -413,7 +431,17 @@
         _configReceived = true;
         cfg = d.config;
         applyBranding(cfg);
-        startCall();
+        if (_isMonitorMode) {
+          startMonitorMode();
+        } else {
+          startCall();
+        }
+        return;
+      }
+      if (d.event === 'voice-state-update') {
+        if (d.speaking !== undefined) {
+          $body.classList.toggle('speaking', d.speaking);
+        }
         return;
       }
       if (d.event === 'request-end-call') {
@@ -426,8 +454,34 @@
       _channel.addEventListener('message', (e) => {
         const m = e.data || {};
         if (m.type === 'ping') writeHeartbeat();
-        else if (m.type === 'request-end-call') endCall('Call ended');
+        else if (m.type === 'request-end-call') {
+          if (!_isMonitorMode) endCall('Call ended');
+        }
+        else if (m.type === 'heartbeat' && _isMonitorMode) {
+          if (!isCallActive) {
+            isCallActive = true;
+            setStatus('connected', 'Connected');
+            $endCallBtn.disabled = false;
+            $liveBadge.classList.add('show');
+          }
+        }
+        else if (m.type === 'ended' && _isMonitorMode) {
+          handleCallEnded('Call ended');
+        }
+        else if (m.type === 'speaking' && _isMonitorMode) {
+          $body.classList.toggle('speaking', !!m.value);
+        }
       });
+    }
+
+    // ── Monitor mode: sync with inline call, don't start own call ──
+    function startMonitorMode() {
+      isCallActive = true;
+      setStatus('connected', 'Connected');
+      $endCallBtn.disabled = false;
+      $liveBadge.classList.add('show');
+      writeHeartbeat();
+      _heartbeatTimer = setInterval(writeHeartbeat, 1500);
     }
 
     async function startCall() {
@@ -536,17 +590,32 @@
       conversation = null;
       if (!endedNotified) {
         endedNotified = true;
-        apiPost('/api/v1/widget/conversations/voice_call_ended', {}).catch(() => {});
+        if (!_isMonitorMode) {
+          apiPost('/api/v1/widget/conversations/voice_call_ended', {}).catch(() => {});
+        }
         postToOpener('voice-popup-ended');
       }
       if (_heartbeatTimer) clearInterval(_heartbeatTimer);
       clearHeartbeat();
-      stopBackendHeartbeat();
+      if (!_isMonitorMode) stopBackendHeartbeat();
       setTimeout(() => { try { window.close(); } catch (_) {} }, 1200);
     }
 
-    // End Call button → call endCall(); same flow as remote-end via request-end-call
-    $endCallBtn.addEventListener('click', () => endCall('Call ended'));
+    $endCallBtn.addEventListener('click', () => {
+      if (_isMonitorMode) {
+        // In monitor mode, tell the inline call to end via BroadcastChannel
+        if (_channel) {
+          try { _channel.postMessage({ type: 'request-end-call' }); } catch (_) {}
+        }
+        postToOpener('voice-popup-end-request');
+        $endCallBtn.disabled = true;
+        setStatus('connecting', 'Ending…');
+        // If inline call doesn't respond within 3s, close anyway
+        setTimeout(() => { if (isCallActive) handleCallEnded('Call ended'); }, 3000);
+      } else {
+        endCall('Call ended');
+      }
+    });
 
     window.addEventListener('beforeunload', () => {
       if (_heartbeatTimer) clearInterval(_heartbeatTimer);
@@ -577,7 +646,13 @@
     }, 500);
     setTimeout(() => {
       if (!_configReceived) {
-        setStatus('error', 'No config');
+        if (_isMonitorMode) {
+          // Monitor mode can work without config from opener — use defaults
+          _configReceived = true;
+          startMonitorMode();
+        } else {
+          setStatus('error', 'No config');
+        }
       }
     }, 6000);
 

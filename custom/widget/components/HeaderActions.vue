@@ -2,7 +2,6 @@
 import { mapGetters } from 'vuex';
 import { useRouter } from 'vue-router';
 import { IFrameHelper, RNHelper } from 'widget/helpers/utils';
-import { popoutChatWindow } from '../helpers/popoutHelper';
 import FluentIcon from 'shared/components/FluentIcon/Index.vue';
 import configMixin from 'widget/mixins/configMixin';
 import { CONVERSATION_STATUS } from 'shared/constants/messages';
@@ -38,6 +37,7 @@ export default {
       canUserEndConversation: 'appConfig/getCanUserEndConversation',
       widgetColor: 'appConfig/getWidgetColor',
       currentUser: 'contacts/getCurrentUser',
+      isVoiceCallActive: 'elevenlabsVoice/getIsActive',
     }),
     conversationStatus() {
       return this.conversationAttributes.status;
@@ -51,8 +51,11 @@ export default {
     showHeaderActions() {
       return this.isIframe || this.isRNWebView || this.hasWidgetOptions;
     },
+    showVoicePopoutButton() {
+      return this.isVoiceCallActive;
+    },
     hasWidgetOptions() {
-      return this.showPopoutButton || this.conversationStatus === 'open';
+      return this.showVoicePopoutButton || this.conversationStatus === 'open';
     },
     canEndChat() {
       return [
@@ -63,14 +66,16 @@ export default {
     },
   },
   methods: {
-    popoutWindow() {
-      this.sendCloseMessage();
-      const {
-        location: { origin },
-        chatwootWebChannel: { websiteToken },
-        authToken,
-      } = window;
-      popoutChatWindow(origin, websiteToken, this.$root.$i18n.locale, authToken);
+    popoutVoiceCall() {
+      const { websiteToken } = window.chatwootWebChannel || {};
+      const origin = window.location.origin;
+      const url = `${origin}/voice-popup.html?wt=${websiteToken || ''}&mode=monitor`;
+      this._voicePopup = window.open(
+        url,
+        'cw_voice_popup',
+        'width=360,height=500,resizable=yes'
+      );
+      if (this._voicePopup) this._voicePopup.focus();
     },
 
     sendCloseMessage() {
@@ -186,9 +191,10 @@ export default {
     </div>
 
     <button
-      v-if="showPopoutButton"
+      v-if="showVoicePopoutButton"
       class="header-action-btn new-window--button"
-      @click="popoutWindow"
+      title="Open voice call in new window"
+      @click="popoutVoiceCall"
     >
       <FluentIcon icon="open" size="20" class="text-n-slate-12" />
     </button>
