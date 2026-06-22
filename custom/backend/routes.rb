@@ -692,6 +692,10 @@ Rails.application.routes.draw do
           post 'accounts/:id/subscription',     to: 'stubs#noop'
           post 'accounts/:id/toggle_deletion',  to: 'stubs#noop'
           post 'accounts/:id/topup_checkout',   to: 'stubs#noop'
+          post 'accounts/:id/onboarding',       to: 'stubs#noop'
+          post 'accounts/:id/enrichment',       to: 'stubs#noop'
+          patch 'accounts/:id/onboarding',      to: 'stubs#noop'
+          put   'accounts/:id/onboarding',      to: 'stubs#noop'
         end
       end
     end

@@ -1,13 +1,13 @@
 module Enterprise
   module Api
     module V1
-      class StubsController < ::Api::BaseController
+      class StubsController < ActionController::API
         def limits
           render json: { id: params[:id].to_i, limits: {} }, status: :ok
         end
 
         def noop
-          render json: {}, status: :ok
+          render json: { success: true }, status: :ok
         end
       end
     end
