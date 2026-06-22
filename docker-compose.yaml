@@ -91,6 +91,17 @@ services:
         done
         echo 'Database ready! Running setup...'
         bundle exec rails db:chatwoot_prepare
+
+        echo 'Checking if seed data exists...'
+        NEEDS_SEED=$(bundle exec rails runner "puts InstallationConfig.exists? ? 'no' : 'yes'" 2>/dev/null | tail -1)
+        if [ "$NEEDS_SEED" = "yes" ]; then
+          echo 'No seed data found — running db:seed...'
+          bundle exec rails db:seed
+          echo 'Seed data loaded.'
+        else
+          echo 'Seed data already present.'
+        fi
+
         echo 'Syncing ENABLE_ACCOUNT_SIGNUP...'
         bundle exec rails runner "
           ic = InstallationConfig.find_by(name: 'ENABLE_ACCOUNT_SIGNUP');

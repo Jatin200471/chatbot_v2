@@ -29,15 +29,10 @@ do
   sleep 2;
 done
 
-# ── AUTO MIGRATE ─────────────────────────────────────────────────────────────
-# Automatically run migrations on every container start.
-# This ensures new columns/tables are always applied without manual steps.
-echo "Running database migrations..."
-bundle exec rails db:migrate
-echo "Migrations complete."
-# ─────────────────────────────────────────────────────────────────────────────
-
-# ─────────────────────────────────────────────────────────────────────────────
+# NOTE: db:migrate removed — docker-compose command runs db:chatwoot_prepare
+# which handles both fresh databases (db:setup with seeds) and existing ones
+# (db:migrate). Running db:migrate here on a clean DB would create tables
+# without seed data, preventing the super admin onboarding page from appearing.
 
 # Execute the main process of the container
 exec "$@"
