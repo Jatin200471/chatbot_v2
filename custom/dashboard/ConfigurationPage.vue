@@ -44,6 +44,8 @@ export default {
       voiceAgentAgentId: '',
       voiceAgentConfigData: {},
       isUpdatingVoiceAgent: false,
+      dograhServerUrl: '',
+      dograhWorkflowId: '',
       customBrandingText: '',
       customBrandingUrl: '',
       isUpdatingBranding: false,
@@ -108,6 +110,8 @@ export default {
         : rawConfig;
       this.voiceAgentAgentId = this.inbox.elevenlabs_agent_id || parsedConfig.agent_id || '';
       this.voiceAgentConfigData = JSON.stringify(parsedConfig, null, 2);
+      this.dograhServerUrl = parsedConfig.server_url || '';
+      this.dograhWorkflowId = parsedConfig.workflow_id || '';
       this.customBrandingText = this.inbox.custom_branding_text || '';
       this.customBrandingUrl = this.inbox.custom_branding_url || '';
       this.customBubbleIconUrl = this.inbox.custom_bubble_icon_url || '';
@@ -287,11 +291,16 @@ export default {
           configData = this.voiceAgentConfigData;
         }
 
-        // Agent ID input wins. Mirror it into the JSON blob so the widget's
-        // existing voice_agent_config_data.agent_id read path keeps working.
+        // Provider-specific fields merged into config blob
         const agentId = (this.voiceAgentAgentId || '').trim();
         if (agentId) {
           configData = { ...configData, agent_id: agentId };
+        }
+        if (this.voiceAgentProvider === 'dograh') {
+          const serverUrl = (this.dograhServerUrl || '').trim();
+          const workflowId = (this.dograhWorkflowId || '').trim();
+          if (serverUrl) configData.server_url = serverUrl;
+          if (workflowId) configData.workflow_id = workflowId;
         }
 
         // Dashboard uses the 'elevenlabs_voice' FlagShihTzu bit (bit 5,
@@ -480,50 +489,103 @@ export default {
             <div class="flex flex-col gap-1.5">
               <label class="text-sm font-medium text-n-slate-11" for="voiceAgentProvider">
                 Provider
-                <span class="text-n-slate-9 font-normal ml-1">e.g. elevenlabs, twilio, google, custom</span>
               </label>
-              <input
+              <select
                 id="voiceAgentProvider"
                 v-model="voiceAgentProvider"
-                type="text"
-                placeholder="elevenlabs"
                 class="chatwoot-input w-full max-w-lg"
-              />
+              >
+                <option value="elevenlabs">ElevenLabs</option>
+                <option value="dograh">Dograh (Open Source)</option>
+              </select>
             </div>
 
-            <!-- API Key -->
-            <div class="flex flex-col gap-1.5">
-              <label class="text-sm font-medium text-n-slate-11" for="voiceAgentApiKey">
-                API Key
-                <span class="text-n-slate-9 font-normal ml-1">required for authentication</span>
-              </label>
-              <input
-                id="voiceAgentApiKey"
-                v-model="voiceAgentApiKey"
-                type="password"
-                placeholder="your-voice-agent-api-key"
-                class="chatwoot-input w-full max-w-lg"
-                autocomplete="new-password"
-              />
-            </div>
+            <!-- ── ElevenLabs-specific fields ── -->
+            <template v-if="voiceAgentProvider === 'elevenlabs'">
+              <div class="flex flex-col gap-1.5">
+                <label class="text-sm font-medium text-n-slate-11" for="voiceAgentApiKey">
+                  API Key
+                  <span class="text-n-slate-9 font-normal ml-1">required for private agents, optional for public</span>
+                </label>
+                <input
+                  id="voiceAgentApiKey"
+                  v-model="voiceAgentApiKey"
+                  type="password"
+                  placeholder="xi-api-key-xxxxxxxxxx"
+                  class="chatwoot-input w-full max-w-lg"
+                  autocomplete="new-password"
+                />
+              </div>
 
-            <!-- Agent ID -->
-            <div class="flex flex-col gap-1.5">
-              <label class="text-sm font-medium text-n-slate-11" for="voiceAgentAgentId">
-                Agent ID
-                <span class="text-n-slate-9 font-normal ml-1">required — voice agent will not appear in widget without this</span>
-              </label>
-              <input
-                id="voiceAgentAgentId"
-                v-model="voiceAgentAgentId"
-                type="text"
-                placeholder="agent_xxxxxxxxxxxxxxxxxxxxxxxxx"
-                class="chatwoot-input w-full max-w-lg"
-              />
-              <p class="text-xs text-n-slate-10 mt-0.5">
-                For ElevenLabs, copy this from your agent dashboard at elevenlabs.io.
-              </p>
-            </div>
+              <div class="flex flex-col gap-1.5">
+                <label class="text-sm font-medium text-n-slate-11" for="voiceAgentAgentId">
+                  Agent ID
+                  <span class="text-n-slate-9 font-normal ml-1">required — voice agent will not appear in widget without this</span>
+                </label>
+                <input
+                  id="voiceAgentAgentId"
+                  v-model="voiceAgentAgentId"
+                  type="text"
+                  placeholder="agent_xxxxxxxxxxxxxxxxxxxxxxxxx"
+                  class="chatwoot-input w-full max-w-lg"
+                />
+                <p class="text-xs text-n-slate-10 mt-0.5">
+                  Copy from your agent dashboard at elevenlabs.io
+                </p>
+              </div>
+            </template>
+
+            <!-- ── Dograh-specific fields ── -->
+            <template v-if="voiceAgentProvider === 'dograh'">
+              <div class="flex flex-col gap-1.5">
+                <label class="text-sm font-medium text-n-slate-11" for="dograhServerUrl">
+                  Server URL
+                  <span class="text-n-slate-9 font-normal ml-1">your self-hosted Dograh instance</span>
+                </label>
+                <input
+                  id="dograhServerUrl"
+                  v-model="dograhServerUrl"
+                  type="text"
+                  placeholder="https://dograh.yourdomain.com"
+                  class="chatwoot-input w-full max-w-lg"
+                />
+                <p class="text-xs text-n-slate-10 mt-0.5">
+                  The base URL of your Dograh server (e.g. https://dograh.yourdomain.com)
+                </p>
+              </div>
+
+              <div class="flex flex-col gap-1.5">
+                <label class="text-sm font-medium text-n-slate-11" for="dograhWorkflowId">
+                  Workflow ID
+                  <span class="text-n-slate-9 font-normal ml-1">required — the voice agent workflow to run</span>
+                </label>
+                <input
+                  id="dograhWorkflowId"
+                  v-model="dograhWorkflowId"
+                  type="text"
+                  placeholder="workflow_xxxxxxxxxx"
+                  class="chatwoot-input w-full max-w-lg"
+                />
+                <p class="text-xs text-n-slate-10 mt-0.5">
+                  Copy from your Dograh dashboard → Voice Agent → Workflow ID
+                </p>
+              </div>
+
+              <div class="flex flex-col gap-1.5">
+                <label class="text-sm font-medium text-n-slate-11" for="voiceAgentApiKey">
+                  API Key
+                  <span class="text-n-slate-9 font-normal ml-1">optional — for authenticated Dograh instances</span>
+                </label>
+                <input
+                  id="voiceAgentApiKey"
+                  v-model="voiceAgentApiKey"
+                  type="password"
+                  placeholder="dograh-api-key"
+                  class="chatwoot-input w-full max-w-lg"
+                  autocomplete="new-password"
+                />
+              </div>
+            </template>
 
             <!-- Config JSON (advanced / optional) -->
             <details class="flex flex-col gap-1.5">
@@ -540,7 +602,7 @@ export default {
                   rows="5"
                 />
                 <p class="text-xs text-n-slate-10 mt-0.5">
-                  Anything extra your provider needs (voice_id, timeout, etc.). The Agent ID field above takes priority.
+                  Anything extra your provider needs (voice_id, timeout, etc.).
                 </p>
               </div>
             </details>
@@ -762,6 +824,15 @@ export default {
     font-size: 0.8125rem;
     resize: vertical;
   }
+}
+
+select.chatwoot-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2394a3b8' d='M1.4 0L6 4.6 10.6 0 12 1.4l-6 6-6-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+  cursor: pointer;
 }
 
 /* Dark mode override for inputs */

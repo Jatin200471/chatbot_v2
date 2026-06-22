@@ -3,7 +3,7 @@ require 'net/http'
 class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   include Events::Types
   before_action :render_not_found_if_empty, only: [:toggle_typing, :toggle_status, :set_custom_attributes, :destroy_custom_attributes]
-  skip_before_action :set_contact, only: [:inbox_config, :voice_signed_url]
+  skip_before_action :set_contact, only: [:inbox_config]
 
   def index
     @conversation = conversation
@@ -143,10 +143,15 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   # Required for PRIVATE ElevenLabs agents; not needed for Public agents.
   def voice_signed_url
     @inbox = @web_widget.inbox
+    provider = (@web_widget.voice_agent_provider || 'elevenlabs').strip.downcase
     api_key = @web_widget.voice_agent_api_key.to_s.strip
     agent_id = @web_widget.elevenlabs_agent_id.to_s.strip
+    config_data = @web_widget.voice_agent_config_data || {}
 
-    # Agent ID must always be configured
+    # Route to provider-specific handler
+    return voice_signed_url_dograh(api_key, config_data) if provider == 'dograh'
+
+    # ── ElevenLabs (default) ──
     if agent_id.blank?
       return render json: { error: 'No agent_id configured on this inbox' }, status: :unprocessable_entity
     end
@@ -195,25 +200,35 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
       req['xi-api-key'] = api_key
       res = http.request(req)
 
+      conv = conversation || build_conversation_for_voice
+      acct_id = @web_widget.inbox.account_id
+
       if res.is_a?(Net::HTTPSuccess)
         body = JSON.parse(res.body)
         render json: {
-          signed_url:    body['signed_url'],
-          agent_name:    agent_display_name,
-          brand_name:    brand_display_name,
-          avatar_url:    first_agent&.avatar_url
+          signed_url:      body['signed_url'],
+          conversation_id: conv.id,
+          account_id:      acct_id,
+          agent_name:      agent_display_name,
+          brand_name:      brand_display_name,
+          avatar_url:      first_agent&.avatar_url
         }
       else
         Rails.logger.error "[VOICE-AGENT] ElevenLabs signed-url request failed: #{res.code} #{res.body}"
         render json: { error: "ElevenLabs API error: #{res.code} — check Agent ID and API Key in inbox settings" }, status: :unprocessable_entity
       end
     else
+      conv = conversation || build_conversation_for_voice
+      acct_id = @web_widget.inbox.account_id
+
       # Public agent — return direct WebSocket URL (agent_id comes from backend, not frontend)
       render json: {
-        signed_url:    "wss://api.elevenlabs.io/v1/convai/conversation?agent_id=#{agent_id}",
-        agent_name:    agent_display_name,
-        brand_name:    brand_display_name,
-        avatar_url:    first_agent&.avatar_url
+        signed_url:      "wss://api.elevenlabs.io/v1/convai/conversation?agent_id=#{agent_id}",
+        conversation_id: conv.id,
+        account_id:      acct_id,
+        agent_name:      agent_display_name,
+        brand_name:      brand_display_name,
+        avatar_url:      first_agent&.avatar_url
       }
     end
   rescue StandardError => e
@@ -720,6 +735,46 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
   rescue StandardError => e
     Rails.logger.error "[VOICE-AGENT] voice_agent_sender failed: #{e.message}"
     nil
+  end
+
+  def voice_signed_url_dograh(api_key, config_data)
+    server_url  = config_data['server_url'].to_s.strip
+    workflow_id = config_data['workflow_id'].to_s.strip
+
+    if server_url.blank? || workflow_id.blank?
+      return render json: { error: 'Dograh server_url and workflow_id must be configured' }, status: :unprocessable_entity
+    end
+
+    conv = conversation || build_conversation_for_voice
+    acct_id = @web_widget.inbox.account_id
+
+    first_agent = @inbox.inbox_members.order(:id).first&.user
+    first_agent ||= @inbox.account.account_users
+                          .where(role: :administrator).order(:id).first&.user
+    agent_display_name = first_agent&.available_name.presence ||
+                         first_agent&.name.presence ||
+                         @inbox.name
+    brand_display_name = @inbox.account.name.presence || @inbox.name
+
+    # Dograh uses WebRTC with WebSocket signaling.
+    # The widget connects to the Dograh server directly.
+    ws_base = server_url.sub(%r{^https?://}, 'wss://').chomp('/')
+
+    render json: {
+      provider:        'dograh',
+      signed_url:      "#{ws_base}/ws/rtc",
+      server_url:      server_url,
+      workflow_id:     workflow_id,
+      api_key:         api_key.present? ? api_key : nil,
+      conversation_id: conv.id,
+      account_id:      acct_id,
+      agent_name:      agent_display_name,
+      brand_name:      brand_display_name,
+      avatar_url:      first_agent&.avatar_url
+    }
+  rescue StandardError => e
+    Rails.logger.error "[VOICE-AGENT] Dograh signed-url exception: #{e.class} #{e.message}"
+    render json: { error: e.message }, status: :internal_server_error
   end
 
   def build_conversation_for_voice
