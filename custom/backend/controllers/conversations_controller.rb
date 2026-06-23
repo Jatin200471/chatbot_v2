@@ -765,7 +765,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
 
     # Call Dograh's embed init API to get a session token + workflow_run_id.
     # POST /api/v1/public/embed/init  { token: "emb_..." }
-    # Then build the signaling WebSocket URL: wss://{host}/ws/public/signaling/{session_token}
+    # Then build the signaling WebSocket URL: wss://{host}/api/v1/ws/public/signaling/{session_token}
     base = server_url.chomp('/')
     dograh_uri = URI.parse("#{base}/api/v1/public/embed/init")
     http = Net::HTTP.new(dograh_uri.host, dograh_uri.port)
@@ -789,7 +789,7 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
 
     # Build the public signaling WebSocket URL
     ws_base = server_url.sub(%r{^https?://}, 'wss://').chomp('/')
-    signed_url = "#{ws_base}/ws/public/signaling/#{session_token}"
+    signed_url = "#{ws_base}/api/v1/ws/public/signaling/#{session_token}"
 
     render json: {
       provider:            'dograh',
