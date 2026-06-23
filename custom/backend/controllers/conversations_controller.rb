@@ -756,33 +756,38 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
                          @inbox.name
     brand_display_name = @inbox.account.name.presence || @inbox.name
 
-    # Call Dograh's embed API to get a session with signed WebSocket URL.
-    # Dograh returns: { signed_url, session_token, workflow_run_id }
+    # Call Dograh's embed init API to get a session token + workflow_run_id.
+    # POST /api/v1/public/embed/init  { token: "emb_..." }
+    # Then build the signaling WebSocket URL: wss://{host}/ws/public/signaling/{session_token}
     base = server_url.chomp('/')
-    dograh_uri = URI.parse("#{base}/api/v1/public/embed/authenticate")
+    dograh_uri = URI.parse("#{base}/api/v1/public/embed/init")
     http = Net::HTTP.new(dograh_uri.host, dograh_uri.port)
     http.use_ssl = (dograh_uri.scheme == 'https')
     http.open_timeout = 8
     http.read_timeout = 10
 
     req = Net::HTTP::Post.new(dograh_uri.path, {
-      'Content-Type' => 'application/json',
-      'Authorization' => api_key.present? ? "Bearer #{api_key}" : nil
-    }.compact)
-    req.body = { workflow_id: workflow_id }.to_json
+      'Content-Type' => 'application/json'
+    })
+    req.body = { token: workflow_id }.to_json
 
     resp = http.request(req)
     unless resp.is_a?(Net::HTTPSuccess)
-      Rails.logger.error "[VOICE-AGENT] Dograh authenticate failed: #{resp.code} #{resp.body}"
+      Rails.logger.error "[VOICE-AGENT] Dograh embed/init failed: #{resp.code} #{resp.body}"
       return render json: { error: "Dograh API returned #{resp.code}" }, status: :bad_gateway
     end
 
     dograh_data = JSON.parse(resp.body)
+    session_token = dograh_data['session_token']
+
+    # Build the public signaling WebSocket URL
+    ws_base = server_url.sub(%r{^https?://}, 'wss://').chomp('/')
+    signed_url = "#{ws_base}/ws/public/signaling/#{session_token}"
 
     render json: {
       provider:            'dograh',
-      signed_url:          dograh_data['signed_url'],
-      session_token:       dograh_data['session_token'],
+      signed_url:          signed_url,
+      session_token:       session_token,
       workflow_run_id:     dograh_data['workflow_run_id'],
       voice_agent_api_url: base,
       server_url:          server_url,
