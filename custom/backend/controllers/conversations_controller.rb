@@ -756,13 +756,15 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
                          @inbox.name
     brand_display_name = @inbox.account.name.presence || @inbox.name
 
-    # Dograh uses WebRTC with WebSocket signaling.
-    # The widget connects to the Dograh server directly.
+    # Dograh uses WebSocket audio streaming (not WebRTC).
+    # Endpoint: /api/v1/telephony/ws/{workflow_id}/{user_id}/{run_id}
     ws_base = server_url.sub(%r{^https?://}, 'wss://').chomp('/')
+    user_id = "web_#{SecureRandom.hex(4)}"
+    run_id  = SecureRandom.uuid
 
     render json: {
       provider:        'dograh',
-      signed_url:      "#{ws_base}/ws/rtc",
+      signed_url:      "#{ws_base}/api/v1/telephony/ws/#{workflow_id}/#{user_id}/#{run_id}",
       server_url:      server_url,
       workflow_id:     workflow_id,
       api_key:         api_key.present? ? api_key : nil,

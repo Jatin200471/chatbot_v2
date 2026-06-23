@@ -199,6 +199,24 @@ export default {
       const ch = window.chatwootWebChannel || {};
       const rules = [];
 
+      // Hex → relative luminance (0 = black, 1 = white)
+      const hexToLuminance = (hex) => {
+        let c = hex.replace('#', '');
+        if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+        const r = parseInt(c.slice(0,2),16)/255;
+        const g = parseInt(c.slice(2,4),16)/255;
+        const b = parseInt(c.slice(4,6),16)/255;
+        const toLinear = v => v <= 0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4);
+        return 0.2126*toLinear(r) + 0.7152*toLinear(g) + 0.0722*toLinear(b);
+      };
+
+      // Extract first hex from any color string (solid or gradient)
+      const extractHex = (val) => {
+        if (!val) return null;
+        const m = val.match(/#[a-fA-F0-9]{3,8}/);
+        return m ? m[0] : null;
+      };
+
       // Extract solid color from widget_color (gradient → first hex)
       const widgetColorRaw = ch.widgetColor || '#1f93ff';
       const solidWidgetColor = (() => {
@@ -217,6 +235,28 @@ export default {
           `.bg-n-slate-2{background:${bg}!important}` +
           `.dark .bg-n-solid-1{background:${bg}!important}`
         );
+
+        // Auto-contrast: adjust date separator & agent name based on bg luminance
+        const bgHex = extractHex(bg);
+        if (bgHex) {
+          const lum = hexToLuminance(bgHex);
+          const isDark = lum < 0.4;
+          const textColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.5)';
+          const lineColor = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)';
+          const strongText = isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
+
+          // Date separator text ("Today", "Yesterday") — DateSeparator uses text-n-slate-11
+          rules.push(`.conversation-wrap .messages-wrap > .text-n-slate-11{color:${textColor}!important}`);
+          // Date separator lines (::before / ::after pseudo-elements use bg-n-slate-4)
+          rules.push(
+            `.conversation-wrap .messages-wrap > .text-n-slate-11::before,` +
+            `.conversation-wrap .messages-wrap > .text-n-slate-11::after` +
+            `{background-color:${lineColor}!important}`
+          );
+
+          // Agent name label below chat bubbles
+          rules.push(`.agent-name{color:${textColor}!important}`);
+        }
       }
 
       // Input focus — override box-shadow (Chatwoot uses shadow-n-brand on focus)

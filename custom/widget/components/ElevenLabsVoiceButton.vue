@@ -234,8 +234,8 @@ export default {
     },
 
     async endInlineCall() {
-      // Dograh path — close WebSocket + WebRTC
-      if (this._dograhWs || this._dograhPc) {
+      // Dograh path — close WebSocket + audio streaming
+      if (this._dograhWs || this._dograhAudioCtx) {
         this.inlineStatusText = 'Ending…';
         this._cleanupDograh();
         this.handleInlineCallEnded('Call ended');
@@ -266,7 +266,7 @@ export default {
       this.handleInlineCallEnded('Call ended');
     },
 
-    // ── Dograh call (WebRTC + WebSocket signaling) ──────────────────────
+    // ── Dograh call (WebSocket audio streaming) ─────────────────────────
     async startDograhCall() {
       if (!this.hasDograhVoiceEnabled) return;
       const myGen = ++_callGeneration;
@@ -281,90 +281,95 @@ export default {
         const config = await this._buildConfig();
         this.inlineConfig = config;
 
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(t => t.stop());
+        // Request mic permission early
+        const audioStream = await navigator.mediaDevices.getUserMedia({
+          audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+        });
+        this._dograhStream = audioStream;
 
         this.inlineStatusText = 'Connecting to Dograh…';
 
-        // Generate peer connection ID
-        const pcId = 'cw_' + Math.random().toString(36).slice(2, 10);
-        const wsUrl = `${config.dograhWsUrl}/${config.dograhWorkflowId}/${pcId}`;
+        // Backend returns the full ready-to-use WebSocket URL
+        const wsUrl = config.dograhWsUrl;
+        vLog('Dograh WS URL:', wsUrl);
 
-        // Connect WebSocket for signaling
         const ws = new WebSocket(wsUrl);
         this._dograhWs = ws;
 
-        // Create WebRTC peer connection
-        const pc = new RTCPeerConnection({
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-        });
-        this._dograhPc = pc;
+        // Set up AudioContext for capturing mic PCM and playing back agent audio
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        this._dograhAudioCtx = audioCtx;
 
-        // Get mic audio and add to peer connection
-        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        this._dograhStream = audioStream;
-        audioStream.getTracks().forEach(track => pc.addTrack(track, audioStream));
-
-        // Handle remote audio
-        pc.ontrack = (event) => {
-          const audio = new Audio();
-          audio.srcObject = event.streams[0];
-          audio.play().catch(() => {});
-          this._dograhRemoteAudio = audio;
-        };
-
-        // ICE candidates → send via WebSocket
-        pc.onicecandidate = (event) => {
-          if (event.candidate && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'ice-candidate', candidate: event.candidate }));
-          }
-        };
-
-        ws.onopen = async () => {
+        ws.onopen = () => {
           if (myGen !== _callGeneration) return;
-          // Send auth if API key present
-          if (config.dograhApiKey) {
-            ws.send(JSON.stringify({ type: 'auth', api_key: config.dograhApiKey }));
-          }
-          // Create and send SDP offer
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          ws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }));
+          vLog('Dograh WS connected');
+
+          // Send start event with auth + config
+          ws.send(JSON.stringify({
+            event: 'start',
+            start: {
+              streamSid: 'cw_' + Math.random().toString(36).slice(2, 10),
+              callSid: 'cw_call_' + Math.random().toString(36).slice(2, 10),
+              customParameters: {
+                api_key: config.dograhApiKey || undefined,
+                workflow_id: config.dograhWorkflowId || undefined,
+              },
+            },
+          }));
+
+          // Start capturing mic audio and streaming to Dograh
+          this._startMicCapture(audioCtx, audioStream, ws, myGen);
+
+          this.isConnecting = false;
+          this.isCallActive = true;
+          this.inlineStatus = 'connected';
+          this.inlineStatusText = 'Connected';
+          this.setActive(true);
+          this.setConnecting(false);
+          this._callStartTime = Date.now();
+          this._startInlineHeartbeat();
+          this._startInlineBackendHeartbeat();
+          try { window.parent.postMessage({ event: 'cw-voice-call-started' }, '*'); } catch (_) {}
+          try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
         };
 
-        ws.onmessage = async (event) => {
+        ws.onmessage = (event) => {
           if (myGen !== _callGeneration) return;
-          const msg = JSON.parse(event.data);
 
-          if (msg.type === 'answer') {
-            await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: msg.sdp }));
-            this.isConnecting = false;
-            this.isCallActive = true;
-            this.inlineStatus = 'connected';
-            this.inlineStatusText = 'Connected';
-            this.setActive(true);
-            this.setConnecting(false);
-            this._callStartTime = Date.now();
-            this._startInlineHeartbeat();
-            this._startInlineBackendHeartbeat();
-            try { window.parent.postMessage({ event: 'cw-voice-call-started' }, '*'); } catch (_) {}
-            try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
-          } else if (msg.type === 'ice-candidate' && msg.candidate) {
-            await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)).catch(() => {});
-          } else if (msg.type === 'rtf-user-transcription' || msg.type === 'rtf-bot-text') {
-            // Dograh transcript events → send to Chatwoot
-            const source = msg.type === 'rtf-user-transcription' ? 'user' : 'ai';
-            const text = (msg.text || msg.content || '').trim();
-            if (text) {
-              const cwConv = this.getCwConversationToken();
-              let url = buildConvUrl('/api/v1/widget/conversations/voice_transcript');
-              if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
-              API.post(url, { source, content: text }).catch(() => {});
-              try { this.$store.dispatch('conversation/fetchOldConversations'); } catch (_) {}
+          // Binary frame = audio from Dograh agent → play it
+          if (event.data instanceof Blob || event.data instanceof ArrayBuffer) {
+            this._playAgentAudio(audioCtx, event.data);
+            return;
+          }
+
+          // JSON message
+          try {
+            const msg = JSON.parse(event.data);
+            vLog('Dograh msg:', msg.event || msg.type, msg);
+
+            // Dograh sends audio as base64 in "media" events (Twilio-style)
+            if (msg.event === 'media' && msg.media?.payload) {
+              this._playBase64Audio(audioCtx, msg.media.payload);
             }
-          } else if (msg.type === 'call-ended' || msg.type === 'error') {
-            this.handleInlineCallEnded(msg.type === 'error' ? 'Error' : 'Call ended');
-          }
+
+            // Transcript events → send to Chatwoot
+            if (msg.type === 'rtf-user-transcription' || msg.type === 'rtf-bot-text' ||
+                msg.event === 'transcription' || msg.event === 'agent_response') {
+              const source = (msg.type === 'rtf-user-transcription' || msg.event === 'transcription') ? 'user' : 'ai';
+              const text = (msg.text || msg.content || msg.transcript || '').trim();
+              if (text) {
+                const cwConv = this.getCwConversationToken();
+                let url = buildConvUrl('/api/v1/widget/conversations/voice_transcript');
+                if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
+                API.post(url, { source, content: text }).catch(() => {});
+                try { this.$store.dispatch('conversation/fetchOldConversations'); } catch (_) {}
+              }
+            }
+
+            if (msg.type === 'call-ended' || msg.event === 'stop' || msg.type === 'error') {
+              this.handleInlineCallEnded(msg.type === 'error' ? 'Error' : 'Call ended');
+            }
+          } catch (_) {}
         };
 
         ws.onclose = () => {
@@ -372,8 +377,9 @@ export default {
           if (this.isCallActive) this.handleInlineCallEnded('Call ended');
         };
 
-        ws.onerror = () => {
+        ws.onerror = (err) => {
           if (myGen !== _callGeneration) return;
+          console.error('[VOICE-DOGRAH] WebSocket error:', err);
           this.inlineStatus = 'error';
           this.inlineStatusText = 'Connection failed';
           this.isConnecting = false;
@@ -387,8 +393,83 @@ export default {
         this.inlineStatus = 'error';
         this.inlineStatusText = (error?.name === 'NotAllowedError') ? 'Mic denied' : 'Failed to connect';
         this.setConnecting(false);
+        this._cleanupDograh();
         setTimeout(() => { if (this.inlineStatus === 'error') this.inlineStatus = 'idle'; }, 3000);
       }
+    },
+
+    // Capture mic audio as 16kHz PCM and send over WebSocket
+    _startMicCapture(audioCtx, stream, ws, myGen) {
+      const source = audioCtx.createMediaStreamSource(stream);
+      // ScriptProcessor: 4096 samples buffer, mono in, mono out
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      this._dograhProcessor = processor;
+
+      processor.onaudioprocess = (e) => {
+        if (myGen !== _callGeneration || ws.readyState !== WebSocket.OPEN) return;
+        const inputData = e.inputBuffer.getChannelData(0);
+        // Convert Float32 PCM to 16-bit Linear PCM
+        const pcm16 = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          const s = Math.max(-1, Math.min(1, inputData[i]));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        // Convert to base64 and send as Twilio-compatible media event
+        const bytes = new Uint8Array(pcm16.buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        const b64 = btoa(binary);
+        ws.send(JSON.stringify({
+          event: 'media',
+          media: { payload: b64 },
+        }));
+      };
+
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+    },
+
+    // Play base64-encoded audio received from Dograh
+    _playBase64Audio(audioCtx, base64Data) {
+      try {
+        const binary = atob(base64Data);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        this._playPcmBuffer(audioCtx, bytes.buffer);
+      } catch (_) {}
+    },
+
+    // Play raw audio (ArrayBuffer or Blob)
+    async _playAgentAudio(audioCtx, data) {
+      try {
+        const buffer = data instanceof Blob ? await data.arrayBuffer() : data;
+        // Try decoding as encoded audio (mp3/opus/wav)
+        try {
+          const audioBuffer = await audioCtx.decodeAudioData(buffer.slice(0));
+          const src = audioCtx.createBufferSource();
+          src.buffer = audioBuffer;
+          src.connect(audioCtx.destination);
+          src.start();
+          return;
+        } catch (_) {}
+        // Fallback: treat as raw 16-bit PCM
+        this._playPcmBuffer(audioCtx, buffer);
+      } catch (_) {}
+    },
+
+    // Play raw 16-bit PCM buffer
+    _playPcmBuffer(audioCtx, arrayBuffer) {
+      const pcm16 = new Int16Array(arrayBuffer);
+      const float32 = new Float32Array(pcm16.length);
+      for (let i = 0; i < pcm16.length; i++) {
+        float32[i] = pcm16[i] / (pcm16[i] < 0 ? 0x8000 : 0x7FFF);
+      }
+      const audioBuffer = audioCtx.createBuffer(1, float32.length, audioCtx.sampleRate);
+      audioBuffer.getChannelData(0).set(float32);
+      const src = audioCtx.createBufferSource();
+      src.buffer = audioBuffer;
+      src.connect(audioCtx.destination);
+      src.start();
     },
 
     handleInlineCallEnded(label) {
@@ -653,13 +734,13 @@ export default {
 
     _cleanupDograh() {
       try { this._dograhStream?.getTracks().forEach(t => t.stop()); } catch (_) {}
-      try { this._dograhPc?.close(); } catch (_) {}
+      try { this._dograhProcessor?.disconnect(); } catch (_) {}
+      try { this._dograhAudioCtx?.close(); } catch (_) {}
       try { this._dograhWs?.close(); } catch (_) {}
-      try { this._dograhRemoteAudio?.pause(); } catch (_) {}
       this._dograhStream = null;
-      this._dograhPc = null;
+      this._dograhProcessor = null;
+      this._dograhAudioCtx = null;
       this._dograhWs = null;
-      this._dograhRemoteAudio = null;
     },
 
     async _buildConfig() {
