@@ -228,12 +228,13 @@ export default {
       // Override Chatwoot's --color-n-brand so focus rings use widget color
       rules.push(`:root{--color-n-brand:${solidWidgetColor}!important}`);
 
-      // Widget body background (solid or gradient)
+      // Widget body background (solid or gradient) — scoped to conversation area only
       if (ch.widgetBgColor) {
         const bg = ch.widgetBgColor.trim();
         rules.push(
-          `.bg-n-slate-2{background:${bg}!important}` +
-          `.dark .bg-n-solid-1{background:${bg}!important}`
+          `.conversation-wrap{background:${bg}!important}` +
+          `.conversation-wrap .bg-n-slate-2{background:${bg}!important}` +
+          `.home .bg-n-slate-2{background:${bg}!important}`
         );
 
         // Auto-contrast: adjust date separator & agent name based on bg luminance
@@ -373,6 +374,12 @@ export default {
         `.unread-notification-wrap{background:transparent!important;box-shadow:none!important;border:none!important}` +
         `.unread-notification-wrap .notification-message{background:#fff!important;box-shadow:0 1px 4px rgba(0,0,0,.12)!important;border-radius:8px!important}` +
         `.unread-notification{background:transparent!important;box-shadow:none!important;border:none!important}`
+      );
+
+      // Hide scrollbar but keep scrolling
+      rules.push(
+        `.conversation-wrap .messages-wrap{scrollbar-width:none;-ms-overflow-style:none}` +
+        `.conversation-wrap .messages-wrap::-webkit-scrollbar{display:none}`
       );
 
       if (rules.length) {
