@@ -756,22 +756,42 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
                          @inbox.name
     brand_display_name = @inbox.account.name.presence || @inbox.name
 
-    # Dograh Agent Stream: wss://{host}/api/v1/agent-stream/{workflow_id}
-    # Auth is server-side (no credentials in URL). First messages must be
-    # Twilio-compatible "connected" + "start" events.
-    ws_base = server_url.sub(%r{^https?://}, 'wss://').chomp('/')
+    # Call Dograh's embed API to get a session with signed WebSocket URL.
+    # Dograh returns: { signed_url, session_token, workflow_run_id }
+    base = server_url.chomp('/')
+    dograh_uri = URI.parse("#{base}/api/v1/public/embed/authenticate")
+    http = Net::HTTP.new(dograh_uri.host, dograh_uri.port)
+    http.use_ssl = (dograh_uri.scheme == 'https')
+    http.open_timeout = 8
+    http.read_timeout = 10
+
+    req = Net::HTTP::Post.new(dograh_uri.path, {
+      'Content-Type' => 'application/json',
+      'Authorization' => api_key.present? ? "Bearer #{api_key}" : nil
+    }.compact)
+    req.body = { workflow_id: workflow_id }.to_json
+
+    resp = http.request(req)
+    unless resp.is_a?(Net::HTTPSuccess)
+      Rails.logger.error "[VOICE-AGENT] Dograh authenticate failed: #{resp.code} #{resp.body}"
+      return render json: { error: "Dograh API returned #{resp.code}" }, status: :bad_gateway
+    end
+
+    dograh_data = JSON.parse(resp.body)
 
     render json: {
-      provider:        'dograh',
-      signed_url:      "#{ws_base}/api/v1/agent-stream/#{workflow_id}",
-      server_url:      server_url,
-      workflow_id:     workflow_id,
-      api_key:         api_key.present? ? api_key : nil,
-      conversation_id: conv.id,
-      account_id:      acct_id,
-      agent_name:      agent_display_name,
-      brand_name:      brand_display_name,
-      avatar_url:      first_agent&.avatar_url
+      provider:            'dograh',
+      signed_url:          dograh_data['signed_url'],
+      session_token:       dograh_data['session_token'],
+      workflow_run_id:     dograh_data['workflow_run_id'],
+      voice_agent_api_url: base,
+      server_url:          server_url,
+      workflow_id:         workflow_id,
+      conversation_id:     conv.id,
+      account_id:          acct_id,
+      agent_name:          agent_display_name,
+      brand_name:          brand_display_name,
+      avatar_url:          first_agent&.avatar_url
     }
   rescue StandardError => e
     Rails.logger.error "[VOICE-AGENT] Dograh signed-url exception: #{e.class} #{e.message}"
