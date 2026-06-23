@@ -487,6 +487,15 @@
       writeHeartbeat();
       _heartbeatTimer = setInterval(writeHeartbeat, 1500);
 
+      if (cfg.provider === 'dograh') {
+        await startDograhCall();
+      } else {
+        await startElevenLabsCall();
+      }
+    }
+
+    // ── ElevenLabs call ──────────────────────────────────────────────
+    async function startElevenLabsCall() {
       try {
         setStatus('connecting', 'Requesting mic…');
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -501,8 +510,6 @@
         conversation = await Conversation.startSession({
           signedUrl: cfg.signedUrl,
 
-          // Chatwoot context → ElevenLabs agent as dynamic variables.
-          // Use in agent prompt: {{chatwoot_conversation_id}}, {{chatwoot_conversation_url}} etc.
           dynamicVariables: {
             chatwoot_conversation_id:  cfg.cwConversationId  || '',
             chatwoot_conversation_url: cfg.cwConversationUrl || '',
@@ -516,7 +523,6 @@
             setStatus('connected', 'Connected');
             $endCallBtn.disabled = false;
 
-            // Capture ElevenLabs conversation ID and save to Chatwoot
             try {
               const elConvId = typeof conversation.getId === 'function'
                 ? conversation.getId()
@@ -558,7 +564,7 @@
         });
       } catch (error) {
         const msg = (error && error.message) || 'unknown';
-        console.error('[VOICE-POPUP] startCall failed:', msg);
+        console.error('[VOICE-POPUP] startElevenLabsCall failed:', msg);
         setStatus('error',
           (error && (error.name === 'NotAllowedError' || error.name === 'NotFoundError'))
             ? 'Mic denied'
@@ -568,7 +574,179 @@
       }
     }
 
+    // ── Dograh call (WebRTC + WebSocket signaling) ───────────────────
+    let _dograhWs = null;
+    let _dograhPc = null;
+    let _dograhStream = null;
+    let _dograhRemoteAudio = null;
+
+    async function startDograhCall() {
+      try {
+        setStatus('connecting', 'Requesting mic…');
+
+        const signedUrl = cfg.dograhSignedUrl || cfg.signedUrl;
+        const sessionToken = cfg.dograhSessionToken;
+        const workflowRunId = cfg.dograhWorkflowRunId;
+        const apiUrl = cfg.dograhApiUrl;
+
+        if (!signedUrl || !sessionToken) {
+          throw new Error('Missing Dograh signed_url or session_token');
+        }
+
+        // Fetch TURN credentials
+        let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+        try {
+          const turnResp = await fetch(`${apiUrl}/api/v1/public/embed/turn-credentials/${sessionToken}`);
+          if (turnResp.ok) {
+            const turnData = await turnResp.json();
+            if (turnData?.ice_servers?.length) iceServers = turnData.ice_servers;
+          }
+        } catch (e) { console.warn('[VOICE-POPUP] TURN fetch failed:', e?.message); }
+
+        setStatus('connecting', 'Connecting…');
+
+        // Create RTCPeerConnection
+        const pc = new RTCPeerConnection({ iceServers });
+        _dograhPc = pc;
+        const pcId = 'cw_' + Math.random().toString(36).slice(2, 10);
+
+        // Get mic and add tracks
+        const audioStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true }
+        });
+        _dograhStream = audioStream;
+        audioStream.getTracks().forEach(track => pc.addTrack(track, audioStream));
+
+        // Remote audio playback
+        const remoteAudio = new Audio();
+        remoteAudio.autoplay = true;
+        _dograhRemoteAudio = remoteAudio;
+
+        pc.ontrack = (event) => {
+          remoteAudio.srcObject = event.streams[0] || new MediaStream([event.track]);
+        };
+
+        // WebSocket signaling
+        const ws = new WebSocket(signedUrl);
+        _dograhWs = ws;
+
+        const pendingCandidates = [];
+        pc.onicecandidate = (event) => {
+          if (!event.candidate) return;
+          const msg = { type: 'ice-candidate', payload: event.candidate };
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+          else pendingCandidates.push(msg);
+        };
+
+        ws.onopen = async () => {
+          pendingCandidates.forEach(msg => ws.send(JSON.stringify(msg)));
+          pendingCandidates.length = 0;
+
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+
+          ws.send(JSON.stringify({
+            type: 'offer',
+            payload: {
+              sdp: pc.localDescription.sdp,
+              type: 'offer',
+              pc_id: pcId,
+              workflow_id: null,
+              workflow_run_id: workflowRunId,
+              call_context_vars: {},
+            },
+          }));
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+
+            if (msg.type === 'answer' && msg.payload) {
+              pc.setRemoteDescription(new RTCSessionDescription({
+                type: 'answer', sdp: msg.payload.sdp,
+              }));
+              isCallActive = true;
+              _callConnectedAt = Date.now();
+              setStatus('connected', 'Connected');
+              $endCallBtn.disabled = false;
+              writeHeartbeat();
+              startBackendHeartbeat();
+              postToOpener('voice-popup-connected');
+            }
+
+            if (msg.type === 'ice-candidate' && msg.payload) {
+              pc.addIceCandidate(new RTCIceCandidate(msg.payload)).catch(() => {});
+            }
+
+            // Transcripts → Chatwoot (Dograh uses payload.text)
+            if (msg.type === 'USER_TRANSCRIPTION' || msg.type === 'BOT_TEXT' ||
+                msg.type === 'rtf-user-transcription' || msg.type === 'rtf-bot-text') {
+              const source = (msg.type === 'USER_TRANSCRIPTION' || msg.type === 'rtf-user-transcription') ? 'user' : 'ai';
+              const text = (msg.payload?.text || msg.text || msg.content || '').trim();
+              if (text) {
+                apiPost('/api/v1/widget/conversations/voice_transcript', {
+                  source, content: text,
+                }).catch(e => console.warn('Transcript save failed:', e?.message));
+                postToOpener('voice-popup-transcript', { source, message: text });
+              }
+            }
+
+            if (msg.type === 'BOT_TEXT' || msg.type === 'rtf-bot-text') {
+              $body.classList.add('speaking');
+            }
+            if (msg.type === 'rtf-bot-stopped-speaking' || msg.type === 'BOT_STOPPED_SPEAKING') {
+              $body.classList.remove('speaking');
+            }
+
+            if (msg.type === 'error') {
+              console.error('[VOICE-POPUP] Dograh error:', msg);
+              handleCallEnded('Error');
+            }
+          } catch (_) {}
+        };
+
+        ws.onclose = () => {
+          if (isCallActive) handleCallEnded('Call ended');
+        };
+
+        ws.onerror = (err) => {
+          console.error('[VOICE-POPUP] Dograh WS error:', err);
+          setStatus('error', 'Connection failed');
+          $endCallBtn.disabled = true;
+          postToOpener('voice-popup-error', { error: 'WebSocket failed' });
+        };
+
+      } catch (error) {
+        const msg = (error && error.message) || 'unknown';
+        console.error('[VOICE-POPUP] startDograhCall failed:', msg);
+        setStatus('error',
+          (error && (error.name === 'NotAllowedError' || error.name === 'NotFoundError'))
+            ? 'Mic denied' : 'Failed');
+        $endCallBtn.disabled = true;
+        postToOpener('voice-popup-error', { error: msg });
+      }
+    }
+
+    function cleanupDograh() {
+      try { _dograhStream?.getTracks().forEach(t => t.stop()); } catch (_) {}
+      try { _dograhPc?.close(); } catch (_) {}
+      try { _dograhWs?.close(); } catch (_) {}
+      if (_dograhRemoteAudio) { try { _dograhRemoteAudio.srcObject = null; } catch (_) {} }
+      _dograhStream = null;
+      _dograhPc = null;
+      _dograhWs = null;
+      _dograhRemoteAudio = null;
+    }
+
     async function endCall(reason) {
+      // Dograh path
+      if (_dograhWs || _dograhPc) {
+        cleanupDograh();
+        handleCallEnded(reason || 'Call ended');
+        return;
+      }
+      // ElevenLabs path
       if (!conversation) { handleCallEnded(reason || 'Call ended'); return; }
       $endCallBtn.disabled = true;
       setStatus('connecting', 'Ending…');
@@ -615,6 +793,7 @@
       if (_heartbeatTimer) clearInterval(_heartbeatTimer);
       clearHeartbeat();
       stopBackendHeartbeat();
+      if (_dograhWs || _dograhPc) { cleanupDograh(); }
       if (conversation && isCallActive) {
         try { conversation.endSession(); } catch (_) {}
       }
