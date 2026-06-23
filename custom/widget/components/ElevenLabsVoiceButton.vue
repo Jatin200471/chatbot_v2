@@ -163,7 +163,10 @@ export default {
 
     async startCall() {
       if (!this.hasAnyVoiceEnabled) return;
-      // Both ElevenLabs and Dograh use the popup window
+      if (this.hasDograhVoiceEnabled) {
+        await this.startDograhCall();
+        return;
+      }
       await this.startPopupCall();
     },
 
