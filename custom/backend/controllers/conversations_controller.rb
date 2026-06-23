@@ -146,7 +146,14 @@ class Api::V1::Widget::ConversationsController < Api::V1::Widget::BaseController
     provider = (@web_widget.voice_agent_provider || 'elevenlabs').strip.downcase
     api_key = @web_widget.voice_agent_api_key.to_s.strip
     agent_id = @web_widget.elevenlabs_agent_id.to_s.strip
-    config_data = @web_widget.voice_agent_config_data || {}
+    raw_config = @web_widget.voice_agent_config_data
+    config_data = if raw_config.is_a?(String)
+                    begin; JSON.parse(raw_config); rescue; {}; end
+                  elsif raw_config.is_a?(Hash)
+                    raw_config
+                  else
+                    {}
+                  end
 
     # Route to provider-specific handler
     return voice_signed_url_dograh(api_key, config_data) if provider == 'dograh'
