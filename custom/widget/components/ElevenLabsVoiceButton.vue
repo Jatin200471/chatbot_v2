@@ -281,9 +281,9 @@ export default {
         const config = await this._buildConfig();
         this.inlineConfig = config;
 
-        // Request mic permission early
+        // Request mic permission early (8kHz for Twilio-compatible mu-law)
         const audioStream = await navigator.mediaDevices.getUserMedia({
-          audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
         });
         this._dograhStream = audioStream;
 
@@ -304,17 +304,34 @@ export default {
           if (myGen !== _callGeneration) return;
           vLog('Dograh WS connected');
 
-          // Send start event with auth + config
+          const streamSid = 'cw_' + Math.random().toString(36).slice(2, 10);
+          const callSid = 'cw_call_' + Math.random().toString(36).slice(2, 10);
+
+          // Dograh expects Twilio-compatible framing: "connected" then "start"
+          ws.send(JSON.stringify({
+            event: 'connected',
+            protocol: 'Call',
+            version: '1.0.0',
+          }));
+
           ws.send(JSON.stringify({
             event: 'start',
+            sequenceNumber: '1',
             start: {
-              streamSid: 'cw_' + Math.random().toString(36).slice(2, 10),
-              callSid: 'cw_call_' + Math.random().toString(36).slice(2, 10),
+              streamSid,
+              accountSid: 'cw_acct',
+              callSid,
+              tracks: ['inbound'],
+              mediaFormat: {
+                encoding: 'audio/x-mulaw',
+                sampleRate: 8000,
+                channels: 1,
+              },
               customParameters: {
                 api_key: config.dograhApiKey || undefined,
-                workflow_id: config.dograhWorkflowId || undefined,
               },
             },
+            streamSid,
           }));
 
           // Start capturing mic audio and streaming to Dograh
@@ -398,30 +415,84 @@ export default {
       }
     },
 
-    // Capture mic audio as 16kHz PCM and send over WebSocket
+    // ── Mu-law codec (ITU-T G.711) ───────────────────────────────────────
+    _float32ToMulaw(float32Arr) {
+      const BIAS = 0x84;
+      const CLIP = 32635;
+      const out = new Uint8Array(float32Arr.length);
+      for (let i = 0; i < float32Arr.length; i++) {
+        let sample = Math.max(-1, Math.min(1, float32Arr[i]));
+        let s = Math.round(sample * 32767);
+        const sign = (s >> 8) & 0x80;
+        if (sign !== 0) s = -s;
+        if (s > CLIP) s = CLIP;
+        s += BIAS;
+        let exponent = 7;
+        const expMask = 0x4000;
+        for (; exponent > 0; exponent--) { if ((s & expMask) !== 0) break; s <<= 1; }
+        const mantissa = (s >> 10) & 0x0F;
+        out[i] = ~(sign | (exponent << 4) | mantissa) & 0xFF;
+      }
+      return out;
+    },
+
+    _mulawToFloat32(mulawBytes) {
+      const BIAS = 0x84;
+      const out = new Float32Array(mulawBytes.length);
+      for (let i = 0; i < mulawBytes.length; i++) {
+        let mulaw = ~mulawBytes[i] & 0xFF;
+        const sign = (mulaw & 0x80) ? -1 : 1;
+        const exponent = (mulaw >> 4) & 0x07;
+        const mantissa = mulaw & 0x0F;
+        let magnitude = ((mantissa << 3) + BIAS) << exponent;
+        magnitude -= BIAS;
+        out[i] = (sign * magnitude) / 32768;
+      }
+      return out;
+    },
+
+    // Downsample from audioCtx.sampleRate to 8kHz
+    _downsample(buffer, fromRate, toRate) {
+      if (fromRate === toRate) return buffer;
+      const ratio = fromRate / toRate;
+      const newLen = Math.round(buffer.length / ratio);
+      const result = new Float32Array(newLen);
+      for (let i = 0; i < newLen; i++) {
+        const idx = Math.round(i * ratio);
+        result[i] = buffer[Math.min(idx, buffer.length - 1)];
+      }
+      return result;
+    },
+
+    // Capture mic → downsample to 8kHz → mu-law encode → base64 → WS
     _startMicCapture(audioCtx, stream, ws, myGen) {
       const source = audioCtx.createMediaStreamSource(stream);
-      // ScriptProcessor: 4096 samples buffer, mono in, mono out
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
       this._dograhProcessor = processor;
+      this._dograhSeqNum = 2; // 1 was the start event
 
       processor.onaudioprocess = (e) => {
         if (myGen !== _callGeneration || ws.readyState !== WebSocket.OPEN) return;
         const inputData = e.inputBuffer.getChannelData(0);
-        // Convert Float32 PCM to 16-bit Linear PCM
-        const pcm16 = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-          const s = Math.max(-1, Math.min(1, inputData[i]));
-          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
-        // Convert to base64 and send as Twilio-compatible media event
-        const bytes = new Uint8Array(pcm16.buffer);
+        // Downsample to 8kHz
+        const downsampled = this._downsample(inputData, audioCtx.sampleRate, 8000);
+        // Encode as mu-law
+        const mulaw = this._float32ToMulaw(downsampled);
+        // Base64 encode
         let binary = '';
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        for (let i = 0; i < mulaw.length; i++) binary += String.fromCharCode(mulaw[i]);
         const b64 = btoa(binary);
+        // Send as Twilio-compatible media event
+        this._dograhSeqNum++;
         ws.send(JSON.stringify({
           event: 'media',
-          media: { payload: b64 },
+          sequenceNumber: String(this._dograhSeqNum),
+          media: {
+            track: 'inbound',
+            chunk: String(this._dograhSeqNum),
+            timestamp: String(Date.now()),
+            payload: b64,
+          },
         }));
       };
 
@@ -429,21 +500,27 @@ export default {
       processor.connect(audioCtx.destination);
     },
 
-    // Play base64-encoded audio received from Dograh
+    // Play base64 mu-law audio from Dograh → decode → Float32 → speaker
     _playBase64Audio(audioCtx, base64Data) {
       try {
         const binary = atob(base64Data);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        this._playPcmBuffer(audioCtx, bytes.buffer);
+        const float32 = this._mulawToFloat32(bytes);
+        // Create buffer at 8kHz and play
+        const audioBuffer = audioCtx.createBuffer(1, float32.length, 8000);
+        audioBuffer.getChannelData(0).set(float32);
+        const src = audioCtx.createBufferSource();
+        src.buffer = audioBuffer;
+        src.connect(audioCtx.destination);
+        src.start();
       } catch (_) {}
     },
 
-    // Play raw audio (ArrayBuffer or Blob)
+    // Play raw binary audio (ArrayBuffer or Blob) — fallback
     async _playAgentAudio(audioCtx, data) {
       try {
         const buffer = data instanceof Blob ? await data.arrayBuffer() : data;
-        // Try decoding as encoded audio (mp3/opus/wav)
         try {
           const audioBuffer = await audioCtx.decodeAudioData(buffer.slice(0));
           const src = audioCtx.createBufferSource();
@@ -452,24 +529,16 @@ export default {
           src.start();
           return;
         } catch (_) {}
-        // Fallback: treat as raw 16-bit PCM
-        this._playPcmBuffer(audioCtx, buffer);
+        // Fallback: treat as mu-law
+        const bytes = new Uint8Array(buffer);
+        const float32 = this._mulawToFloat32(bytes);
+        const audioBuffer = audioCtx.createBuffer(1, float32.length, 8000);
+        audioBuffer.getChannelData(0).set(float32);
+        const src = audioCtx.createBufferSource();
+        src.buffer = audioBuffer;
+        src.connect(audioCtx.destination);
+        src.start();
       } catch (_) {}
-    },
-
-    // Play raw 16-bit PCM buffer
-    _playPcmBuffer(audioCtx, arrayBuffer) {
-      const pcm16 = new Int16Array(arrayBuffer);
-      const float32 = new Float32Array(pcm16.length);
-      for (let i = 0; i < pcm16.length; i++) {
-        float32[i] = pcm16[i] / (pcm16[i] < 0 ? 0x8000 : 0x7FFF);
-      }
-      const audioBuffer = audioCtx.createBuffer(1, float32.length, audioCtx.sampleRate);
-      audioBuffer.getChannelData(0).set(float32);
-      const src = audioCtx.createBufferSource();
-      src.buffer = audioBuffer;
-      src.connect(audioCtx.destination);
-      src.start();
     },
 
     handleInlineCallEnded(label) {
