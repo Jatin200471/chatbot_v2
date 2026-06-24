@@ -316,11 +316,38 @@ export default {
           const scrollThumb = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)';
           const scrollHover = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.25)';
           rules.push(
-            `*{scrollbar-width:thin;scrollbar-color:${scrollThumb} transparent}` +
-            `::-webkit-scrollbar{width:4px}` +
-            `::-webkit-scrollbar-track{background:transparent}` +
-            `::-webkit-scrollbar-thumb{background:${scrollThumb};border-radius:4px}` +
-            `::-webkit-scrollbar-thumb:hover{background:${scrollHover}}`
+            `.overflow-auto,.overflow-y-auto,` +
+            `.conversation-wrap,.messages-list,.flex.flex-1.overflow-auto{` +
+            `scrollbar-width:thin!important;` +
+            `scrollbar-color:${scrollThumb} transparent!important}`
+          );
+          rules.push(
+            `.overflow-auto::-webkit-scrollbar,` +
+            `.overflow-y-auto::-webkit-scrollbar,` +
+            `.conversation-wrap::-webkit-scrollbar,` +
+            `.flex.flex-1.overflow-auto::-webkit-scrollbar` +
+            `{width:4px!important;background:transparent!important}`
+          );
+          rules.push(
+            `.overflow-auto::-webkit-scrollbar-track,` +
+            `.overflow-y-auto::-webkit-scrollbar-track,` +
+            `.conversation-wrap::-webkit-scrollbar-track,` +
+            `.flex.flex-1.overflow-auto::-webkit-scrollbar-track` +
+            `{background:transparent!important}`
+          );
+          rules.push(
+            `.overflow-auto::-webkit-scrollbar-thumb,` +
+            `.overflow-y-auto::-webkit-scrollbar-thumb,` +
+            `.conversation-wrap::-webkit-scrollbar-thumb,` +
+            `.flex.flex-1.overflow-auto::-webkit-scrollbar-thumb` +
+            `{background:${scrollThumb}!important;border-radius:4px!important}`
+          );
+          rules.push(
+            `.overflow-auto::-webkit-scrollbar-thumb:hover,` +
+            `.overflow-y-auto::-webkit-scrollbar-thumb:hover,` +
+            `.conversation-wrap::-webkit-scrollbar-thumb:hover,` +
+            `.flex.flex-1.overflow-auto::-webkit-scrollbar-thumb:hover` +
+            `{background:${scrollHover}!important}`
           );
         }
       }
@@ -328,11 +355,28 @@ export default {
       // Default thin scrollbar when no custom bg color
       if (!ch.widgetBgColor) {
         rules.push(
-          `*{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,0.15) transparent}` +
-          `::-webkit-scrollbar{width:4px}` +
-          `::-webkit-scrollbar-track{background:transparent}` +
-          `::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.15);border-radius:4px}` +
-          `::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,0.25)}`
+          `.overflow-auto,.overflow-y-auto,.conversation-wrap,.flex.flex-1.overflow-auto` +
+          `{scrollbar-width:thin!important;scrollbar-color:rgba(0,0,0,0.12) transparent!important}`
+        );
+        rules.push(
+          `.overflow-auto::-webkit-scrollbar,.overflow-y-auto::-webkit-scrollbar,` +
+          `.conversation-wrap::-webkit-scrollbar,.flex.flex-1.overflow-auto::-webkit-scrollbar` +
+          `{width:4px!important;background:transparent!important}`
+        );
+        rules.push(
+          `.overflow-auto::-webkit-scrollbar-track,.overflow-y-auto::-webkit-scrollbar-track,` +
+          `.conversation-wrap::-webkit-scrollbar-track,.flex.flex-1.overflow-auto::-webkit-scrollbar-track` +
+          `{background:transparent!important}`
+        );
+        rules.push(
+          `.overflow-auto::-webkit-scrollbar-thumb,.overflow-y-auto::-webkit-scrollbar-thumb,` +
+          `.conversation-wrap::-webkit-scrollbar-thumb,.flex.flex-1.overflow-auto::-webkit-scrollbar-thumb` +
+          `{background:rgba(0,0,0,0.12)!important;border-radius:4px!important}`
+        );
+        rules.push(
+          `.overflow-auto::-webkit-scrollbar-thumb:hover,.overflow-y-auto::-webkit-scrollbar-thumb:hover,` +
+          `.conversation-wrap::-webkit-scrollbar-thumb:hover,.flex.flex-1.overflow-auto::-webkit-scrollbar-thumb:hover` +
+          `{background:rgba(0,0,0,0.2)!important}`
         );
       }
 
