@@ -407,14 +407,14 @@
       });
   }
 
-  // ── Always-on SPA navigation ──────────────────────────────────────────────
-  // Intercept ALL same-origin link clicks so the page never fully reloads.
-  // This keeps the Chatwoot widget iframe alive across every page change —
-  // chat sessions persist, voice WebRTC survives, no popup needed.
-  //
-  // Skip: anchor links (#), mailto/tel/js links, external domains,
-  //       links with target="_blank", download links, and form actions.
+  // ── Voice-only SPA navigation ─────────────────────────────────────────────
+  // Only intercept link clicks when a voice call is active — this keeps the
+  // WebRTC connection alive across page changes. When no call is active,
+  // normal full-page navigation runs so third-party scripts (analytics,
+  // CMS live-preview, etc.) are never disrupted.
   document.addEventListener('click', function (e) {
+    if (!window._cwVoiceActive) return; // no voice call → normal navigation
+
     var a = e.target.closest('a[href]');
     if (!a || a.target || a.download) return;
 
@@ -424,8 +424,7 @@
 
     try {
       var url = new URL(a.href, location.href);
-      if (url.origin !== location.origin) return; // external links → normal full nav
-      // Same page, different hash only → let browser handle scroll
+      if (url.origin !== location.origin) return;
       if (url.pathname === location.pathname && url.search === location.search &&
           url.hash !== location.hash) return;
       e.preventDefault();
@@ -433,8 +432,9 @@
     } catch (_) {}
   });
 
-  // Handle browser Back / Forward buttons
+  // Handle browser Back / Forward buttons (only during voice call)
   window.addEventListener('popstate', function () {
+    if (!window._cwVoiceActive) return;
     spaNavigate(location.href);
   });
 
