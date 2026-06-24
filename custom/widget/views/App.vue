@@ -239,7 +239,7 @@ export default {
           `.dark .bg-n-solid-1{background:${bg}!important}`
         );
 
-        // Auto-contrast: adjust date separator & agent name based on bg luminance
+        // Auto-contrast: adjust UI elements based on bg luminance
         const bgHex = extractHex(bg);
         if (bgHex) {
           const lum = hexToLuminance(bgHex);
@@ -248,9 +248,8 @@ export default {
           const lineColor = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)';
           const strongText = isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
 
-          // Date separator text ("Today", "Yesterday") — DateSeparator uses text-n-slate-11
+          // Date separator text ("Today", "Yesterday")
           rules.push(`.conversation-wrap .messages-wrap > .text-n-slate-11{color:${textColor}!important}`);
-          // Date separator lines (::before / ::after pseudo-elements use bg-n-slate-4)
           rules.push(
             `.conversation-wrap .messages-wrap > .text-n-slate-11::before,` +
             `.conversation-wrap .messages-wrap > .text-n-slate-11::after` +
@@ -267,7 +266,9 @@ export default {
           const inputText = isDark ? '#f1f5f9' : '#1e293b';
           const inputPlaceholder = isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)';
           const inputIconColor = isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.5)';
+          // Override bg-n-background CSS variable globally so all .bg-n-background elements adapt
           rules.push(`:root{--n-background:${inputBg}}`);
+          // Force bg on input bar — #app prefix beats Tailwind specificity
           rules.push(
             `#app footer .bg-n-background,` +
             `#app .chat-input-container .input-row,` +
@@ -311,16 +312,19 @@ export default {
           rules.push(`#app .staged-file-name{color:${inputText}!important}`);
           // Branding / footer text
           rules.push(`#app .branding--text{color:${textColor}!important}`);
+          rules.push(`#app .branding--text a,#app .branding--text strong{color:${strongText}!important}`);
 
-          // ── Scrollbar: auto-contrast thin scrollbar ────────────────
-          const scrollThumb = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)';
-          const scrollHover = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.25)';
+          // Auto-contrast scrollbar: thin, blends with widget bg
+          const thumbColor = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
+          const thumbHover = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)';
+          // Firefox
           rules.push(
             `.overflow-auto,.overflow-y-auto,` +
             `.conversation-wrap,.messages-list,.flex.flex-1.overflow-auto{` +
             `scrollbar-width:thin!important;` +
-            `scrollbar-color:${scrollThumb} transparent!important}`
+            `scrollbar-color:${thumbColor} transparent!important}`
           );
+          // WebKit (Chrome, Safari, Edge)
           rules.push(
             `.overflow-auto::-webkit-scrollbar,` +
             `.overflow-y-auto::-webkit-scrollbar,` +
@@ -340,19 +344,19 @@ export default {
             `.overflow-y-auto::-webkit-scrollbar-thumb,` +
             `.conversation-wrap::-webkit-scrollbar-thumb,` +
             `.flex.flex-1.overflow-auto::-webkit-scrollbar-thumb` +
-            `{background:${scrollThumb}!important;border-radius:4px!important}`
+            `{background:${thumbColor}!important;border-radius:4px!important}`
           );
           rules.push(
             `.overflow-auto::-webkit-scrollbar-thumb:hover,` +
             `.overflow-y-auto::-webkit-scrollbar-thumb:hover,` +
             `.conversation-wrap::-webkit-scrollbar-thumb:hover,` +
             `.flex.flex-1.overflow-auto::-webkit-scrollbar-thumb:hover` +
-            `{background:${scrollHover}!important}`
+            `{background:${thumbHover}!important}`
           );
         }
       }
 
-      // Default thin scrollbar when no custom bg color
+      // Default thin scrollbar fallback (when no custom bg color is set)
       if (!ch.widgetBgColor) {
         rules.push(
           `.overflow-auto,.overflow-y-auto,.conversation-wrap,.flex.flex-1.overflow-auto` +
@@ -496,47 +500,23 @@ export default {
         `.unread-notification{background:transparent!important;box-shadow:none!important;border:none!important}`
       );
 
-      // ── Emoji picker: constrain within widget ──────────────────────
+      // ── Emoji picker: ensure it floats above input (backup for scoped styles) ─
       rules.push(
-        `.emoji-dialog{` +
-        `position:fixed!important;` +
-        `bottom:60px!important;` +
-        `top:auto!important;` +
-        `right:8px!important;` +
-        `left:8px!important;` +
-        `width:auto!important;` +
-        `max-width:320px!important;` +
-        `max-height:calc(100vh - 140px)!important;` +
-        `z-index:9999!important;` +
-        `border-radius:12px!important;` +
-        `overflow:hidden!important;` +
-        `}`
+        '#app .emoji-dialog{position:fixed!important;bottom:56px!important;top:auto!important;z-index:9999!important}'
       );
-      rules.push(`.emoji-dialog .emoji-item{max-height:calc(100vh - 260px)!important}`);
-      rules.push(`.emoji-dialog::before{display:none!important}`);
 
-      // ── Auto-contrast: branding / footer ───────────────────────────
-      if (ch.widgetBgColor) {
-        const bgHex2 = extractHex(ch.widgetBgColor);
-        if (bgHex2) {
-          const lum2 = hexToLuminance(bgHex2);
-          const isDark2 = lum2 < 0.4;
-          const brandColor = isDark2 ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)';
-          const brandStrong = isDark2 ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)';
-          rules.push(`.branding--text{color:${brandColor}!important}`);
-          rules.push(`.branding--text a,.branding--text strong{color:${brandStrong}!important}`);
-          rules.push(`.text-n-slate-11{color:${brandColor}!important}`);
-        }
-      }
-
-      // ── Mobile responsive ──────────────────────────────────────────
-      rules.push(
-        `@media(max-width:400px){` +
-        `.emoji-dialog{left:4px!important;right:4px!important;max-width:none!important;bottom:56px!important}` +
-        `.conversation-wrap{padding-left:4px!important;padding-right:4px!important}` +
-        `.chat-bubble{max-width:88%!important}` +
-        `}`
-      );
+      // ── Mobile responsive (widget is fullscreen <667px via SDK CSS) ─
+      rules.push([
+        '@media(max-width:667px){',
+        '  #app .emoji-dialog,#app div.emoji-dialog,div[role="dialog"].emoji-dialog{',
+        '    left:8px!important;right:8px!important;width:auto!important;max-width:none!important;bottom:52px!important;',
+        '  }',
+        '  .conversation-wrap .messages-list{padding:0 6px!important}',
+        '  .chat-bubble{max-width:85vw!important;word-break:break-word!important}',
+        '  .chat-bubble .message-content{font-size:14px!important}',
+        '  header .text-truncate{font-size:15px!important}',
+        '}',
+      ].join(''));
 
       if (rules.length) {
         const style = document.createElement('style');
@@ -549,7 +529,11 @@ export default {
       const patchEmojiPlaceholder = () => {
         const inputs = document.querySelectorAll('.emoji-dialog input[type="text"]');
         inputs.forEach(inp => {
-          if (inp.placeholder && inp.placeholder.includes('EMOJI_ICON_PICKER')) {
+          if (inp.placeholder && (
+            inp.placeholder.includes('EMOJI_ICON_PICKER') ||
+            inp.placeholder.includes('EMOJI.PLACEHOLDER') ||
+            inp.placeholder.includes('EMOJI_')
+          )) {
             inp.placeholder = 'Search emoji';
           }
         });
