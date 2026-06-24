@@ -2,7 +2,6 @@
 import { mapGetters, mapActions } from 'vuex';
 import configMixin from '../mixins/configMixin';
 import { API, WEBSITE_TOKEN } from 'widget/helpers/axios';
-import { emitter } from 'shared/helpers/mitt';
 
 const buildConvUrl = path => {
   if (!WEBSITE_TOKEN) return path;
@@ -16,15 +15,8 @@ const vLog = (...args) => {
   } catch (_) {}
 };
 
-let _inlineConversation = null;
-let _inlineHeartbeatTimer = null;
-let _inlineBackendHeartbeatTimer = null;
-let _callGeneration = 0;
-
-// Dograh sends transcripts word-by-word — buffer and flush as sentences
-let _dograhUserBuffer = '';
-let _dograhBotBuffer = '';
-let _dograhUserFlushTimer = null;
+let _popupWindow = null;
+let _popupPollTimer = null;
 
 export default {
   name: 'ElevenLabsVoiceButton',
@@ -39,10 +31,6 @@ export default {
     return {
       isConnecting: false,
       isCallActive: false,
-      inlineStatus: 'idle',
-      inlineStatusText: '',
-      inlineSpeaking: false,
-      inlineConfig: null,
     };
   },
 
@@ -81,16 +69,11 @@ export default {
 
   mounted() {
     window.addEventListener('message', this.onWindowMessage);
-    emitter.on('end-voice-call', this.endCall);
-    document.addEventListener('visibilitychange', this._onVisibilityChange);
   },
 
   beforeUnmount() {
     window.removeEventListener('message', this.onWindowMessage);
-    emitter.off('end-voice-call', this.endCall);
-    this._stopInlineHeartbeat();
-    this._stopInlineBackendHeartbeat();
-    document.removeEventListener('visibilitychange', this._onVisibilityChange);
+    this._stopPopupPoll();
   },
 
   methods: {
@@ -98,458 +81,167 @@ export default {
 
     handleClick() {
       if (this.isConnecting) return;
-      if (this.isCallActive || this.inlineStatus === 'connected') {
-        this.endInlineCall();
+      if (this.isCallActive) {
+        this.endCall();
         return;
       }
-      if (this.inlineStatus !== 'idle') return;
       this.startCall();
     },
 
     async startCall() {
       if (!this.hasAnyVoiceEnabled) return;
-      if (this.hasDograhVoiceEnabled) {
-        await this.startDograhCall();
+      if (this.isConnecting) return;
+
+      this.isConnecting = true;
+      this.setConnecting(true);
+
+      try {
+        this._pendingConfig = await this._buildConfig();
+        this._openPopup();
+      } catch (error) {
+        console.error('[VOICE] Failed to get config:', error?.message);
+        this.isConnecting = false;
+        this.setConnecting(false);
+      }
+    },
+
+    _openPopup() {
+      if (_popupWindow && !_popupWindow.closed) {
+        _popupWindow.focus();
         return;
       }
-      await this.startElevenLabsInlineCall();
-    },
 
-    // ── ElevenLabs inline call (no popup) ─────────────────────────────
-    async startElevenLabsInlineCall() {
-      if (!this.hasElevenLabsVoiceEnabled) return;
-      const myGen = ++_callGeneration;
-      if (this.isConnecting) return;
+      const w = 380;
+      const h = 520;
+      const left = window.screenX + Math.round((window.outerWidth - w) / 2);
+      const top = window.screenY + Math.round((window.outerHeight - h) / 2);
 
-      this.isConnecting = true;
-      this.inlineStatus = 'connecting';
-      this.inlineStatusText = 'Requesting mic…';
-      this.setConnecting(true);
+      _popupWindow = window.open(
+        '/voice-popup.html',
+        'cw_voice_popup',
+        `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=no,toolbar=no,menubar=no,location=no,status=no`
+      );
 
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(t => t.stop());
-
-        this.inlineStatusText = 'Loading SDK…';
-        const config = await this._buildConfig();
-        this.inlineConfig = config;
-
-        const mod = await import('https://esm.sh/@11labs/client');
-        const Conversation = mod.Conversation;
-        if (!Conversation) throw new Error('SDK did not expose Conversation');
-
-        if (myGen !== _callGeneration) return;
-        this.inlineStatusText = 'Connecting…';
-
-        const conversation = await Conversation.startSession({
-          signedUrl: config.signedUrl,
-
-          dynamicVariables: {
-            chatwoot_conversation_id:  config.cwConversationId  || '',
-            chatwoot_conversation_url: config.cwConversationUrl || '',
-            customer_name:             config.agentName         || 'Customer',
-            website:                   config.brand             || '',
-          },
-
-          onConnect: () => {
-            if (myGen !== _callGeneration) return;
-            this.isConnecting = false;
-            this.isCallActive = true;
-            this.inlineStatus = 'connected';
-            this.inlineStatusText = 'Connected';
-            this.setActive(true);
-            this.setConnecting(false);
-            this._callStartTime = Date.now();
-            this._startInlineHeartbeat();
-            this._startInlineBackendHeartbeat();
-            try { window.parent.postMessage({ event: 'cw-voice-call-started' }, '*'); } catch (_) {}
-            try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
-
-            try {
-              const elConvId = typeof conversation.getId === 'function'
-                ? conversation.getId()
-                : conversation.conversationId || null;
-              if (elConvId) {
-                const cwConv = this.getCwConversationToken();
-                let url = buildConvUrl('/api/v1/widget/conversations/voice_link_elevenlabs');
-                if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
-                API.post(url, { elevenlabs_conversation_id: elConvId }).catch(() => {});
-              }
-            } catch (_) {}
-          },
-
-          onDisconnect: () => {
-            if (myGen !== _callGeneration) return;
-            this.handleInlineCallEnded('Call ended');
-          },
-
-          onError: (err) => {
-            if (myGen !== _callGeneration) return;
-            console.error('[VOICE] ElevenLabs error:', err?.message || err);
-            this.handleInlineCallEnded('Error');
-          },
-
-          onMessage: ({ message, source }) => {
-            if (myGen !== _callGeneration) return;
-            const text = (message || '').toString().trim();
-            if (!text) return;
-            const cwConv = this.getCwConversationToken();
-            let url = buildConvUrl('/api/v1/widget/conversations/voice_transcript');
-            if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
-            API.post(url, { source, content: text }).catch(() => {});
-            try { this.$store.dispatch('conversation/fetchOldConversations'); } catch (_) {}
-          },
-
-          onModeChange: (mode) => {
-            if (myGen !== _callGeneration) return;
-            this.inlineSpeaking = mode === 'speaking';
-          },
-        });
-
-        _inlineConversation = conversation;
-
-      } catch (error) {
-        console.error('[VOICE] startElevenLabsInlineCall failed:', error?.message);
+      if (!_popupWindow) {
+        console.error('[VOICE] Popup blocked — allow popups for this site');
         this.isConnecting = false;
-        this.inlineStatus = 'error';
-        this.inlineStatusText = (error?.name === 'NotAllowedError') ? 'Mic denied' : 'Failed to connect';
         this.setConnecting(false);
-        setTimeout(() => { if (this.inlineStatus === 'error') this.inlineStatus = 'idle'; }, 3000);
+        return;
       }
+
+      this._startPopupPoll();
     },
 
-    // ── Dograh call (WebRTC + WebSocket signaling) ──────────────────────
-    async startDograhCall() {
-      if (!this.hasDograhVoiceEnabled) return;
-      const myGen = ++_callGeneration;
-      if (this.isConnecting) return;
-
-      this.isConnecting = true;
-      this.inlineStatus = 'connecting';
-      this.inlineStatusText = 'Requesting mic…';
-      this.setConnecting(true);
-
-      try {
-        const config = await this._buildConfig();
-        this.inlineConfig = config;
-
-        const signedUrl = config.dograhSignedUrl;
-        const sessionToken = config.dograhSessionToken;
-        const workflowRunId = config.dograhWorkflowRunId;
-        const voiceAgentApiUrl = config.dograhApiUrl;
-
-        if (!signedUrl || !sessionToken) {
-          throw new Error('Backend did not return signed_url / session_token from Dograh');
-        }
-
-        let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
-        try {
-          const turnUrl = `${voiceAgentApiUrl}/api/v1/public/embed/turn-credentials/${sessionToken}`;
-          const turnResp = await fetch(turnUrl);
-          if (turnResp.ok) {
-            const turnData = await turnResp.json();
-            if (turnData?.ice_servers?.length) iceServers = turnData.ice_servers;
+    _startPopupPoll() {
+      this._stopPopupPoll();
+      _popupPollTimer = setInterval(() => {
+        if (!_popupWindow || _popupWindow.closed) {
+          this._stopPopupPoll();
+          if (this.isCallActive || this.isConnecting) {
+            this._handlePopupClosed();
           }
-        } catch (e) {
-          vLog('TURN credentials fetch failed, using STUN fallback:', e?.message);
         }
+      }, 500);
+    },
 
-        this.inlineStatusText = 'Connecting to Dograh…';
-
-        const pc = new RTCPeerConnection({ iceServers });
-        this._dograhPc = pc;
-        const pcId = 'cw_' + Math.random().toString(36).slice(2, 10);
-        this._dograhPcId = pcId;
-
-        const audioStream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true }
-        });
-        this._dograhStream = audioStream;
-        audioStream.getTracks().forEach(track => pc.addTrack(track, audioStream));
-
-        const remoteAudio = new Audio();
-        remoteAudio.autoplay = true;
-        this._dograhRemoteAudio = remoteAudio;
-
-        pc.ontrack = (event) => {
-          if (myGen !== _callGeneration) return;
-          vLog('Dograh remote track received');
-          remoteAudio.srcObject = event.streams[0] || new MediaStream([event.track]);
-        };
-
-        const ws = new WebSocket(signedUrl);
-        this._dograhWs = ws;
-
-        const pendingCandidates = [];
-        pc.onicecandidate = (event) => {
-          if (!event.candidate) return;
-          const msg = { type: 'ice-candidate', payload: event.candidate };
-          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-          else pendingCandidates.push(msg);
-        };
-
-        ws.onopen = async () => {
-          if (myGen !== _callGeneration) return;
-          vLog('Dograh WS connected, creating SDP offer');
-          pendingCandidates.forEach(msg => ws.send(JSON.stringify(msg)));
-          pendingCandidates.length = 0;
-
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-
-          ws.send(JSON.stringify({
-            type: 'offer',
-            payload: {
-              sdp: pc.localDescription.sdp,
-              type: 'offer',
-              pc_id: pcId,
-              workflow_id: null,
-              workflow_run_id: workflowRunId,
-              call_context_vars: {},
-            },
-          }));
-        };
-
-        ws.onmessage = (event) => {
-          if (myGen !== _callGeneration) return;
-          try {
-            const msg = JSON.parse(event.data);
-            vLog('Dograh msg:', msg.type, msg);
-
-            if (msg.type === 'answer' && msg.payload) {
-              pc.setRemoteDescription(new RTCSessionDescription({
-                type: 'answer', sdp: msg.payload.sdp,
-              }));
-              this.isConnecting = false;
-              this.isCallActive = true;
-              this.inlineStatus = 'connected';
-              this.inlineStatusText = 'Connected';
-              this.setActive(true);
-              this.setConnecting(false);
-              this._callStartTime = Date.now();
-              this._startInlineHeartbeat();
-              this._startInlineBackendHeartbeat();
-              try { window.parent.postMessage({ event: 'cw-voice-call-started' }, '*'); } catch (_) {}
-              try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
-            }
-
-            if (msg.type === 'ice-candidate' && msg.payload) {
-              pc.addIceCandidate(new RTCIceCandidate(msg.payload)).catch(() => {});
-            }
-
-            // Dograh sends transcripts word-by-word — buffer and flush as sentences
-            const isUserTranscript = msg.type === 'rtf-user-transcription' || msg.type === 'USER_TRANSCRIPTION' || msg.type === 'user_transcription';
-            const isBotTranscript = msg.type === 'rtf-bot-text' || msg.type === 'BOT_TEXT' || msg.type === 'bot_text';
-            if (isUserTranscript || isBotTranscript) {
-              const word = (msg.text || msg.content || msg.transcript || msg.payload?.text || msg.payload?.content || msg.payload?.transcript || '').trim();
-              if (word) {
-                if (isUserTranscript) {
-                  _dograhUserBuffer += (_dograhUserBuffer ? ' ' : '') + word;
-                  if (_dograhUserFlushTimer) clearTimeout(_dograhUserFlushTimer);
-                  _dograhUserFlushTimer = setTimeout(() => this._flushDograhBuffer('user'), 1500);
-                } else {
-                  _dograhBotBuffer += (_dograhBotBuffer ? ' ' : '') + word;
-                }
-              }
-            }
-
-            const isBotStopped = msg.type === 'rtf-bot-stopped-speaking' || msg.type === 'BOT_STOPPED_SPEAKING' || msg.type === 'bot_stopped_speaking';
-            if (isBotStopped) {
-              this.inlineSpeaking = false;
-              this._flushDograhBuffer('ai');
-            }
-            if (isBotTranscript) {
-              this.inlineSpeaking = true;
-            }
-
-            if (msg.type === 'error') {
-              console.error('[VOICE-DOGRAH] Server error:', msg);
-              this.handleInlineCallEnded('Error');
-            }
-          } catch (_) {}
-        };
-
-        ws.onclose = () => {
-          if (myGen !== _callGeneration) return;
-          if (this.isCallActive) this.handleInlineCallEnded('Call ended');
-        };
-
-        ws.onerror = (err) => {
-          if (myGen !== _callGeneration) return;
-          console.error('[VOICE-DOGRAH] WebSocket error:', err);
-          this.inlineStatus = 'error';
-          this.inlineStatusText = 'Connection failed';
-          this.isConnecting = false;
-          this.setConnecting(false);
-          setTimeout(() => { if (this.inlineStatus === 'error') this.inlineStatus = 'idle'; }, 3000);
-        };
-
-      } catch (error) {
-        console.error('[VOICE-DOGRAH] startDograhCall failed:', error?.message);
-        this.isConnecting = false;
-        this.inlineStatus = 'error';
-        this.inlineStatusText = (error?.name === 'NotAllowedError') ? 'Mic denied' : 'Failed to connect';
-        this.setConnecting(false);
-        this._cleanupDograh();
-        setTimeout(() => { if (this.inlineStatus === 'error') this.inlineStatus = 'idle'; }, 3000);
+    _stopPopupPoll() {
+      if (_popupPollTimer) {
+        clearInterval(_popupPollTimer);
+        _popupPollTimer = null;
       }
     },
 
-    async endInlineCall() {
-      // Dograh path
-      if (this._dograhWs || this._dograhPc) {
-        this._cleanupDograh();
-        this.handleInlineCallEnded('Call ended');
-        return;
-      }
-
-      // ElevenLabs inline path
-      const conv = _inlineConversation;
-      _inlineConversation = null;
-      if (conv) {
-        try { await conv.endSession(); }
-        catch (e) { console.warn('[VOICE] endSession threw:', e?.message); }
-      }
-      this.handleInlineCallEnded('Call ended');
-    },
-
-    handleInlineCallEnded(label) {
-      if (!this.isCallActive && this.inlineStatus === 'idle') return;
-
-      // Flush any remaining buffered transcript before ending
-      this._flushDograhBuffer('user');
-      this._flushDograhBuffer('ai');
-
-      this.isCallActive = false;
-      this.isConnecting = false;
-      this.inlineStatus = 'ended';
-      this.inlineStatusText = label || 'Call ended';
-      this.inlineSpeaking = false;
-      _inlineConversation = null;
-
-      this._cleanupDograh();
-      this._stopInlineHeartbeat();
-      this._stopInlineBackendHeartbeat();
-
-      try {
-        const cwConv = this.getCwConversationToken();
-        let url = buildConvUrl('/api/v1/widget/conversations/voice_call_ended');
-        if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
-        API.post(url, {}).catch(() => {});
-      } catch (_) {}
-
-      try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
-      this.setActive(false);
-      this.setConnecting(false);
-      try { window.parent.postMessage({ event: 'cw-voice-call-ended' }, '*'); } catch (_) {}
-
-      setTimeout(() => { if (this.inlineStatus === 'ended') this.inlineStatus = 'idle'; }, 1500);
-    },
-
-    _startInlineHeartbeat() {
-      if (_inlineHeartbeatTimer) return;
-      const writeHb = () => {
-        try { localStorage.setItem('cw_voice_popup_heartbeat', String(Date.now())); } catch (_) {}
-      };
-      writeHb();
-      _inlineHeartbeatTimer = setInterval(writeHb, 1500);
-    },
-
-    _stopInlineHeartbeat() {
-      if (_inlineHeartbeatTimer) { clearInterval(_inlineHeartbeatTimer); _inlineHeartbeatTimer = null; }
-      try { localStorage.removeItem('cw_voice_popup_heartbeat'); } catch (_) {}
-    },
-
-    _startInlineBackendHeartbeat() {
-      if (_inlineBackendHeartbeatTimer) return;
-      const sendHb = () => {
-        if (!this.isCallActive) return;
-        const cwConv = this.getCwConversationToken();
-        let url = buildConvUrl('/api/v1/widget/conversations/voice_heartbeat');
-        if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
-        API.post(url, {})
-          .then(r => r?.data)
-          .then(d => {
-            if (d && d.end_requested) {
-              const callAge = Date.now() - (this._callStartTime || 0);
-              if (callAge > 5000) this.handleInlineCallEnded('Remote end requested');
-            }
-          })
-          .catch(() => {});
-      };
-      sendHb();
-      _inlineBackendHeartbeatTimer = setInterval(sendHb, 3000);
-    },
-
-    _stopInlineBackendHeartbeat() {
-      if (_inlineBackendHeartbeatTimer) { clearInterval(_inlineBackendHeartbeatTimer); _inlineBackendHeartbeatTimer = null; }
-    },
-
-    _flushDograhBuffer(source) {
-      if (_dograhUserFlushTimer) { clearTimeout(_dograhUserFlushTimer); _dograhUserFlushTimer = null; }
-      const text = source === 'user' ? _dograhUserBuffer.trim() : _dograhBotBuffer.trim();
-      if (source === 'user') _dograhUserBuffer = '';
-      else _dograhBotBuffer = '';
-      if (!text) return;
-      vLog('Dograh flush', source, '→', text);
-      const cwConv = this.getCwConversationToken();
-      let url = buildConvUrl('/api/v1/widget/conversations/voice_transcript');
-      if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
-      API.post(url, { source, content: text }).catch(() => {});
-      try { this.$store.dispatch('conversation/fetchOldConversations'); } catch (_) {}
-    },
-
-    endCall() {
-      try {
-        const cwConv = this.getCwConversationToken();
-        let url = buildConvUrl('/api/v1/widget/conversations/voice_call_ended');
-        if (cwConv) url += `&cw_conversation=${encodeURIComponent(cwConv)}`;
-        API.post(url, {}).catch(() => {});
-      } catch (_) {}
-      this.resetCallState();
-    },
-
-    resetCallState() {
-      _inlineConversation = null;
-      this.isCallActive = false;
-      this.isConnecting = false;
-      this.inlineStatus = 'idle';
-      this.inlineSpeaking = false;
-      this.setActive(false);
-      this.setConnecting(false);
-      this._stopInlineHeartbeat();
-      this._stopInlineBackendHeartbeat();
-      this._cleanupDograh();
-      try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
-      try { window.parent.postMessage({ event: 'cw-voice-call-ended' }, '*'); } catch (_) {}
-    },
-
-    _onVisibilityChange() {
-      if (document.visibilityState === 'visible' && this.isCallActive) {
-        vLog('Tab visible, call active');
-      }
+    _sendConfigToPopup() {
+      if (!_popupWindow || _popupWindow.closed || !this._pendingConfig) return;
+      vLog('Sending config to popup');
+      _popupWindow.postMessage({
+        source: 'cw-widget',
+        event: 'config',
+        config: this._pendingConfig,
+      }, '*');
     },
 
     onWindowMessage(e) {
       const data = e?.data;
       if (!data || typeof data !== 'object') return;
+
+      // Messages from parent page
       if (data.event === 'end-voice-call-from-parent') {
-        if (this.isCallActive) this.endInlineCall();
+        this.endCall();
+        return;
+      }
+
+      // Messages from voice popup
+      if (data.source !== 'cw-voice-popup') return;
+
+      vLog('Popup event:', data.event);
+
+      switch (data.event) {
+        case 'voice-popup-request-config':
+          this._sendConfigToPopup();
+          break;
+
+        case 'voice-popup-connected':
+          this.isConnecting = false;
+          this.isCallActive = true;
+          this.setActive(true);
+          this.setConnecting(false);
+          try { localStorage.setItem('cw_voice_active', '1'); } catch (_) {}
+          try { window.parent.postMessage({ event: 'cw-voice-call-started' }, '*'); } catch (_) {}
+          break;
+
+        case 'voice-popup-transcript':
+          if (data.source_type || data.source) {
+            try { this.$store.dispatch('conversation/fetchOldConversations'); } catch (_) {}
+          }
+          break;
+
+        case 'voice-popup-ended':
+        case 'voice-popup-closed':
+          this._handlePopupClosed();
+          break;
+
+        case 'voice-popup-error':
+          vLog('Popup error:', data.error);
+          if (!this.isCallActive) {
+            this.isConnecting = false;
+            this.setConnecting(false);
+          }
+          break;
       }
     },
 
-    _cleanupDograh() {
-      try { this._dograhStream?.getTracks().forEach(t => t.stop()); } catch (_) {}
-      try { this._dograhPc?.close(); } catch (_) {}
-      try { this._dograhWs?.close(); } catch (_) {}
-      if (this._dograhRemoteAudio) {
-        try { this._dograhRemoteAudio.srcObject = null; } catch (_) {}
+    _handlePopupClosed() {
+      _popupWindow = null;
+      this._stopPopupPoll();
+
+      const wasActive = this.isCallActive;
+      this.isCallActive = false;
+      this.isConnecting = false;
+      this.setActive(false);
+      this.setConnecting(false);
+      this._pendingConfig = null;
+
+      try { localStorage.setItem('cw_voice_active', '0'); } catch (_) {}
+      try { window.parent.postMessage({ event: 'cw-voice-call-ended' }, '*'); } catch (_) {}
+
+      if (wasActive) {
+        try { this.$store.dispatch('conversation/fetchOldConversations'); } catch (_) {}
       }
-      this._dograhStream = null;
-      this._dograhPc = null;
-      this._dograhPcId = null;
-      this._dograhWs = null;
-      this._dograhRemoteAudio = null;
+    },
+
+    endCall() {
+      if (_popupWindow && !_popupWindow.closed) {
+        _popupWindow.postMessage({ source: 'cw-widget', event: 'request-end-call' }, '*');
+        setTimeout(() => {
+          if (_popupWindow && !_popupWindow.closed) {
+            _popupWindow.close();
+          }
+          this._handlePopupClosed();
+        }, 1000);
+      } else {
+        this._handlePopupClosed();
+      }
     },
 
     async _buildConfig() {

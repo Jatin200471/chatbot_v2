@@ -415,6 +415,23 @@ export default {
         );
       }
 
+      // User bubble: gradient backgrounds can collapse inline-block width;
+      // force proper sizing so short messages like "hi" don't break per-character
+      rules.push(
+        `.chat-bubble.user{` +
+        `display:inline-block!important;` +
+        `min-width:2.5rem;` +
+        `width:-moz-fit-content;width:fit-content;` +
+        `max-width:100%;` +
+        `word-break:break-word!important;` +
+        `overflow-wrap:break-word!important` +
+        `}`
+      );
+      rules.push(
+        `.user-message .message-wrap{` +
+        `display:flex;flex-direction:column;align-items:flex-end;max-width:100%` +
+        `}`
+      );
       // User bubble colors
       if (ch.userBubbleBgColor) {
         rules.push(`.chat-bubble.user{background:${ch.userBubbleBgColor}!important}`);
