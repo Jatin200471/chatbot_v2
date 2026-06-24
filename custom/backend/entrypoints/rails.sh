@@ -29,10 +29,8 @@ do
   sleep 2;
 done
 
-# NOTE: db:migrate removed — docker-compose command runs db:chatwoot_prepare
-# which handles both fresh databases (db:setup with seeds) and existing ones
-# (db:migrate). Running db:migrate here on a clean DB would create tables
-# without seed data, preventing the super admin onboarding page from appearing.
+# Run migrations for custom columns (header colors, input bar colors, etc.)
+bundle exec rails db:migrate
 
 # Execute the main process of the container
 exec "$@"

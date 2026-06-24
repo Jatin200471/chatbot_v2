@@ -48,6 +48,7 @@ class Channel::WebWidget < ApplicationRecord
                     :bot_bubble_bg_color, :bot_bubble_text_color,
                     :user_bubble_bg_color, :user_bubble_text_color,
                     :input_focus_color,
+                    :input_bar_bg_color, :input_bar_text_color,
                     :message_font_size,
                     :header_bg_color, :header_text_color,
                     :available_message,

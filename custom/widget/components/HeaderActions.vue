@@ -37,7 +37,6 @@ export default {
       canUserEndConversation: 'appConfig/getCanUserEndConversation',
       widgetColor: 'appConfig/getWidgetColor',
       currentUser: 'contacts/getCurrentUser',
-      isVoiceCallActive: 'elevenlabsVoice/getIsActive',
     }),
     conversationStatus() {
       return this.conversationAttributes.status;
@@ -51,11 +50,8 @@ export default {
     showHeaderActions() {
       return this.isIframe || this.isRNWebView || this.hasWidgetOptions;
     },
-    showVoicePopoutButton() {
-      return this.isVoiceCallActive;
-    },
     hasWidgetOptions() {
-      return this.showVoicePopoutButton || this.conversationStatus === 'open';
+      return this.conversationStatus === 'open';
     },
     canEndChat() {
       return [
@@ -66,18 +62,6 @@ export default {
     },
   },
   methods: {
-    popoutVoiceCall() {
-      const { websiteToken } = window.chatwootWebChannel || {};
-      const origin = window.location.origin;
-      const url = `${origin}/voice-popup.html?wt=${websiteToken || ''}&mode=monitor`;
-      this._voicePopup = window.open(
-        url,
-        'cw_voice_popup',
-        'width=280,height=360,resizable=yes'
-      );
-      if (this._voicePopup) this._voicePopup.focus();
-    },
-
     sendCloseMessage() {
       if (IFrameHelper.isIFrame()) {
         IFrameHelper.sendMessage({ event: 'closeWindow' });
@@ -189,15 +173,6 @@ export default {
         </div>
       </div>
     </div>
-
-    <button
-      v-if="showVoicePopoutButton"
-      class="header-action-btn new-window--button"
-      title="Open voice call in new window"
-      @click="popoutVoiceCall"
-    >
-      <FluentIcon icon="open" size="20" class="text-n-slate-12" />
-    </button>
 
   </div>
 </template>

@@ -48,13 +48,17 @@ const sendAttachment = (
 ) => {
   const { referrerURL = '' } = window;
   const timestamp = new Date().toString();
-  const { file } = attachment;
+  const { file, content } = attachment;
 
   const formData = new FormData();
   if (typeof file === 'string') {
     formData.append('message[attachments][]', file);
   } else {
     formData.append('message[attachments][]', file, file.name);
+  }
+
+  if (content) {
+    formData.append('message[content]', content);
   }
 
   formData.append('message[referer_url]', referrerURL);

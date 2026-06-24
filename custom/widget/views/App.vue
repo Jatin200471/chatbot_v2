@@ -228,6 +228,9 @@ export default {
       // Override Chatwoot's --color-n-brand so focus rings use widget color
       rules.push(`:root{--color-n-brand:${solidWidgetColor}!important}`);
 
+      // Kill the upstream shadow-sm on ChatInputWrap root — only .input-row should have a border
+      rules.push(`#app .chat-input-container,#app footer>.chat-input-container.shadow-sm{box-shadow:none!important;border:none!important}`);
+
       // Widget body background (solid or gradient)
       if (ch.widgetBgColor) {
         const bg = ch.widgetBgColor.trim();
@@ -254,9 +257,83 @@ export default {
             `{background-color:${lineColor}!important}`
           );
 
-          // Agent name label below chat bubbles
-          rules.push(`.agent-name{color:${textColor}!important}`);
+          // Agent name: use widget color (brand) with fallback to contrast text
+          const agentNameColor = solidWidgetColor || (isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.6)');
+          rules.push(`.agent-name{color:${agentNameColor}!important;font-weight:500!important}`);
+
+          // ── Input container: blend with widget background ──────────
+          const inputBg = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.7)';
+          const inputBorder = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)';
+          const inputText = isDark ? '#f1f5f9' : '#1e293b';
+          const inputPlaceholder = isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)';
+          const inputIconColor = isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.5)';
+          rules.push(`:root{--n-background:${inputBg}}`);
+          rules.push(
+            `#app footer .bg-n-background,` +
+            `#app .chat-input-container .input-row,` +
+            `#app .chat-input-container .bg-n-background` +
+            `{background:${inputBg}!important}`
+          );
+          // Border only on .input-row (rounded), never on .chat-input-container (square)
+          rules.push(
+            `#app .chat-input-container .input-row` +
+            `{--tw-shadow:0 0 0 1px ${inputBorder}!important;` +
+            `--tw-shadow-colored:0 0 0 1px ${inputBorder}!important;` +
+            `box-shadow:0 0 0 1px ${inputBorder}!important}`
+          );
+          rules.push(
+            `#app .chat-input-container .input-row:focus-within` +
+            `{box-shadow:0 0 0 1px ${solidWidgetColor},0 0 2px 3px ${solidWidgetColor}33!important}`
+          );
+          // Input text color
+          rules.push(
+            `#app .user-message-input,` +
+            `#app textarea.user-message-input,` +
+            `#app #chat-input` +
+            `{color:${inputText}!important}`
+          );
+          rules.push(
+            `#app .user-message-input::placeholder,` +
+            `#app #chat-input::placeholder` +
+            `{color:${inputPlaceholder}!important;-webkit-text-fill-color:${inputPlaceholder}!important}`
+          );
+          // Icons (attach, emoji, voice, send)
+          rules.push(
+            `#app footer .text-n-slate-12,` +
+            `#app .chat-input-container .text-n-slate-12` +
+            `{color:${inputIconColor}!important}`
+          );
+          // Staged file preview bar
+          rules.push(
+            `#app .staged-file-preview{background:${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.5)'}!important;` +
+            `border-color:${inputBorder}!important}`
+          );
+          rules.push(`#app .staged-file-name{color:${inputText}!important}`);
+          // Branding / footer text
+          rules.push(`#app .branding--text{color:${textColor}!important}`);
+
+          // ── Scrollbar: auto-contrast thin scrollbar ────────────────
+          const scrollThumb = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)';
+          const scrollHover = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.25)';
+          rules.push(
+            `*{scrollbar-width:thin;scrollbar-color:${scrollThumb} transparent}` +
+            `::-webkit-scrollbar{width:4px}` +
+            `::-webkit-scrollbar-track{background:transparent}` +
+            `::-webkit-scrollbar-thumb{background:${scrollThumb};border-radius:4px}` +
+            `::-webkit-scrollbar-thumb:hover{background:${scrollHover}}`
+          );
         }
+      }
+
+      // Default thin scrollbar when no custom bg color
+      if (!ch.widgetBgColor) {
+        rules.push(
+          `*{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,0.15) transparent}` +
+          `::-webkit-scrollbar{width:4px}` +
+          `::-webkit-scrollbar-track{background:transparent}` +
+          `::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.15);border-radius:4px}` +
+          `::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,0.25)}`
+        );
       }
 
       // Input focus — override box-shadow (Chatwoot uses shadow-n-brand on focus)
@@ -375,12 +452,66 @@ export default {
         `.unread-notification{background:transparent!important;box-shadow:none!important;border:none!important}`
       );
 
+      // ── Emoji picker: constrain within widget ──────────────────────
+      rules.push(
+        `.emoji-dialog{` +
+        `position:fixed!important;` +
+        `bottom:60px!important;` +
+        `top:auto!important;` +
+        `right:8px!important;` +
+        `left:8px!important;` +
+        `width:auto!important;` +
+        `max-width:320px!important;` +
+        `max-height:calc(100vh - 140px)!important;` +
+        `z-index:9999!important;` +
+        `border-radius:12px!important;` +
+        `overflow:hidden!important;` +
+        `}`
+      );
+      rules.push(`.emoji-dialog .emoji-item{max-height:calc(100vh - 260px)!important}`);
+      rules.push(`.emoji-dialog::before{display:none!important}`);
+
+      // ── Auto-contrast: branding / footer ───────────────────────────
+      if (ch.widgetBgColor) {
+        const bgHex2 = extractHex(ch.widgetBgColor);
+        if (bgHex2) {
+          const lum2 = hexToLuminance(bgHex2);
+          const isDark2 = lum2 < 0.4;
+          const brandColor = isDark2 ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)';
+          const brandStrong = isDark2 ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)';
+          rules.push(`.branding--text{color:${brandColor}!important}`);
+          rules.push(`.branding--text a,.branding--text strong{color:${brandStrong}!important}`);
+          rules.push(`.text-n-slate-11{color:${brandColor}!important}`);
+        }
+      }
+
+      // ── Mobile responsive ──────────────────────────────────────────
+      rules.push(
+        `@media(max-width:400px){` +
+        `.emoji-dialog{left:4px!important;right:4px!important;max-width:none!important;bottom:56px!important}` +
+        `.conversation-wrap{padding-left:4px!important;padding-right:4px!important}` +
+        `.chat-bubble{max-width:88%!important}` +
+        `}`
+      );
+
       if (rules.length) {
         const style = document.createElement('style');
         style.id = 'cw-custom-appearance';
         style.textContent = rules.join('\n');
         document.head.appendChild(style);
       }
+
+      // ── Patch raw i18n keys in emoji picker placeholder ────────────
+      const patchEmojiPlaceholder = () => {
+        const inputs = document.querySelectorAll('.emoji-dialog input[type="text"]');
+        inputs.forEach(inp => {
+          if (inp.placeholder && inp.placeholder.includes('EMOJI_ICON_PICKER')) {
+            inp.placeholder = 'Search emoji';
+          }
+        });
+      };
+      const observer = new MutationObserver(patchEmojiPlaceholder);
+      observer.observe(document.body, { childList: true, subtree: true });
     },
 
     setWidgetColorVariable(widgetColor) {

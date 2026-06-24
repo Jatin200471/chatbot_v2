@@ -52,6 +52,8 @@ COPY custom/dashboard/widget-preview/WidgetFooter.vue app/javascript/dashboard/r
 COPY custom/dashboard/ResolveAction.vue app/javascript/dashboard/components/buttons/ResolveAction.vue
 COPY custom/dashboard/ColorPicker.vue app/javascript/dashboard/components-next/colorpicker/ColorPicker.vue
 COPY custom/widget/components/Availability/AvailabilityContainer.vue app/javascript/widget/components/Availability/AvailabilityContainer.vue
+COPY custom/widget/components/emoji/EmojiPicker.vue app/javascript/shared/components/emoji/EmojiPicker.vue
+COPY custom/widget/components/emoji/pickerHelper.js app/javascript/shared/components/emoji/pickerHelper.js
 COPY custom/sdk/IFrameHelper.js app/javascript/sdk/IFrameHelper.js
 
 # ── Memory settings safe for GitHub Actions Docker BuildKit ──────────────────
@@ -142,6 +144,8 @@ COPY custom/backend/migrations/20260619000001_add_reply_time_text_to_channel_web
      /app/db/migrate/20260619000001_add_reply_time_text_to_channel_web_widgets.rb
 COPY custom/backend/migrations/20260622000001_add_header_colors_to_channel_web_widgets.rb \
      /app/db/migrate/20260622000001_add_header_colors_to_channel_web_widgets.rb
+COPY custom/backend/migrations/20260624000002_add_input_bar_colors_to_channel_web_widgets.rb \
+     /app/db/migrate/20260624000002_add_input_bar_colors_to_channel_web_widgets.rb
 
 # ── Image Metadata ────────────────────────────────────────────────────────────
 LABEL org.opencontainers.image.title="Chatwoot Custom — Voice Agent + Persistent User Data"
