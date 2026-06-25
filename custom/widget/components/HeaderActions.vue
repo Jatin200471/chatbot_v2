@@ -29,6 +29,7 @@ export default {
     return {
       isEndingChat: false,
       showConfirmExitChat: false,
+      isMobileView: false,
     };
   },
   computed: {
@@ -48,7 +49,7 @@ export default {
       return RNHelper.isRNWebView();
     },
     showHeaderActions() {
-      return this.isIframe || this.isRNWebView || this.hasWidgetOptions;
+      return this.isIframe || this.isRNWebView || this.hasWidgetOptions || this.isMobileView;
     },
     hasWidgetOptions() {
       return this.conversationStatus === 'open';
@@ -61,7 +62,27 @@ export default {
       ].includes(this.conversationStatus);
     },
   },
+  mounted() {
+    this.checkMobile();
+    this._resizeHandler = () => this.checkMobile();
+    window.addEventListener('resize', this._resizeHandler);
+  },
+  beforeUnmount() {
+    if (this._resizeHandler) {
+      window.removeEventListener('resize', this._resizeHandler);
+    }
+  },
   methods: {
+    checkMobile() {
+      this.isMobileView = window.innerWidth <= 666;
+    },
+    minimizeWidget() {
+      if (IFrameHelper.isIFrame()) {
+        IFrameHelper.sendMessage({ event: 'closeWindow' });
+      } else if (RNHelper.isRNWebView) {
+        RNHelper.sendMessage({ type: 'close-widget' });
+      }
+    },
     sendCloseMessage() {
       if (IFrameHelper.isIFrame()) {
         IFrameHelper.sendMessage({ event: 'closeWindow' });
@@ -135,6 +156,18 @@ export default {
 <template>
   <div v-if="showHeaderActions" class="actions flex items-center gap-1">
 
+    <!-- Minimize button — visible only on mobile ≤666px -->
+    <button
+      v-if="isMobileView"
+      class="header-action-btn minimize-btn"
+      title="Minimize Chat"
+      @click="minimizeWidget"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M5 12H19" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+    </button>
+
     <div v-if="canEndChat && showEndConversationButton" class="relative">
       <button
         class="header-action-btn exit-chat-btn"
@@ -197,6 +230,15 @@ export default {
   &:active:not(:disabled) { transform: scale(0.95); }
   &:disabled { opacity: 0.4; cursor: not-allowed; }
   &.active { background: rgba(0, 0, 0, 0.1); }
+}
+
+.minimize-btn {
+  color: inherit;
+  &:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+  }
+  svg path { stroke: currentColor; }
 }
 
 .exit-chat-btn {
@@ -315,5 +357,9 @@ export default {
   .confirm-sub { color: #94a3b8; }
   .confirm-cancel { background: #334155; color: #cbd5e1; &:hover { background: #475569; } }
   .header-action-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
+  .minimize-btn:hover:not(:disabled) {
+    background: rgba(255,255,255,0.15);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
+  }
 }
 </style>

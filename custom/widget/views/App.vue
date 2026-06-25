@@ -480,7 +480,7 @@ export default {
       }
       if (ch.headerTextColor) {
         rules.push(
-          `header .text-n-slate-12,header .text-n-slate-11{color:${ch.headerTextColor}!important}`
+          `header .text-n-slate-12,header .text-n-slate-11,header .actions,header .minimize-btn{color:${ch.headerTextColor}!important}`
         );
       }
 
