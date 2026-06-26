@@ -20,6 +20,97 @@
 //     When no voice call is active, normal full-page navigation works as usual.
 //
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Native API Shield (restore) ─────────────────────────────────────────────
+// The prefix script (sdk-stream-fix.js) saved every native browser API that
+// modern frameworks depend on. The Chatwoot SDK code ran in between and may
+// have monkey-patched some of them. We now restore the originals so the HOST
+// page works exactly as if the SDK never touched global state.
+;(function () {
+  var s = window.__cwNativeAPIs;
+  if (!s) return;
+  var w = window, d = document, h = w.history;
+
+  function r(obj, key, orig) {
+    try {
+      if (orig !== undefined && obj[key] !== orig) obj[key] = orig;
+    } catch (_) {}
+  }
+
+  r(w, 'ReadableStream',       s.ReadableStream);
+  r(w, 'WritableStream',       s.WritableStream);
+  r(w, 'TransformStream',      s.TransformStream);
+  r(w, 'fetch',                s.fetch);
+  r(w, 'Request',              s.Request);
+  r(w, 'Response',             s.Response);
+  r(w, 'Headers',              s.Headers);
+  r(w, 'AbortController',      s.AbortController);
+  r(w, 'AbortSignal',          s.AbortSignal);
+  r(w, 'XMLHttpRequest',       s.XMLHttpRequest);
+  r(w, 'EventSource',          s.EventSource);
+  r(w, 'WebSocket',            s.WebSocket);
+  if (h) {
+    r(h, 'pushState',          s.historyPushState);
+    r(h, 'replaceState',       s.historyReplaceState);
+  }
+  r(w, 'URL',                  s.URL);
+  r(w, 'URLSearchParams',      s.URLSearchParams);
+  r(w, 'MutationObserver',     s.MutationObserver);
+  r(w, 'IntersectionObserver', s.IntersectionObserver);
+  r(w, 'ResizeObserver',       s.ResizeObserver);
+  r(w, 'PerformanceObserver',  s.PerformanceObserver);
+  r(w, 'MessageChannel',       s.MessageChannel);
+  r(w, 'MessagePort',          s.MessagePort);
+  r(w, 'BroadcastChannel',     s.BroadcastChannel);
+  r(w, 'Promise',              s.Promise);
+  r(w, 'queueMicrotask',       s.queueMicrotask);
+  r(w, 'setTimeout',           s.setTimeout);
+  r(w, 'clearTimeout',         s.clearTimeout);
+  r(w, 'setInterval',          s.setInterval);
+  r(w, 'clearInterval',        s.clearInterval);
+  r(w, 'requestAnimationFrame',    s.requestAnimationFrame);
+  r(w, 'cancelAnimationFrame',     s.cancelAnimationFrame);
+  r(w, 'requestIdleCallback',      s.requestIdleCallback);
+  r(w, 'cancelIdleCallback',       s.cancelIdleCallback);
+  r(w, 'CustomEvent',          s.CustomEvent);
+  r(w, 'Event',                s.Event);
+  try {
+    if (s.createElement)      d.createElement      = s.createElement;
+    if (s.createElementNS)    d.createElementNS    = s.createElementNS;
+    if (s.createTreeWalker)   d.createTreeWalker   = s.createTreeWalker;
+    if (s.querySelector)      d.querySelector      = s.querySelector;
+    if (s.querySelectorAll)   d.querySelectorAll   = s.querySelectorAll;
+  } catch (_) {}
+
+  try {
+    delete w.onmessage;
+    if (Object.getOwnPropertyDescriptor(w, 'onmessage')) {
+      Object.defineProperty(w, 'onmessage', {
+        configurable: true, writable: true, value: null,
+      });
+    }
+    delete w.__cwOnMessageHandlers;
+  } catch (_) {}
+
+  try {
+    var snap = w.__cwProtoSnapshot;
+    if (snap) {
+      Object.getOwnPropertyNames(Array.prototype).forEach(function (k) {
+        if (snap.ArrayProtoKeys.indexOf(k) === -1) {
+          try { delete Array.prototype[k]; } catch (_) {}
+        }
+      });
+      Object.getOwnPropertyNames(Object.prototype).forEach(function (k) {
+        if (snap.ObjectProtoKeys.indexOf(k) === -1) {
+          try { delete Object.prototype[k]; } catch (_) {}
+        }
+      });
+      delete w.__cwProtoSnapshot;
+    }
+  } catch (_) {}
+
+  delete w.__cwNativeAPIs;
+})();
+
 ;(function () {
   if (window._cwVoiceInstalled) return;
   window._cwVoiceInstalled = true;

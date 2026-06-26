@@ -579,6 +579,8 @@
     let _dograhPc = null;
     let _dograhStream = null;
     let _dograhRemoteAudio = null;
+    let _dograhBotBuffer = '';
+    let _dograhBotFlushTimer = null;
 
     async function startDograhCall() {
       try {
@@ -679,24 +681,30 @@
               pc.addIceCandidate(new RTCIceCandidate(msg.payload)).catch(() => {});
             }
 
-            // Transcripts → Chatwoot (Dograh uses payload.text)
-            if (msg.type === 'USER_TRANSCRIPTION' || msg.type === 'BOT_TEXT' ||
-                msg.type === 'rtf-user-transcription' || msg.type === 'rtf-bot-text') {
-              const source = (msg.type === 'USER_TRANSCRIPTION' || msg.type === 'rtf-user-transcription') ? 'user' : 'ai';
+            // Transcripts → Chatwoot (Dograh streams bot text word-by-word)
+            // User transcriptions come as complete sentences — send immediately.
+            // Bot text is buffered and flushed when bot stops speaking.
+            if (msg.type === 'USER_TRANSCRIPTION' || msg.type === 'rtf-user-transcription') {
               const text = (msg.payload?.text || msg.text || msg.content || '').trim();
               if (text) {
                 apiPost('/api/v1/widget/conversations/voice_transcript', {
-                  source, content: text,
+                  source: 'user', content: text,
                 }).catch(e => console.warn('Transcript save failed:', e?.message));
-                postToOpener('voice-popup-transcript', { source, message: text });
+                postToOpener('voice-popup-transcript', { source: 'user', message: text });
               }
             }
 
             if (msg.type === 'BOT_TEXT' || msg.type === 'rtf-bot-text') {
+              const text = (msg.payload?.text || msg.text || msg.content || '').trim();
+              if (text) _dograhBotBuffer += (_dograhBotBuffer ? ' ' : '') + text;
               $body.classList.add('speaking');
+              // Safety flush: if bot keeps talking for 8s without stop event
+              if (_dograhBotFlushTimer) clearTimeout(_dograhBotFlushTimer);
+              _dograhBotFlushTimer = setTimeout(() => flushDograhBotBuffer(), 8000);
             }
             if (msg.type === 'rtf-bot-stopped-speaking' || msg.type === 'BOT_STOPPED_SPEAKING') {
               $body.classList.remove('speaking');
+              flushDograhBotBuffer();
             }
 
             if (msg.type === 'error') {
@@ -728,7 +736,19 @@
       }
     }
 
+    function flushDograhBotBuffer() {
+      if (_dograhBotFlushTimer) { clearTimeout(_dograhBotFlushTimer); _dograhBotFlushTimer = null; }
+      const text = _dograhBotBuffer.trim();
+      _dograhBotBuffer = '';
+      if (!text) return;
+      apiPost('/api/v1/widget/conversations/voice_transcript', {
+        source: 'ai', content: text,
+      }).catch(e => console.warn('Transcript save failed:', e?.message));
+      postToOpener('voice-popup-transcript', { source: 'ai', message: text });
+    }
+
     function cleanupDograh() {
+      flushDograhBotBuffer();
       try { _dograhStream?.getTracks().forEach(t => t.stop()); } catch (_) {}
       try { _dograhPc?.close(); } catch (_) {}
       try { _dograhWs?.close(); } catch (_) {}
