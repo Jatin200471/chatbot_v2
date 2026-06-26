@@ -111,8 +111,8 @@ export default {
         return;
       }
 
-      const w = 320;
-      const h = 450;
+      const w = 280;
+      const h = 380;
       const left = window.screenX + Math.round((window.outerWidth - w) / 2);
       const top = window.screenY + Math.round((window.outerHeight - h) / 2);
 

@@ -480,9 +480,18 @@ export default {
       }
       if (ch.headerTextColor) {
         rules.push(
-          `header .text-n-slate-12,header .text-n-slate-11,header .actions,header .minimize-btn{color:${ch.headerTextColor}!important}`
+          `header .text-n-slate-12,header .text-n-slate-11,header .actions,header .actions *,header .minimize-btn{color:${ch.headerTextColor}!important}`
         );
       }
+
+      // Minimize button: auto-contrast based on header background luminance
+      // Header bg = headerBgColor > widgetColor > fallback gradient first hex
+      const headerBgHex = extractHex(ch.headerBgColor) || extractHex(widgetColorRaw) || '#1f93ff';
+      const headerLum = hexToLuminance(headerBgHex);
+      const minBtnColor = headerLum < 0.4 ? '#ffffff' : '#1e293b';
+      rules.push(
+        `header .minimize-btn,header .minimize-btn svg path{color:${minBtnColor}!important;stroke:${minBtnColor}!important}`
+      );
 
       // Online status & reply time text colors
       if (ch.onlineStatusColor) {
