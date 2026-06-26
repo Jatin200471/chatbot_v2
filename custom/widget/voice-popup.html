@@ -579,8 +579,9 @@
     let _dograhPc = null;
     let _dograhStream = null;
     let _dograhRemoteAudio = null;
+    let _dograhUserBuffer = '';
     let _dograhBotBuffer = '';
-    let _dograhBotDebounce = null;
+    let _dograhUserFlushTimer = null;
 
     async function startDograhCall() {
       try {
@@ -683,31 +684,29 @@
               pc.addIceCandidate(new RTCIceCandidate(msg.payload)).catch(() => {});
             }
 
-            // Transcripts → Chatwoot (Dograh streams bot text word-by-word)
-            // User transcriptions come as complete sentences — send immediately.
-            // Bot text is buffered and flushed when bot stops speaking.
-            if (msg.type === 'USER_TRANSCRIPTION' || msg.type === 'rtf-user-transcription') {
-              const text = (msg.payload?.text || msg.text || msg.content || '').trim();
-              if (text) {
-                apiPost('/api/v1/widget/conversations/voice_transcript', {
-                  source: 'user', content: text,
-                }).catch(e => console.warn('Transcript save failed:', e?.message));
-                postToOpener('voice-popup-transcript', { source: 'user', message: text });
+            // Dograh sends transcripts word-by-word — buffer and flush as sentences
+            const isUserTranscript = msg.type === 'USER_TRANSCRIPTION' || msg.type === 'rtf-user-transcription' || msg.type === 'user_transcription';
+            const isBotTranscript = msg.type === 'BOT_TEXT' || msg.type === 'rtf-bot-text' || msg.type === 'bot_text';
+            if (isUserTranscript || isBotTranscript) {
+              const word = (msg.text || msg.content || msg.transcript || msg.payload?.text || msg.payload?.content || msg.payload?.transcript || '').trim();
+              if (word) {
+                if (isUserTranscript) {
+                  _dograhUserBuffer += (_dograhUserBuffer ? ' ' : '') + word;
+                  if (_dograhUserFlushTimer) clearTimeout(_dograhUserFlushTimer);
+                  _dograhUserFlushTimer = setTimeout(() => flushDograhBuffer('user'), 1500);
+                } else {
+                  _dograhBotBuffer += (_dograhBotBuffer ? ' ' : '') + word;
+                }
               }
             }
 
-            if (msg.type === 'BOT_TEXT' || msg.type === 'rtf-bot-text') {
-              const text = (msg.payload?.text || msg.text || msg.content || '').trim();
-              if (text) _dograhBotBuffer += (_dograhBotBuffer ? ' ' : '') + text;
-              $body.classList.add('speaking');
-              // Debounce: flush 2s after the LAST word arrives
-              if (_dograhBotDebounce) clearTimeout(_dograhBotDebounce);
-              _dograhBotDebounce = setTimeout(() => flushDograhBotBuffer(), 2000);
-            }
-            if (msg.type === 'rtf-bot-stopped-speaking' || msg.type === 'BOT_STOPPED_SPEAKING') {
+            const isBotStopped = msg.type === 'rtf-bot-stopped-speaking' || msg.type === 'BOT_STOPPED_SPEAKING' || msg.type === 'bot_stopped_speaking';
+            if (isBotStopped) {
               $body.classList.remove('speaking');
-              // Don't flush here — BOT_STOPPED_SPEAKING may fire per-word.
-              // The debounce timer handles flushing after the last word.
+              flushDograhBuffer('ai');
+            }
+            if (isBotTranscript) {
+              $body.classList.add('speaking');
             }
 
             if (msg.type === 'error') {
@@ -739,19 +738,22 @@
       }
     }
 
-    function flushDograhBotBuffer() {
-      if (_dograhBotDebounce) { clearTimeout(_dograhBotDebounce); _dograhBotDebounce = null; }
-      const text = _dograhBotBuffer.trim();
-      _dograhBotBuffer = '';
+    function flushDograhBuffer(source) {
+      if (_dograhUserFlushTimer) { clearTimeout(_dograhUserFlushTimer); _dograhUserFlushTimer = null; }
+      const text = source === 'user' ? _dograhUserBuffer.trim() : _dograhBotBuffer.trim();
+      if (source === 'user') _dograhUserBuffer = '';
+      else _dograhBotBuffer = '';
       if (!text) return;
+      console.log('[DOGRAH] flush', source, '→', text);
       apiPost('/api/v1/widget/conversations/voice_transcript', {
-        source: 'ai', content: text,
+        source, content: text,
       }).catch(e => console.warn('Transcript save failed:', e?.message));
-      postToOpener('voice-popup-transcript', { source: 'ai', message: text });
+      postToOpener('voice-popup-transcript', { source, message: text });
     }
 
     function cleanupDograh() {
-      flushDograhBotBuffer();
+      flushDograhBuffer('user');
+      flushDograhBuffer('ai');
       try { _dograhStream?.getTracks().forEach(t => t.stop()); } catch (_) {}
       try { _dograhPc?.close(); } catch (_) {}
       try { _dograhWs?.close(); } catch (_) {}
