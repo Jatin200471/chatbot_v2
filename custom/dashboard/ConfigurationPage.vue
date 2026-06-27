@@ -803,19 +803,17 @@ export default {
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
   border-radius: 0.5rem;
-  /* Light mode defaults */
-  border: 1px solid #e2e8f0;
-  background-color: #ffffff;
-  color: #1e293b;
+  /* Theme-aware via Chatwoot design tokens — adapts to light/dark automatically */
+  @apply bg-n-background text-n-slate-12 border border-n-weak;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   outline: none;
 
   &::placeholder {
-    color: #94a3b8;
+    @apply text-n-slate-10;
   }
 
   &:focus {
-    border-color: #1f93ff;
+    @apply border-n-brand;
     box-shadow: 0 0 0 3px rgba(31, 147, 255, 0.15);
   }
 
@@ -833,17 +831,6 @@ select.chatwoot-input {
   background-position: right 0.75rem center;
   padding-right: 2rem;
   cursor: pointer;
-}
-
-/* Dark mode override for inputs */
-:global(.dark) .chatwoot-input {
-  background-color: #1e2228;
-  color: #e2e8f0;
-  border-color: #3a3f4b;
-
-  &::placeholder {
-    color: #6b7280;
-  }
 }
 
 /* ── Status badge ── */
