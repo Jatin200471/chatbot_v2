@@ -116,8 +116,10 @@ export default {
       const left = window.screenX + Math.round((window.outerWidth - w) / 2);
       const top = window.screenY + Math.round((window.outerHeight - h) / 2);
 
+      // Cache-bust the popup URL so a fresh voice-popup.html loads every call
+      // (avoids the browser reusing a stale cached copy of the popup script).
       _popupWindow = window.open(
-        '/voice-popup.html',
+        '/voice-popup.html?v=' + Date.now(),
         'cw_voice_popup',
         `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=no,toolbar=no,menubar=no,location=no,status=no`
       );

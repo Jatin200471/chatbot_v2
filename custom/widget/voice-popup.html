@@ -685,20 +685,27 @@
               pc.addIceCandidate(new RTCIceCandidate(msg.payload)).catch(() => {});
             }
 
-            // Dograh sends transcripts word-by-word — buffer and flush as sentences
+            // Dograh streams transcripts in fragments. Pick the richest field,
+            // merge intelligently (handles incremental words AND cumulative text),
+            // and flush the full sentence after a short silence.
             const isUserTranscript = msg.type === 'USER_TRANSCRIPTION' || msg.type === 'rtf-user-transcription' || msg.type === 'user_transcription';
             const isBotTranscript = msg.type === 'BOT_TEXT' || msg.type === 'rtf-bot-text' || msg.type === 'bot_text';
             if (isUserTranscript || isBotTranscript) {
-              const word = (msg.text || msg.content || msg.transcript || msg.payload?.text || msg.payload?.content || msg.payload?.transcript || '').trim();
-              if (word) {
+              // Longest non-empty candidate = most complete text for this message
+              const frag = [
+                msg.payload?.text, msg.text, msg.content, msg.transcript,
+                msg.payload?.content, msg.payload?.transcript,
+              ].filter(Boolean).map(s => String(s).trim()).filter(Boolean)
+               .sort((a, b) => b.length - a.length)[0] || '';
+              if (frag) {
                 if (isUserTranscript) {
-                  _dograhUserBuffer += (_dograhUserBuffer ? ' ' : '') + word;
+                  _dograhUserBuffer = mergeDograhText(_dograhUserBuffer, frag);
                   if (_dograhUserFlushTimer) clearTimeout(_dograhUserFlushTimer);
-                  _dograhUserFlushTimer = setTimeout(() => flushDograhBuffer('user'), 1500);
+                  _dograhUserFlushTimer = setTimeout(() => flushDograhBuffer('user'), 1200);
                 } else {
-                  _dograhBotBuffer += (_dograhBotBuffer ? ' ' : '') + word;
+                  _dograhBotBuffer = mergeDograhText(_dograhBotBuffer, frag);
                   if (_dograhBotFlushTimer) clearTimeout(_dograhBotFlushTimer);
-                  _dograhBotFlushTimer = setTimeout(() => flushDograhBuffer('ai'), 1500);
+                  _dograhBotFlushTimer = setTimeout(() => flushDograhBuffer('ai'), 1200);
                 }
               }
             }
@@ -741,6 +748,23 @@
         $endCallBtn.disabled = true;
         postToOpener('voice-popup-error', { error: msg });
       }
+    }
+
+    // Merge a transcript fragment into the running buffer. Handles every shape
+    // Dograh might send so the result is always a clean sentence:
+    //   • incremental words      "Hi" + "there"      → "Hi there"   (append)
+    //   • cumulative growing text "Hi" + "Hi there"   → "Hi there"   (replace)
+    //   • duplicate / repeat      "Hi there" + "Hi"   → "Hi there"   (ignore)
+    function mergeDograhText(buffer, frag) {
+      buffer = (buffer || '').trim();
+      frag = (frag || '').trim();
+      if (!frag) return buffer;
+      if (!buffer) return frag;
+      if (frag === buffer) return buffer;
+      if (frag.startsWith(buffer)) return frag;     // fragment extends buffer (cumulative)
+      if (buffer.startsWith(frag)) return buffer;   // older/duplicate fragment
+      if (buffer.endsWith(' ' + frag) || buffer.endsWith(frag)) return buffer; // repeated tail
+      return buffer + ' ' + frag;                   // new words → append
     }
 
     function flushDograhBuffer(source) {
