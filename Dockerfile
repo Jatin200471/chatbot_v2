@@ -18,9 +18,8 @@ RUN sed -i "s/require('vite-plugin-ruby')/await import('vite-plugin-ruby')/" vit
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
     pnpm install --frozen-lockfile
 
-# Copy SDK injection files (prepend stream fix + append floating btn)
+# Copy SDK injection file (append floating btn)
 COPY custom/widget/sdk-floating-btn.js /tmp/cw-floating-btn.js
-COPY custom/sdk/sdk-stream-fix.js /tmp/cw-stream-fix.js
 
 # Copy custom Vue files BEFORE building
 COPY custom/widget/components/ChatInputWrap.vue app/javascript/widget/components/ChatInputWrap.vue
@@ -70,21 +69,17 @@ ARG MINIFY=false
 RUN --mount=type=cache,target=/chatwoot-src/node_modules/.vite,sharing=locked \
     node_modules/.bin/vite build --config vite.config.ts
 
-# ── Inject stream fix (prepend) + floating btn (append) into sdk.js ───────
-# Order: [stream-fix prefix] + [original sdk.js] + [floating-btn + stream restore]
+# ── Inject floating btn (append) into sdk.js ───────
+# Order: [original sdk.js] + [floating-btn]
 ARG CACHEBUST=1
 RUN echo "=== SDK files found ===" && \
     find /chatwoot-src/public -name "sdk*.js" && \
     SDK_FILE=$(find /chatwoot-src/public -name "sdk*.js" | head -1) && \
     if [ -z "$SDK_FILE" ]; then echo "ERROR: sdk*.js not found!" && exit 1; fi && \
-    echo "Prepending stream fix into: $SDK_FILE" && \
-    cat /tmp/cw-stream-fix.js "$SDK_FILE" > /tmp/sdk-patched.js && \
-    mv /tmp/sdk-patched.js "$SDK_FILE" && \
-    echo "Appending floating btn + stream restore" && \
+    echo "Appending floating btn into: $SDK_FILE" && \
     cat /tmp/cw-floating-btn.js >> "$SDK_FILE" && \
     echo "=== Verifying injection ===" && \
     grep -c "_cwVoiceInstalled" "$SDK_FILE" && \
-    grep -c "__cwNativeAPIs" "$SDK_FILE" && \
     echo "=== Injection verified OK ==="
 
 RUN echo "=== BUILD OUTPUT ===" && \
@@ -100,18 +95,13 @@ COPY --from=node-builder /chatwoot-src/public /app/public
 COPY custom/widget/voice-popup.html /app/public/voice-popup.html
 
 COPY custom/widget/sdk-floating-btn.js /tmp/cw-floating-btn.js
-COPY custom/sdk/sdk-stream-fix.js /tmp/cw-stream-fix.js
 
 ARG CACHEBUST=1
 RUN SDK_FILE="/app/public/packs/js/sdk.js" && \
     if [ ! -f "$SDK_FILE" ]; then echo "ERROR: $SDK_FILE not found!" && exit 1; fi && \
-    echo "Prepending stream fix into: $SDK_FILE" && \
-    cat /tmp/cw-stream-fix.js "$SDK_FILE" > /tmp/sdk-patched.js && \
-    mv /tmp/sdk-patched.js "$SDK_FILE" && \
-    echo "Appending floating btn + stream restore" && \
+    echo "Appending floating btn into: $SDK_FILE" && \
     cat /tmp/cw-floating-btn.js >> "$SDK_FILE" && \
     grep -c "_cwVoiceInstalled" "$SDK_FILE" && \
-    grep -c "__cwNativeAPIs" "$SDK_FILE" && \
     echo "=== Stage 2 injection verified OK ==="
 
 # ── Auto-migrate entrypoint ───────────────────────────────────────────────────
