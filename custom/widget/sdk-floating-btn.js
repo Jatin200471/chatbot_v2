@@ -450,11 +450,12 @@
     if (ev === 'cw-voice-call-started' || ev === 'cw-voice-popup-opened') {
       window._cwVoiceActive = true;
       applyVoiceState(true, false);
-      _hideChatwootWidget();   // popup is open → hide widget on parent page
+      // NOTE: widget is kept VISIBLE during the call so the live transcript
+      // stays readable in the chat. (Do not hide it here.)
     } else if (ev === 'cw-voice-call-ended' || ev === 'voice-popup-ended' || ev === 'cw-voice-popup-ended') {
       window._cwVoiceActive = false;
       applyVoiceState(false, false);
-      _showChatwootWidget();   // popup closed → restore widget
+      _showChatwootWidget();   // safety: restore widget if anything hid it
     }
   });
 
