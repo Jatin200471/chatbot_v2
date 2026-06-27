@@ -582,6 +582,7 @@
     let _dograhUserBuffer = '';
     let _dograhBotBuffer = '';
     let _dograhUserFlushTimer = null;
+    let _dograhBotFlushTimer = null;
 
     async function startDograhCall() {
       try {
@@ -696,6 +697,8 @@
                   _dograhUserFlushTimer = setTimeout(() => flushDograhBuffer('user'), 1500);
                 } else {
                   _dograhBotBuffer += (_dograhBotBuffer ? ' ' : '') + word;
+                  if (_dograhBotFlushTimer) clearTimeout(_dograhBotFlushTimer);
+                  _dograhBotFlushTimer = setTimeout(() => flushDograhBuffer('ai'), 1500);
                 }
               }
             }
@@ -703,7 +706,9 @@
             const isBotStopped = msg.type === 'rtf-bot-stopped-speaking' || msg.type === 'BOT_STOPPED_SPEAKING' || msg.type === 'bot_stopped_speaking';
             if (isBotStopped) {
               $body.classList.remove('speaking');
-              flushDograhBuffer('ai');
+              // NOTE: Dograh fires "stopped-speaking" after EVERY word, so do NOT
+              // flush here (that produced one chat bubble per word). The debounce
+              // timer above flushes the full sentence once words stop arriving.
             }
             if (isBotTranscript) {
               $body.classList.add('speaking');
@@ -739,10 +744,16 @@
     }
 
     function flushDograhBuffer(source) {
-      if (_dograhUserFlushTimer) { clearTimeout(_dograhUserFlushTimer); _dograhUserFlushTimer = null; }
-      const text = source === 'user' ? _dograhUserBuffer.trim() : _dograhBotBuffer.trim();
-      if (source === 'user') _dograhUserBuffer = '';
-      else _dograhBotBuffer = '';
+      let text;
+      if (source === 'user') {
+        if (_dograhUserFlushTimer) { clearTimeout(_dograhUserFlushTimer); _dograhUserFlushTimer = null; }
+        text = _dograhUserBuffer.trim();
+        _dograhUserBuffer = '';
+      } else {
+        if (_dograhBotFlushTimer) { clearTimeout(_dograhBotFlushTimer); _dograhBotFlushTimer = null; }
+        text = _dograhBotBuffer.trim();
+        _dograhBotBuffer = '';
+      }
       if (!text) return;
       console.log('[DOGRAH] flush', source, '→', text);
       apiPost('/api/v1/widget/conversations/voice_transcript', {
